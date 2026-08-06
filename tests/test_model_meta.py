@@ -13,6 +13,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import DEFAULT, MagicMock, patch, sentinel
 
 import pytest
+import torch
 import torch.distributed as dist
 from transformers.models.auto.auto_factory import _LazyAutoMapping
 
@@ -28,12 +29,15 @@ from shaft.model import (
     build_model_meta,
     resolve_local_model_descriptor,
     resolve_model_plan,
+    validate_auxiliary_weight_names,
     validate_model_artifact_checkpointability,
     validate_resolved_model_artifact,
 )
 from shaft.model.policies import build_peft_policy, build_processor_policy
 from shaft.model.qwen3vl import _resolve_attn_implementation
 from shaft.model.qwen3vl import Qwen3VLLoader
+from shaft.model.objective import QwenVLMoeTrainingObjectivePolicy
+from shaft.model.sequence import Qwen3VLMoeSequenceExecutionPolicy
 from shaft.model.generation import align_model_generation_config
 from shaft.template import resolve_template_meta
 from shaft.utils.semantic_identity import (
@@ -147,8 +151,9 @@ def _loader_build_v2(self, config, *, model_meta, model_adapter, sequence_execut
 def test_qwen3vl_meta_exposes_family_and_policies() -> None:
     model_meta = build_model_meta("qwen3vl")
     assert model_meta.family == "qwen"
+    assert model_meta.hf_model_types == ("qwen3_vl", "qwen3_vl_moe")
     assert model_meta.processor_policy.supports_pixel_budget is True
-    assert model_meta.module_groups.language_model == ("model",)
+    assert model_meta.module_groups.language_model == ("model.language_model",)
     assert model_meta.module_groups.vision_tower == ("model.visual",)
     assert model_meta.module_groups.aligner == (
         "model.visual.merger",
@@ -159,8 +164,108 @@ def test_qwen3vl_meta_exposes_family_and_policies() -> None:
     assert model_meta.default_template == "qwen3vl"
     assert model_meta.requires == ()
     assert model_meta.additional_saved_files == ()
-    assert len(model_meta.model_groups) == 1
+    assert tuple(group.name for group in model_meta.model_groups) == ("dense", "moe")
     assert model_meta.candidate_templates == ("qwen3vl",)
+
+
+def test_qwen3vl_remote_inference_uses_shared_family_contract_without_artifact() -> None:
+    model_meta = build_model_meta("qwen3vl")
+
+    with pytest.raises(ValueError, match="multiple HF architecture variants"):
+        model_meta.resolve_adapter(model_name_or_path="opaque-serving-alias")
+
+    contract = model_meta.resolve_inference_contract(
+        model_name_or_path="opaque-serving-alias"
+    )
+
+    assert contract.template_type == "qwen3vl"
+    assert contract.policy == model_meta.inference_policy
+
+
+def test_remote_inference_alias_fails_when_variant_contracts_differ() -> None:
+    model_meta = ModelMeta(
+        model_type="multiple",
+        family="multiple",
+        default_template="smoke_vlm",
+        hf_model_types=("multiple_a", "multiple_b"),
+        model_groups=(
+            ModelGroup(
+                name="a",
+                hf_model_types=("multiple_a",),
+                template="smoke_vlm",
+            ),
+            ModelGroup(
+                name="b",
+                hf_model_types=("multiple_b",),
+                template="qwen3vl",
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="different inference contracts"):
+        model_meta.resolve_inference_contract(model_name_or_path="opaque-serving-alias")
+
+
+def test_qwen3vl_moe_descriptor_resolves_model_owned_training_policies(
+    tmp_path: Path,
+) -> None:
+    model_dir = write_hf_model_descriptor(
+        tmp_path,
+        model_type="qwen3_vl_moe",
+        architectures=("Qwen3VLMoeForConditionalGeneration",),
+        directory_name="arbitrary-qwen3vl-moe",
+    )
+    descriptor = resolve_local_model_descriptor(model_dir)
+    assert descriptor is not None
+
+    adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path=str(model_dir),
+        descriptor=descriptor,
+    )
+
+    assert adapter.group_name == "moe"
+    assert adapter.module_groups.language_model == ("model.language_model",)
+    assert adapter.module_groups.vision_tower == ("model.visual",)
+    assert adapter.resolve_fsdp_transformer_layer_cls_to_wrap(["auto"]) == [
+        "Qwen3VLMoeTextDecoderLayer",
+        "Qwen3VLMoeVisionBlock",
+    ]
+    assert adapter.default_target_parameters() == [
+        "mlp.experts.gate_up_proj",
+        "mlp.experts.down_proj",
+        "mlp.gate.weight",
+    ]
+    assert adapter.resolve_experts_implementation(None) == "grouped_mm"
+    assert adapter.resolve_experts_implementation("eager") == "eager"
+    assert isinstance(
+        adapter.training_objective_policy,
+        QwenVLMoeTrainingObjectivePolicy,
+    )
+    assert isinstance(
+        adapter.sequence_execution_policy,
+        Qwen3VLMoeSequenceExecutionPolicy,
+    )
+    assert adapter.requires == ("module:transformers.models.qwen3_vl_moe",)
+
+    finetune = RuntimeConfig().model.finetune
+    finetune.mode = "qlora"
+    with pytest.raises(ValueError, match="Qwen VL MoE QLoRA.*fused 3-D"):
+        adapter.validate_training_finetune_config(finetune)
+
+    with pytest.raises(ValueError, match="does not support varlen"):
+        adapter.build_sequence_execution_contract(
+            layout="varlen",
+            device_type="cuda",
+            attention_implementation="flash_attention_2",
+            torch_dtype="bfloat16",
+            distributed_strategy="ddp",
+        )
+
+    train = RuntimeConfig().train
+    train.distributed.strategy = "deepspeed"
+    train.distributed.deepspeed.config = {"zero_optimization": {"stage": 3}}
+    with pytest.raises(ValueError, match="does not support DeepSpeed ZeRO-3"):
+        adapter.validate_distributed_config(train, finetune=finetune)
 
 
 def test_generation_alignment_accepts_a_scalar_existing_eos_token() -> None:
@@ -215,6 +320,17 @@ def test_qwen35vl_dense_fsdp_auto_layers() -> None:
         "Qwen3_5DecoderLayer",
         "Qwen3_5VisionBlock",
     ]
+    assert adapter.resolve_experts_implementation(None) is None
+    with pytest.raises(ValueError, match="expert execution backend"):
+        adapter.resolve_experts_implementation("grouped_mm")
+    fp8_adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="Qwen3.6-27B-FP8"
+    )
+    fp8_adapter.validate_finetune_config(RuntimeConfig().model.finetune)
+    with pytest.raises(ValueError, match="inference-only"):
+        fp8_adapter.validate_training_finetune_config(
+            RuntimeConfig().model.finetune
+        )
 
 
 def test_qwen35vl_moe_fsdp_auto_layers() -> None:
@@ -230,6 +346,154 @@ def test_qwen35vl_moe_fsdp_auto_layers() -> None:
         "module:transformers.models.qwen3_5",
         "module:transformers.models.qwen3_5_moe",
     )
+    assert adapter.default_target_parameters() == [
+        "mlp.experts.gate_up_proj",
+        "mlp.experts.down_proj",
+        "mlp.gate.weight",
+    ]
+    assert adapter.resolve_experts_implementation(None) == "grouped_mm"
+    assert isinstance(
+        adapter.training_objective_policy,
+        QwenVLMoeTrainingObjectivePolicy,
+    )
+    train = RuntimeConfig().train
+    train.distributed.strategy = "fsdp"
+    train.distributed.fsdp.activation_checkpointing = True
+    with pytest.raises(ValueError, match="activation_checkpointing=false"):
+        adapter.validate_distributed_config(train)
+
+    train.distributed.fsdp.activation_checkpointing = False
+    adapter.validate_distributed_config(train)
+
+    peft = RuntimeConfig().model.finetune
+    peft.mode = "lora"
+    train.load_best_model_at_end = True
+    with pytest.raises(ValueError, match="load_best_model_at_end=false"):
+        adapter.validate_distributed_config(train, finetune=peft)
+
+    train.load_best_model_at_end = False
+    train.distributed.fsdp.state_dict_type = "sharded_state_dict"
+    with pytest.raises(ValueError, match="state_dict_type='full_state_dict'"):
+        adapter.validate_distributed_config(train, finetune=peft)
+
+    train.distributed.fsdp.state_dict_type = "full_state_dict"
+    adapter.validate_distributed_config(train, finetune=peft)
+
+    finetune = RuntimeConfig().model.finetune
+    finetune.mode = "qlora"
+    with pytest.raises(ValueError, match="does not quantize.*routed-expert"):
+        adapter.validate_training_finetune_config(finetune)
+
+    finetune.mode = "lora"
+    finetune.target_parameters = ["auto"]
+    finetune.lora_dropout = 0.1
+    with pytest.raises(ValueError, match="lora_dropout=0"):
+        adapter.validate_finetune_config(finetune)
+
+    finetune.lora_dropout = 0.0
+    train.distributed.strategy = "deepspeed"
+    train.distributed.deepspeed.config = {
+        "zero_optimization": {"stage": 3},
+    }
+    with pytest.raises(ValueError, match="ZeRO-3.*target_parameters"):
+        adapter.validate_distributed_config(train, finetune=finetune)
+
+    train.distributed.deepspeed.config["zero_optimization"]["stage"] = 2
+    adapter.validate_distributed_config(train, finetune=finetune)
+
+    fp8_adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="Qwen3.6-35B-A3B-FP8"
+    )
+    fp8_adapter.validate_finetune_config(RuntimeConfig().model.finetune)
+    with pytest.raises(ValueError, match="inference-only"):
+        fp8_adapter.validate_training_finetune_config(
+            RuntimeConfig().model.finetune
+        )
+
+
+def test_peft_parameter_auto_requires_model_defaults_and_full_mode_rejects_it() -> None:
+    adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="Qwen3-VL-4B-Instruct"
+    )
+    finetune = RuntimeConfig().model.finetune
+    finetune.mode = "lora"
+    finetune.target_parameters = ["auto"]
+    with pytest.raises(ValueError, match="not available.*model profile"):
+        adapter.validate_finetune_config(finetune)
+
+    moe_adapter = build_model_meta("qwen35vl").resolve_adapter(
+        model_name_or_path="Qwen3.5-35B-A3B"
+    )
+    finetune.mode = "full"
+    with pytest.raises(ValueError, match="only to adapter finetuning"):
+        moe_adapter.validate_finetune_config(finetune)
+
+
+def test_qwen35_moe_objective_policy_enables_and_resolves_router_loss() -> None:
+    policy = QwenVLMoeTrainingObjectivePolicy()
+    model = SimpleNamespace(
+        config=SimpleNamespace(
+            text_config=SimpleNamespace(
+                router_aux_loss_coef=0.002,
+                num_hidden_layers=1,
+                num_experts=4,
+                num_experts_per_tok=2,
+            ),
+        )
+    )
+    inputs = {"input_ids": torch.tensor([[1, 2]])}
+
+    prepared = policy.prepare_sft_forward_inputs(model=model, inputs=inputs)
+    terms = policy.resolve_sft_auxiliary_loss_terms(
+        model=model,
+        outputs=SimpleNamespace(
+            aux_loss=torch.tensor(1.5),
+            router_logits=(torch.zeros(2, 4),),
+        ),
+        inputs=prepared,
+    )
+
+    assert tuple(inputs) == ("input_ids",)
+    assert torch.equal(inputs["input_ids"], torch.tensor([[1, 2]]))
+    assert prepared["output_router_logits"] is True
+    assert policy.auxiliary_loss_names() == ("router_aux_loss",)
+    assert len(terms) == 1
+    assert terms[0].name == "router_aux_loss"
+    assert terms[0].coefficient == pytest.approx(0.002)
+    assert terms[0].value == pytest.approx(torch.tensor(1.5))
+
+    with pytest.raises(RuntimeError, match="incomplete router trace"):
+        policy.resolve_sft_auxiliary_loss_terms(
+            model=SimpleNamespace(
+                config=SimpleNamespace(
+                    text_config=SimpleNamespace(
+                        router_aux_loss_coef=0.002,
+                        num_hidden_layers=2,
+                        num_experts=4,
+                        num_experts_per_tok=2,
+                    ),
+                )
+            ),
+            outputs=SimpleNamespace(
+                aux_loss=torch.tensor(1.5),
+                router_logits=(torch.zeros(2, 4),),
+            ),
+            inputs=prepared,
+        )
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        (" Router_Aux_Loss ",),
+        ("router_aux_loss", "router_aux_loss"),
+    ],
+)
+def test_model_auxiliary_loss_names_must_be_unique_and_canonical(names) -> None:
+    adapter = SimpleNamespace(auxiliary_loss_names=lambda: names)
+
+    with pytest.raises(ValueError, match="invalid canonical auxiliary loss names"):
+        validate_auxiliary_weight_names(adapter, {})
 
 
 def test_qwen35vl_unknown_local_name_selects_variant_from_hf_config(
@@ -1664,7 +1928,7 @@ def test_local_hf_config_without_weights_is_not_checkpointable(tmp_path: Path) -
 
 
 def test_local_hf_weights_without_config_are_not_checkpointable(tmp_path: Path) -> None:
-    model_dir = tmp_path / "weights-only"
+    model_dir = tmp_path / "qwen3-vl-4b-instruct"
     model_dir.mkdir()
     (model_dir / "model.safetensors").write_bytes(b"weights")
     config = RuntimeConfig()
@@ -1796,7 +2060,7 @@ def test_adapter_init_keeps_base_artifact_as_model_plan_truth_source(
         json.dumps({"base_model_name_or_path": str(base_model)}),
         encoding="utf-8",
     )
-    (adapter / "adapter_model.safetensors").write_bytes(b"")
+    (adapter / "adapter_model.safetensors").write_bytes(b"adapter")
     config = RuntimeConfig()
     config.model.model_type = "qwen36vl"
     config.model.model_name_or_path = str(base_model)

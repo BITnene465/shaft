@@ -147,6 +147,7 @@ def test_merge_peft_adapter_exports_full_layout(tmp_path: Path) -> None:
     assert (output_dir / "smoke_tokenizer.json").exists()
     assert (output_dir / "smoke_processor.json").exists()
     merged_model = SmokeVLMModel.from_pretrained(output_dir)
+    assert merged_model.config.use_cache is True
     with torch.no_grad():
         actual_logits = merged_model(input_ids=input_ids).logits
     assert torch.allclose(actual_logits, expected_logits, atol=1e-6, rtol=1e-6)
@@ -450,7 +451,7 @@ def test_load_adapter_artifacts_rejects_config_change_after_plan(
     payload["r"] = int(payload["r"]) + 1
     config_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="config changed after ResolvedModelPlan"):
+    with pytest.raises(ValueError, match="config changed after artifact resolution"):
         load_adapter_artifacts(
             config,
             adapter_path=str(adapter_dir),
@@ -514,7 +515,7 @@ def test_load_adapter_artifacts_rejects_weight_change_during_base_build(
             "invoke_model_loader",
             side_effect=_load_then_replace,
         ),
-        pytest.raises(ValueError, match="weights changed after ResolvedModelPlan"),
+        pytest.raises(ValueError, match="weights changed"),
     ):
         load_adapter_artifacts(
             config,

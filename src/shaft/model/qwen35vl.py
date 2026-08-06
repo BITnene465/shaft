@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 from .qwen_inference import QwenVLInferencePolicy
-from .policies import build_peft_policy, build_processor_policy
+from .policies import QwenVLMoePeftPolicy, build_processor_policy
 from .qwen3vl import Qwen3VLLoader
+from .objective import QwenVLMoeTrainingObjectivePolicy
 from .registry import default_model_groups, register_model
 from .sequence import Qwen35VLSequenceExecutionPolicy
 from .sharding import ModelShardingPolicy
-from .types import ModelCapabilities, ModelMeta, ModelModuleGroups
+from .types import DefaultPeftPolicy, ModelCapabilities, ModelMeta, ModelModuleGroups
 from .descriptor import ResolvedModelDescriptor
 
 
@@ -24,6 +28,51 @@ def _is_qwen35_moe_descriptor(descriptor: ResolvedModelDescriptor) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class Qwen35VLPeftPolicy(DefaultPeftPolicy):
+    def validate_training_finetune_config(
+        self,
+        finetune: Any,
+        *,
+        model_descriptor: ResolvedModelDescriptor | None = None,
+        model_name_or_path: str | None = None,
+    ) -> None:
+        super().validate_training_finetune_config(
+            finetune,
+            model_descriptor=model_descriptor,
+            model_name_or_path=model_name_or_path,
+        )
+        quantization_config = (
+            None
+            if model_descriptor is None
+            else model_descriptor.config_value("quantization_config")
+        )
+        normalized_name = str(model_name_or_path or "").strip().lower()
+        if quantization_config or normalized_name.rstrip("/").endswith("-fp8"):
+            raise ValueError(
+                "Pre-quantized Qwen3.5/3.6 artifacts are inference-only in "
+                "Shaft; use an unquantized base checkpoint for training."
+            )
+
+
+@dataclass(frozen=True)
+class Qwen35MoePeftPolicy(QwenVLMoePeftPolicy, Qwen35VLPeftPolicy):
+    pass
+
+
+_QWEN35_DENSE_PEFT_POLICY = Qwen35VLPeftPolicy(target_modules=["all-linear"])
+
+
+_QWEN35_MOE_PEFT_POLICY = Qwen35MoePeftPolicy(
+    target_modules=["all-linear"],
+    target_parameters=[
+        "mlp.experts.gate_up_proj",
+        "mlp.experts.down_proj",
+        "mlp.gate.weight",
+    ],
+)
+
+
 _QWEN35VL_COMMON = dict(
     family="qwen",
     default_template="qwen35vl",
@@ -38,7 +87,7 @@ _QWEN35VL_COMMON = dict(
     processor_policy=build_processor_policy("qwen_vl"),
     inference_policy=QwenVLInferencePolicy(supports_thinking_templates=True),
     sequence_execution_policy=Qwen35VLSequenceExecutionPolicy(),
-    peft_policy=build_peft_policy("all_linear"),
+    peft_policy=_QWEN35_DENSE_PEFT_POLICY,
     requires=("transformers>=5.10.1", "module:transformers.models.qwen3_5"),
 )
 
@@ -59,6 +108,7 @@ QWEN35VL_META = ModelMeta(
                     "Qwen3_5DecoderLayer",
                     "Qwen3_5VisionBlock",
                 ),
+                supports_fsdp_activation_checkpointing=False,
             ),
         ),
         *default_model_groups(
@@ -74,7 +124,11 @@ QWEN35VL_META = ModelMeta(
                     "Qwen3_5MoeDecoderLayer",
                     "Qwen3_5MoeVisionBlock",
                 ),
+                supports_fsdp_activation_checkpointing=False,
             ),
+            training_objective_policy=QwenVLMoeTrainingObjectivePolicy(),
+            peft_policy=_QWEN35_MOE_PEFT_POLICY,
+            default_experts_implementation="grouped_mm",
             requires=("module:transformers.models.qwen3_5_moe",),
         ),
     ),
@@ -83,6 +137,7 @@ QWEN35VL_META = ModelMeta(
             "Qwen3_5DecoderLayer",
             "Qwen3_5VisionBlock",
         ),
+        supports_fsdp_activation_checkpointing=False,
     ),
     **_QWEN35VL_COMMON,
 )

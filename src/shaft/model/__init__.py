@@ -15,11 +15,16 @@ from .descriptor import (
 )
 from .artifact_identity import ResolvedModelArtifactIdentity
 from .resolution import (
+    load_resolved_adapter_weights,
+    materialize_resolved_model_artifact_identity,
     ResolvedAdapterInit,
     ResolvedModelPlan,
     prepare_resolved_model_artifact_load,
+    resolve_adapter_artifact,
     resolve_model_plan,
+    validate_resolved_adapter_artifact,
     validate_model_artifact_checkpointability,
+    validate_resolved_model_descriptor,
     validate_resolved_model_artifact,
 )
 from .finetune_plan import (
@@ -43,14 +48,17 @@ from .freeze import (
     build_freeze_spec,
     resolve_adapter_modules_to_save,
     resolve_adapter_target_modules,
+    resolve_adapter_target_parameters,
 )
 from .inference import (
     ShaftImageTextInferencePolicy,
+    ShaftInferenceContract as ShaftInferenceContract,
     ShaftInferencePolicy,
     ShaftPreparedLocalInference,
     ShaftPreparedOpenAIInference,
 )
 from .qwen_inference import QwenVLInferencePolicy
+from .objective import QwenVLMoeTrainingObjectivePolicy
 from .policies import (
     PEFT_POLICY_REGISTRY,
     PROCESSOR_POLICY_REGISTRY,
@@ -61,7 +69,11 @@ from .policies import (
 )
 from .registry import MODEL_REGISTRY, build_model_meta, default_model_groups
 from .sharding import ModelShardingPolicy
-from .sequence import Qwen35VLSequenceExecutionPolicy, Qwen3VLSequenceExecutionPolicy
+from .sequence import (
+    Qwen35VLSequenceExecutionPolicy,
+    Qwen3VLMoeSequenceExecutionPolicy,
+    Qwen3VLSequenceExecutionPolicy,
+)
 from .types import (
     DefaultPeftPolicy,
     ModelArtifacts,
@@ -83,7 +95,12 @@ from .types import (
     ShaftProcessorCostEstimate,
     ShaftProcessorTokenLayout,
     ShaftSequenceExecutionContract,
+    ShaftAuxiliaryLossTerm,
+    ShaftEvalAuxiliaryMetric,
+    ShaftEvalAuxiliaryStatistic,
     ShaftModelAdapter,
+    TrainingObjectivePolicy,
+    validate_auxiliary_weight_names,
 )
 
 __all__ = [
@@ -103,13 +120,16 @@ __all__ = [
     "ModelShardingPolicy",
     "PeftPolicy",
     "QwenVLInferencePolicy",
+    "QwenVLMoeTrainingObjectivePolicy",
     "ProcessorInputPolicy",
     "ProcessorPolicy",
     "ResolvedModelDescriptor",
     "ResolvedAdapterInit",
     "ResolvedModelArtifactIdentity",
     "ResolvedModelPlan",
+    "load_resolved_adapter_weights",
     "Qwen3VLSequenceExecutionPolicy",
+    "Qwen3VLMoeSequenceExecutionPolicy",
     "Qwen35VLSequenceExecutionPolicy",
     "SequenceExecutionPolicy",
     "ShaftMediaSegmentManifest",
@@ -119,6 +139,9 @@ __all__ = [
     "ShaftProcessorCostEstimate",
     "ShaftProcessorTokenLayout",
     "ShaftSequenceExecutionContract",
+    "ShaftAuxiliaryLossTerm",
+    "ShaftEvalAuxiliaryMetric",
+    "ShaftEvalAuxiliaryStatistic",
     "ShaftAdapterFinetunePlan",
     "ShaftFreezePreview",
     "ShaftFreezePlan",
@@ -126,6 +149,8 @@ __all__ = [
     "ShaftImageTextInferencePolicy",
     "ShaftInferencePolicy",
     "ShaftModelAdapter",
+    "TrainingObjectivePolicy",
+    "validate_auxiliary_weight_names",
     "ShaftParameterSelectionPlan",
     "ShaftPreparedModelBuild",
     "ShaftPeftSignature",
@@ -142,14 +167,18 @@ __all__ = [
     "finalize_model_build",
     "invoke_model_loader",
     "load_adapter_artifacts",
+    "materialize_resolved_model_artifact_identity",
     "prepare_resolved_model_artifact_load",
+    "resolve_adapter_artifact",
     "prepare_model_build",
     "resolve_model_adapter_from_config",
     "resolve_local_model_descriptor",
     "resolve_model_descriptor",
     "resolve_model_plan",
     "validate_model_artifact_checkpointability",
+    "validate_resolved_model_descriptor",
     "validate_resolved_model_artifact",
+    "validate_resolved_adapter_artifact",
     "build_freeze_plan",
     "build_freeze_spec",
     "build_resolved_finetune_plan",
@@ -159,6 +188,7 @@ __all__ = [
     "resolved_finetune_summary_path",
     "resolve_adapter_modules_to_save",
     "resolve_adapter_target_modules",
+    "resolve_adapter_target_parameters",
     "summarize_resolved_finetune_plan",
     "write_resolved_finetune_summary",
 ]

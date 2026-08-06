@@ -26,15 +26,18 @@ RuntimeConfig
 │   └── name / run_id / seed / output_dir
 ├── model                              模型加载、模板与微调策略
 │   ├── model_type / model_name_or_path / revision / cache_dir / local_files_only
-│   ├── template / trust_remote_code / torch_dtype / attn_implementation / device_map
+│   ├── template / trust_remote_code / torch_dtype / attn_implementation
+│   ├── experts_implementation / device_map
 │   └── finetune
-│       ├── mode / target_modules
+│       ├── mode / target_modules / target_parameters
 │       ├── freeze.groups / freeze.prefixes / freeze.regex
 │       ├── freeze.trainable_prefixes / freeze.trainable_regex
 │       ├── lora_r / lora_alpha / lora_dropout / lora_bias / use_rslora
 │       └── qlora_load_in_4bit / qlora_use_double_quant / qlora_quant_type / qlora_compute_dtype
 ├── algorithm                          训练目标选择
-│   └── name: sft | dpo | ppo | grpo / params
+│   ├── name: sft | dpo | ppo | grpo
+│   └── params
+│       └── auxiliary_loss_weights.<term_name>（仅 SFT，稀有覆写）
 ├── data                               从记录到 local microbatch
 │   ├── catalog_path / catalog_names / datasets
 │   ├── schedule
@@ -212,8 +215,35 @@ layout/backend 是否可执行，不能把不支持的组合悄悄降级。
 - `template`
 - `trust_remote_code`
 - `attn_implementation`
+- `experts_implementation`
 - `torch_dtype`
+- `device_map`
 - `finetune`
+
+`model.experts_implementation` 只对已解析为 MoE 的 Qwen VL profile 生效。`null` 或 `auto` 解析为
+Shaft 为该 profile 声明的确定性默认值；当前 Qwen3VL 与 Qwen3.5/3.6 MoE 的默认值均为
+`grouped_mm`。Shaft 会把解析值显式传给 Transformers 并校验载入后的 root/text config，后端不可用时
+直接失败，不允许静默回退到 `eager`。请求值与解析值均进入 exact-resume 语义，model-plan fingerprint
+也绑定 profile 默认值。dense Qwen 或其它未声明 expert backend 的 profile 配置非空值会明确拒绝。
+
+Qwen3VL MoE 的推荐执行字段与 PEFT 边界：
+
+```yaml
+model:
+  model_type: qwen3vl
+  model_name_or_path: models/Qwen3-VL-30B-A3B-Instruct
+  torch_dtype: bfloat16
+  experts_implementation: grouped_mm
+  finetune:
+    mode: lora
+    target_modules: [auto]
+    target_parameters: [auto]
+    lora_dropout: 0.0
+```
+
+`model.device_map` 只用于 HF 本地推理装载。Shaft 训练在构造 `TrainingArguments`、加载模型权重之前拒绝
+非空值；训练设备放置必须由 `train.distributed.strategy` 的 DDP/FSDP/DeepSpeed 负责，避免 torchrun
+多个 rank 把完整模型装到同一张卡，或在 35B 权重已经物化后才由 Accelerate 晚失败。
 
 ### `model.finetune`
 
@@ -222,6 +252,7 @@ layout/backend 是否可执行，不能把不支持的组合悄悄降级。
 - `mode`: `full | lora | dora | qlora`
 - `freeze`
 - `target_modules`
+- `target_parameters`
 - `lora_r`
 - `lora_alpha`
 - `lora_dropout`
@@ -234,28 +265,48 @@ layout/backend 是否可执行，不能把不支持的组合悄悄降级。
 
 约束：
 
-- `model_type=qwen3vl` 适用于当前已验收的 Qwen3-VL dense 系列，例如 `Qwen3-VL-4B-Instruct`
-  和 `Qwen3-VL-32B-Instruct`。
+- `model_type=qwen3vl` 同时适用于 HF `qwen3_vl` dense 和 `qwen3_vl_moe`。dense 真实训练证据覆盖
+  2B/4B；MoE 的 `Qwen3-VL-30B-A3B-Instruct` 已通过两卡 BF16 FSDP LoRA 短门禁，包括真实图片、router
+  objective、标准 adapter exact resume、backend-native optimizer state 和标准 PEFT reload。它不代表两卡
+  支持 30B 全参数 AdamW，
+  也不替代长程收敛验收；dense 32B 仍未做生产 gate。
 - `model_type=qwen35vl` / `qwen36vl` 适用于 Qwen3.5 / Qwen3.6 新一代 VLM。两者共享
   同一套 loader、processor policy 和模板默认值；`qwen36vl` 是为了让训练配置保留 3.6 口径。
-- Qwen3.5 / Qwen3.6 dense 训练需要安装支持 `qwen3_5` 架构的 Transformers。当前
+- Qwen3.5 / Qwen3.6 训练需要安装支持 `qwen3_5`/`qwen3_5_moe` 架构的 Transformers。当前
   `qwen35vl` meta 会在运行前检查 `transformers>=5.10.1` 以及
-  `transformers.models.qwen3_5` 模块是否存在。仓库保留 `qwen3_5_moe` descriptor/sharding
-  扩展骨架用于早期识别和兼容性检查，但 MoE 训练尚未作为正式能力开放，不能把这些注册项或 tiny CPU
-  测试解释为生产支持；完整验收条件见 `docs/todo.md`。
-- Qwen3.5/3.6 dense 的 `layout=varlen` 只开放 CUDA + DDP + bf16/fp16，且要求
+  `transformers.models.qwen3_5` 模块是否存在；MoE profile 还要求 `transformers.models.qwen3_5_moe`。
+  MoE padded SFT 已实现 router auxiliary objective、full/LoRA 保存恢复和 HF/PEFT 导出。当前证据来自 tiny
+  upstream architecture 的 CPU 与两卡 CUDA gate，不能解释为真实 35B 权重的生产容量；完整验收条件见
+  `docs/todo.md`。
+- Qwen3.5/3.6 dense/MoE 的 `layout=varlen` 只开放 CUDA + DDP + bf16/fp16，且要求
   `flash-attn`、`flash-linear-attention` 与 `causal-conv1d`。这是 hybrid full/linear attention 的完整
   segment-isolation contract，不能只安装 FlashAttention 后强行开启。Qwen3.6 在 Transformers 5.10.1
-  中复用 `qwen3_5` architecture；`qwen36vl` 是产品版本 alias，不是另一套 HF forward。
-- 仓库基础依赖允许 Transformers 4.x/5.x；当前验证过的 lock 口径固定为
-  `transformers==5.10.1`，可直接支持 Qwen3.5 / Qwen3.6 dense 的 HF 本地训练与推理。
-  `qwen-next` extra 用于显式固定新一代 Qwen 口径；业务 vLLM 推理镜像使用同一份
+  中复用 `qwen3_5` architecture；`qwen36vl` 是产品版本 alias，不是另一套 HF forward。现有 varlen
+  dense/MoE gates 使用 BF16；FP16 当前仅是 runtime allowlist，尚未完成 varlen 专项验收。
+- 仓库基础依赖要求 `transformers>=5.10.1,<6`；当前验证过的 lock 口径固定为
+  `transformers==5.10.1`。旧的 `>=4.57.6` 声明与 checkpoint/runtime 实现不一致，已删除，不能把未测试的
+  4.x 环境当成支持面。当前已接通 Qwen3.5 / Qwen3.6 dense/MoE 的 HF 本地训练与推理接口，真实训练证据
+  仍限于 tiny upstream architecture。`qwen-next` extra 用于进一步精确固定新一代 Qwen 口径；业务 vLLM
+  推理镜像使用同一份
   `uv.lock`，当前标准为 `vllm==0.19.1` + `transformers==5.10.1`。对本地 HF 训练环境，
   推荐执行：
 
   ```bash
   uv sync --extra dev --extra train --extra distributed --extra qwen-next --extra gpu
   ```
+
+  Qwen3.5/3.6 MoE 的证据状态必须按下表解释：
+
+  | 组合 | 状态 | 当前证据 |
+  | --- | --- | --- |
+  | DDP + full/LoRA + padded；DDP + full varlen | tiny validated | upstream tiny MoE、真实 processor、fresh/resume/export |
+  | FSDP + LoRA `target_parameters` + padded | tiny validated | 2-rank CUDA、router/expert/ordinary LoRA 更新、backend-native exact resume |
+  | DeepSpeed ZeRO-3 + full + padded | tiny validated | 2-rank CUDA、router/各 expert 更新、ZeRO shard exact resume、HF reload |
+  | 真实 35B MoE 权重长训练 | wired, not production-validated | 尚缺目标硬件容量、吞吐、长程数值和目标集收敛 gate |
+  | ZeRO-3 + PEFT `target_parameters` | rejected | PEFT 0.18.1 无法对构造期 empty shard 注入 parameter wrapper |
+  | MoE QLoRA；预量化 FP8 artifact 训练 | rejected | fused experts 未被 bitsandbytes 覆盖；FP8 artifact 仅供推理 |
+
+  `tiny validated` 只证明框架合同和上游架构行为，不等同于真实发布权重的生产验收。
 
   业务推理环境不要自行拼装依赖版本，应使用 `docker/inference/` 中的推理镜像或用同一份
   `uv.lock` 构建。推理效果对 prompt、pixel budget、generation 参数和 JSON 解析都敏感，
@@ -272,7 +323,8 @@ layout/backend 是否可执行，不能把不支持的组合悄悄降级。
   `train.distributed.strategy` 切到 `fsdp` 或 `deepspeed`。`data`、`algorithm`、SFT target
   格式和 Qwen3-VL 主链保持一致。
 - Shaft 会对本地 `config.json` 的 HF `model_type` 做早期校验：`qwen3vl` 期望
-  `qwen3_vl`，`qwen35vl` / `qwen36vl` 期望 `qwen3_5` 或 `qwen3_5_moe`。这能在模型加载前
+  `qwen3_vl` 或 `qwen3_vl_moe`，`qwen35vl` / `qwen36vl` 期望 `qwen3_5` 或
+  `qwen3_5_moe`。这能在模型加载前
   发现 `model.model_type` 与权重目录不匹配的问题。
 - 同一本地 config 还会解析为 `ResolvedModelDescriptor`，按 `hf_model_type/architectures` 选择 dense/MoE
   variant profile。非本地 HF repo 会按 `revision`、`cache_dir` 和 `local_files_only` 读取 cache/Hub config；
@@ -298,6 +350,15 @@ layout/backend 是否可执行，不能把不支持的组合悄悄降级。
   `pytorch_model.bin.index.json`，确认索引引用的 shard 文件都已存在。半下载目录会在进入
   `from_pretrained` 前直接报出缺失 shard，避免把下载不完整误判为模型架构或训练配置问题。
 - `target_modules=["auto"]` 表示交给模型族 `peft policy` 自动解析。
+- `target_parameters` 用于直接对没有独立 module 的 2-D/3-D fused 参数应用 PEFT LoRA。空列表表示不启用；
+  `["auto"]` 必须由模型 profile 提供默认值，否则启动前报错。Qwen3VL MoE 与 Qwen3.5/3.6 MoE 默认展开 routed-expert
+  `gate_up_proj/down_proj` 与 router `gate.weight`，并可与 `target_modules=["auto"]` 同时使用。
+- `target_parameters` 只适用于 adapter mode，要求 `peft>=0.18.1`、`lora_dropout=0`，不支持 DoRA；
+  Qwen3.5/3.6 MoE 同时拒绝 QLoRA，因为 bitsandbytes 不会量化这些 fused 3-D expert 参数。resolved 参数名
+  进入 finetune/adapter signature，init、resume 与 export 会做一致性校验。
+- Qwen3.5/3.6 的预量化 FP8 artifact 在 Shaft 中是 inference-only；dense 和 MoE 训练都必须从未预量化
+  base checkpoint 启动（发布权重通常为 BF16），不能靠路径或未知 dtype 静默退化。FP16 AMP full
+  finetune 仍按精度合同以 FP32 参数加载。
 - `freeze.groups` 当前只允许：
   - `language_model`
   - `vision_tower`
@@ -660,9 +721,10 @@ resolver 会把本次恢复固定为一个类型化 generation token：run root 
 
 `packing` 决定多个逻辑序列是否组合，`layout` 决定最终 tensor/attention 表示。Qwen varlen 把计划好的
 logical rows 展平为 `[1,total_tokens]`，不传普通 2D attention mask；每段首 label/loss weight 清零，模型
-adapter 在 host 侧构造 `[4,1,total_tokens]` positions，并校验每段 image grid/pixel slice。Qwen3.5/3.6 dense
-hybrid model 还生成 `seq_idx/cu_seq_lens/max_length`，因此 CUDA release 路径同时要求 FlashAttention 2、
-flash-linear-attention、causal-conv1d、bf16/fp16 与 DDP；CPU 只保留 Qwen3VL eager/SDPA correctness oracle。
+adapter 在 host 侧构造 `[4,1,total_tokens]` positions，并校验每段 image grid/pixel slice。Qwen3.5/3.6
+hybrid model 还生成 `seq_idx/cu_seq_lens/max_length`，因此 CUDA runtime execution path 同时要求
+FlashAttention 2、flash-linear-attention、causal-conv1d、bf16/fp16 与 DDP；当前 release gate 使用 BF16，
+FP16 仍只是 runtime allowlist。CPU 只保留 Qwen3VL eager/SDPA correctness oracle。
 FSDP、DeepSpeed、torch.compile、varlen 下的单样本多图和视频仍明确拒绝；普通 padded 路径的有序多图
 不依赖这套 segment-isolation contract。
 
@@ -873,14 +935,15 @@ prompts:
 关键字段：
 
 - `name`: `sft | dpo | ppo | grpo`
-- `params`
+- `params.auxiliary_loss_weights`（仅 SFT）
 
 ```text
 algorithm.name
 ├── sft
 │   ├── ShaftSFTPipeline
 │   ├── jsonl_sft
-│   └── train.loss_name / train.loss_scale
+│   ├── train.loss_name / train.loss_scale
+│   └── params.auxiliary_loss_weights.<term_name>
 ├── dpo
 │   ├── ShaftRLHFPipeline
 │   ├── jsonl_dpo
@@ -905,9 +968,30 @@ algorithm.name
   normalize。因此 CLI 不能“修好”一份在原 YAML algorithm 下已经非法的配置，YAML 与命令必须先自洽。
 - pipeline 只消费选中的 `rlhf.<name>`，但 normalize 当前仍校验 DPO/PPO/GRPO 三个子块；未选中的块不会
   改变 trainer，却也不能包含非法值。最清楚的写法是只显式填写当前算法的子块。
-- `params` 是扩展上下文保留字段，当前四个内置算法都不消费它；内置算法参数应写在 `train` 或对应的
-  `rlhf.<name>`。
-- DPO/PPO/GRPO 的结构化核心参数在 `rlhf` 块中。
+- 内置 SFT 当前只接受一个 `params` 项：`auxiliary_loss_weights`。它是很少需要使用的 run-level override；
+  默认应省略。term name 会做 `strip + lower`，未知 params、未知 term、非数值、布尔值、非有限值或负数
+  均 fail closed。显式空 map 会被规范化为省略。
+- `auxiliary_loss_weights.<term_name>` **替换**模型 policy/checkpoint 提供的默认 coefficient，不是乘数；
+  未列出的 term 继续使用模型默认值。以 Qwen3.5/3.6 MoE 为例：
+
+  ```yaml
+  algorithm:
+    name: sft
+    params:
+      auxiliary_loss_weights:
+        router_aux_loss: 0.002
+  ```
+
+  对应关系为
+  `L = L_CE + w_effective * L_router`，其中配置存在时 `w_effective` 等于 override，否则等于模型
+  `router_aux_loss_coef`。override 不修改 HF checkpoint 的 `config.json`。配置为 `0` 只把该项对总 loss 的
+  加权贡献置零；为了保留 raw 诊断，模型仍会请求 router logits。
+- raw `eval_aux/router_global_balance` 与 CE-only `eval_loss` 不受 override 影响；
+  `aux/router_aux_loss_weighted` 和 `eval_aux/router_global_balance_weighted` 使用同一个 effective
+  coefficient。eval metric 通过模型 policy 的显式 `coefficient_key` 关联训练 term，不按 metric 名猜测。
+- normalized `algorithm.params` 进入 exact-resume contract。改变 override 后不能 resume 旧 schedule；应启动
+  新训练，或将旧权重作为 `train.init_from_checkpoint` 使用。
+- DPO/PPO/GRPO 的 `params` 仍是扩展上下文保留字段；它们的结构化核心参数位于对应的 `rlhf` 子块。
 - `rlhf.enabled` 是当前 schema 中保留的兼容字段，不参与算法选择，也不会替代
   `algorithm.name`。新配置不应依赖或显式设置它。
 
@@ -969,10 +1053,12 @@ algorithm.name
 
 `train.bf16` 与 `train.fp16` 互斥；默认是 `bf16=true, fp16=false`。FP16 只允许可用 CUDA 设备，CPU
 配置会在构建 Trainer 前失败。`train.fp16=true` 表示 Trainer AMP/GradScaler 执行精度，不等于把可训练
-参数直接加载成 FP16；当前明确拒绝 `model.torch_dtype=float16 + train.fp16=true`，full fine-tune 推荐
-`model.torch_dtype=float32`。precision 会进入 exact-resume contract；从 BF16/FP32 切到 FP16 必须启动
-新训练或使用 `init_from_checkpoint`，不能伪装成同一条 exact resume。当前 FP16 release contract 覆盖
-DDP；FSDP 参数接口已接通但尚待专项 CUDA canary。仓库 DeepSpeed preset 仍是 BF16-only，
+参数直接加载成 FP16；配置层明确拒绝 `model.torch_dtype=float16 + train.fp16=true`，模型装配后还会检查
+实际 trainable floating parameters，因此 `torch_dtype=auto` 也不能从 FP16 artifact 绕过防线。full fine-tune
+推荐 `model.torch_dtype=float32`。FP16 GradScaler 跳过 overflow 时，非有限 `grad_norm` 不写入 checkpoint，
+改记有限的 `grad_norm_overflow=1`。precision 会进入 exact-resume contract；从 BF16/FP32 切到 FP16 必须
+启动新训练或使用 `init_from_checkpoint`，不能伪装成同一条 exact resume。当前 FP16 release contract 覆盖
+padded Qwen3VL-2B DDP LoRA；varlen FP16 和 FSDP FP16 尚待专项 CUDA canary。仓库 DeepSpeed preset 仍是 BF16-only，
 `FP16 + strategy=deepspeed` 会 fail closed。
 
 `init_from_checkpoint` 与 `resume_from_checkpoint` 严格互斥，schema、CLI override 和 pipeline preflight
@@ -1098,15 +1184,23 @@ train:
   model 重建同一语义 plan，并验证 fingerprint 后才使用新的 `Parameter` 对象。`use_orig_params=false`
   会把参数替换为 `FlatParameter`，当前没有可靠的 name/group remap，因此在 config normalize 和
   `TrainingArguments` 构造阶段都会 fail closed，而不是等到训练开始后产生错误参数组。
+- FSDP + `lora/dora/qlora` 当前还强制 `state_dict_type=full_state_dict` 与
+  `load_best_model_at_end=false`。完整标准 PEFT adapter 是 exact-resume 的模型状态真源；backend-native
+  optimizer、scheduler、scaler、每-rank RNG 继续由 FSDP 恢复。Transformers/Accelerate 5.10.1/1.13
+  的 adapter-only native FSDP model 文件只包含 rank-local DTensor，Shaft 明确跳过该模型加载路径。
+  若需要按最佳指标选择 FSDP PEFT checkpoint，应训练结束后从对应 checkpoint 的标准 adapter 做独立导出；
+  在完成 wrapped-model scatter 门禁前不能打开 `load_best_model_at_end`。
 - `distributed.fsdp.transformer_layer_cls_to_wrap=["auto"]` 会按模型族默认解析。Qwen3VL 当前解析为：
   - `Qwen3VLTextDecoderLayer`
   - `Qwen3VLVisionBlock`
 - Qwen3.5 / Qwen3.6 dense 默认解析为：
   - `Qwen3_5DecoderLayer`
   - `Qwen3_5VisionBlock`
-- Qwen3.5 / Qwen3.6 MoE descriptor 骨架可解析为（仅用于识别/兼容性防线，当前不表示训练支持）：
+- Qwen3.5 / Qwen3.6 MoE profile 解析为：
   - `Qwen3_5MoeDecoderLayer`
   - `Qwen3_5MoeVisionBlock`
+- Qwen3.5/3.6 dense 与 MoE 当前都要求 `distributed.fsdp.activation_checkpointing=false`；使用
+  `train.gradient_checkpointing` 走模型侧重计算。该限制由 model sharding policy 校验，不应写进通用 pipeline。
 - `distributed.deepspeed` 支持 `config_path` 或 inline `config`。当 `strategy=deepspeed` 时，两者至少要提供一个；
   `config_path` 的相对路径按训练 YAML 所在目录解析。Shaft 只负责保存和校验配置真源，不在
   `config` 层展开 DeepSpeed 运行时细节。
@@ -1115,6 +1209,10 @@ train:
 - `strategy=deepspeed` 时，pipeline 会先构建 `TrainingArguments`，再执行模型 `from_pretrained`。
   这是 ZeRO-3 大模型训练的必要顺序：HF 会在 `TrainingArguments` 初始化阶段建立 DeepSpeed
   runtime config，让模型加载阶段能感知 ZeRO-3 分片语义。
+- PEFT 0.18.1 的 direct-parameter LoRA wrapper 会直接读取 parameter tensor shape；ZeRO-3 构造期参数是
+  `shape=(0,)` 的 partition placeholder，真实形状只在 `ds_shape`。Shaft 自己的 plan 能识别该元数据，但
+  不能安全替代 PEFT 注入器，因此 `ZeRO-3 + model.finetune.target_parameters` 会在加载前明确拒绝。
+  Qwen3.5/3.6 MoE 的推荐组合是 FSDP + LoRA，或 ZeRO-3 + full finetune。
 - `strategy` 不是 `deepspeed` 时，Shaft 会清理 HF/Accelerate 进程级 DeepSpeed 状态，避免
   在测试或长驻进程里先运行 DeepSpeed 后污染后续 DDP/FSDP 训练。
 - `configs/deepspeed/zero1_bf16.json`、`zero2_bf16.json`、`zero3_bf16.json` 分别是 ZeRO-1/2/3
@@ -1215,7 +1313,8 @@ train.load_best_model_at_end=true
 ├── train.save_strategy != no
 ├── eval.eval_strategy != no
 ├── save_strategy 与 eval_strategy 一致
-└── steps 模式：save_steps % eval_steps == 0
+├── steps 模式：save_steps % eval_steps == 0
+└── FSDP + PEFT 当前不支持，必须保持 false
 ```
 
 说明：

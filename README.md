@@ -185,17 +185,44 @@ DataLoader 预取推进的 live cursor；该状态作为 manifest extension 绑�
 spec 与 duration/GA/optimizer/scheduler contract。
 `cost_cache_size` 只影响 host LRU，不阻止 exact resume。
 当前 planned batching 只开放 SFT + step duration + DDP，eval 保持普通 padded fixed batch。Qwen3VL 与
-HF `qwen3_5` dense（Qwen3.5/Qwen3.6）image SFT 已支持
+HF `qwen3_5` dense/MoE（Qwen3.5/Qwen3.6；后两者仅为 tiny-upstream validated）image SFT 已接通
 `grouping=length + cardinality=fixed + packing.mode=greedy + layout=varlen`：planner 在
 有界窗口内按真实 processor 后长度分组，把多个完整 logical segment 装入固定数量的 physical packs；
 CUDA 执行要求 FlashAttention 2、bf16/fp16 与 DDP；Qwen3.5/3.6 hybrid attention 还要求
 flash-linear-attention 与 causal-conv1d。未验收的模型族/backend/topology 会在加载数据和权重前 fail closed。
-`per_device_train_batch_size` 表示每卡 physical pack 数，不等于 pack 内 logical segment 数。
+`per_device_train_batch_size` 表示每卡 physical pack 数，不等于 pack 内 logical segment 数。当前 varlen
+release/tiny gates 使用 BF16；FP16 只是运行时 allowlisted，尚无 varlen 专项验收。
 
 训练精度由互斥的 `train.bf16` / `train.fp16` 选择；FP16 只允许 CUDA。两者都不负责隐式改写
 `model.torch_dtype`；FP16 AMP full fine-tune 应以 FP32 参数加载，框架拒绝 `float16` 参数再叠加
-GradScaler。当前 FP16 release gate 覆盖 DDP；FSDP 接口已接通但仍需专项 CUDA canary，DeepSpeed 示例
-仍是 BF16-only。精度切换也不允许 exact resume。
+GradScaler。当前 FP16 release gate 只覆盖 padded Qwen3VL-2B DDP；FSDP 接口已接通但仍需专项 CUDA canary，
+DeepSpeed 示例仍是 BF16-only。精度切换也不允许 exact resume。
+
+Qwen3.5/3.6 MoE 的 padded SFT 已接入模型拥有的 router-balancing objective：训练继续使用上游
+batch-local auxiliary loss，`eval_loss` 只统计 token-normalized CE，dataset-global router balance 单独记为
+`eval_aux/router_global_balance`。MoE LoRA 显式配置 `target_parameters: [auto]` 后，通过 PEFT 覆盖 fused routed
+experts 与 router；该字段默认空，不会由普通 `target_modules: [auto]` 隐式启用。
+通常无需改 router coefficient；确需实验性覆写时使用下列 SFT-only 接口，未设置时仍读取模型
+`router_aux_loss_coef`，完整语义见 `docs/config_reference.md`：
+
+```yaml
+algorithm:
+  name: sft
+  params:
+    auxiliary_loss_weights:
+      router_aux_loss: 0.002
+```
+
+要求 `peft>=0.18.1`、`lora_dropout=0` 且不能使用 DoRA/QLoRA。Qwen3.5/3.6 当前两卡 tiny upstream
+release gate 已验证 DDP、FSDP LoRA 和 ZeRO-3 full 的 fresh/resume/export；Qwen3VL
+`Qwen3-VL-30B-A3B-Instruct` 已进一步通过真实 BF16 FSDP LoRA 两步 fresh/checkpoint resume、router/expert/
+vision update 和标准 PEFT reload 门禁，峰值约 38.7GiB allocated/40.8GiB reserved 每卡。该证据不等价于
+两卡全参数 SFT，也不替代目标数据长程收敛验收。PEFT fused `target_parameters` 与 ZeRO-3 初始化目前由上游能力限制而明确拒绝，应使用 FSDP LoRA，
+或改用 ZeRO-3 full finetune。预量化 FP8 artifact 仅供推理，训练必须使用未预量化 base checkpoint；发布权重
+通常是 BF16，而 FP16 AMP full finetune 允许按其合同以 FP32 参数加载。
+FSDP+PEFT 的 exact resume 以完整标准 `adapter_model.safetensors` 为模型状态真源，并要求
+`state_dict_type=full_state_dict`、`load_best_model_at_end=false`；Transformers/Accelerate 当前生成的
+adapter-only native FSDP 文件只含 rank-local DTensor，不能用于恢复 PEFT 模型参数。
 
 训练默认生成 committed `shaft_training_efficiency.json`：统计实际 collate 后的 useful/materialized/
 supervised tokens、logical-segment length 分布、vision patches、logical segments/physical packs、batch
@@ -322,8 +349,9 @@ uv run pytest -q -m manual
 
 ## 当前说明
 
-- 当前正式训练主链覆盖 `qwen3vl`、`qwen35vl` 与 `qwen36vl` 的 dense 变体；MoE 只保留 architecture
-  识别与扩展骨架，尚不属于可用训练能力，验收项见 [docs/todo.md](docs/todo.md)。`smoke_vlm` 只用于测试。
+- 当前正式训练主链是 `qwen3vl`；`qwen35vl` / `qwen36vl` dense 与 MoE 目前均为 tiny-upstream validated
+  experimental 能力，真实 27B/35B 权重的生产验收仍列在 [docs/todo.md](docs/todo.md)。
+  `smoke_vlm` 只用于测试。
 - 训练和保存遵循 HF / PEFT / TRL 标准能力。
 - 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
 - 结构化任务离线评估子系统尚未完成。

@@ -589,3 +589,558 @@
   可读与标准导出；任何短 canary 还必须越过 warmup 并证明权重发生变化，单步退出码不能作为数值稳定性
   结论。FSDP FP16 仍需专项 CUDA canary，DeepSpeed 保持
   BF16-only，MoE 训练继续列入 TODO。
+
+## 2026-08-04：Qwen3.5/3.6 MoE objective、fused LoRA 与分片后端边界收口
+
+### 现象
+
+- Qwen3.5/3.6 MoE descriptor 能被识别，但 routed experts 是 fused 3-D parameters，普通
+  `target_modules=all-linear` 不会完整覆盖；router auxiliary loss 也没有进入 Shaft 的 SFT objective。
+- 初版 eval 若直接平均每个 batch 的上游 router aux，会随 eval batch size/rank partition 改变；同时内部
+  `compute_loss()` 一度在 eval 模式返回 CE + batch-local aux，即使最终 `eval_loss` 再被覆盖，外部
+  `predict()`/直接调用仍可能得到错误语义。
+- 两卡 ZeRO-3 gate 首先在 Shaft 形状校验看到 `shape=(0,)`，识别 `ds_shape` 后又在 PEFT 0.18.1
+  `ParamWrapper` 内部因直接读取 empty shard 的 `param.shape` 崩溃。此前只有“目录存在/export 可加载”检查，
+  不能证明 backend-native checkpoint 的 optimizer、RNG 和 shard 真正 exact resume。
+- fixed-batch checkpoint resume 的最终 `samples_per_second/steps_per_second` 曾沿用总计划量，夸大本次恢复进程
+  实际执行的工作量。
+
+### 根因
+
+- 模型注册只声明了 dense-style PEFT module policy，没有 direct-parameter target、训练 objective 和
+  dataset-global eval statistic 的统一模型接口。
+- router load-balancing loss 是 expert assignment 与 router probability 的乘积，不是可按样本/token 直接
+  加和的 scalar；per-batch scalar 事后加权无法恢复 dataset-global 值。
+- Transformers 在 `TrainingArguments` 建立 ZeRO-3 runtime 后于模型构造期分区参数；Shaft 可以用
+  `ds_shape` 做 plan，但当前 PEFT parameter wrapper 不支持在该状态下注入。这是上游能力边界，不能靠吞掉
+  错误或在 pipeline 猴子补丁修复。
+- resume throughput 没有以 Trainer 实际 fetch 的 local samples 和 `initial_global_step` 为计数真源。
+
+### 影响范围
+
+- 影响 Qwen3.5/3.6 MoE SFT 的 full/LoRA 训练目标、eval 可比性、adapter init/resume/export，以及
+  FSDP/DeepSpeed 的能力声明。dense Qwen 与普通 next-token CE 不改变。
+- `eval_loss` 现在明确只代表 token-normalized CE；router balance 是独立诊断指标，不属于模型能力分数，
+  也不是 eval/codec/metric/data 对模型输出的误判。
+- `ZeRO-3 + PEFT target_parameters` 当前不可用；ZeRO-3 full 与 FSDP fused-parameter LoRA 可用。tiny gate
+  不能推出真实 35B 权重的显存、吞吐或收敛结论。
+
+### 修复方式
+
+- `ModelGroup -> ShaftModelAdapter` 增加模型拥有的 `TrainingObjectivePolicy`：训练返回 batch-local scalar
+  auxiliary term；eval 返回 batch-first expert counts、router probability sums、valid routed tokens，Trainer
+  经 `gather_for_metrics` 去除尾部副本后再生成 dataset-global router balance。eval 的直接 loss 和
+  `eval_loss` 均保持 CE-only。
+- Qwen3.5/3.6 MoE PEFT policy 为 routed expert `gate_up_proj/down_proj` 与 router `gate.weight` 声明
+  `target_parameters`；resolved 参数与 target modules/modules-to-save 一起绑定 adapter signature。
+  parameter-target LoRA 要求 PEFT 0.18.1、dropout=0、非 DoRA；MoE QLoRA和 dense/MoE 预量化 FP8 训练
+  fail closed。
+- plan 使用 `ds_shape` 识别 ZeRO 参数真实维度；组合校验对 ZeRO-3 + target_parameters 提前给出 FSDP LoRA
+  或 ZeRO-3 full 的可操作建议。Qwen3.5/3.6 FSDP activation checkpoint wrapper 也由 model policy 禁止。
+- backend release gate 分别检查 FSDP optimizer state 与 DeepSpeed 每 rank model/optimizer shard，并比较
+  fresh/resumed 最终权重、scheduler、RNG、Trainer state、adapter/full export 与真实非零更新。
+- Trainer 记录实际 fetch 的 local sample 数；fixed resume 的 loss、step/s 和 sample/s 只按本次执行窗口计算。
+
+### 回归测试
+
+- objective/Trainer、PEFT/config/model meta、optimizer、pipeline focused tests 与 W2/GA2 Gloo 全局归约测试通过；
+  3 条 eval 数据在 2 rank 下验证 sampler 尾部副本不会污染 router metric。
+- CUDA 0/1 tiny upstream Qwen3.5-MoE：FSDP fused-parameter LoRA 与 DeepSpeed ZeRO-3 full 均完成 2-step
+  fresh、checkpoint-1→step-2 resume、非零 router/expert 更新和标准 HF/PEFT reload；backend-native 最终状态
+  精确等价。真实 Qwen3VL 2B/4B 与最终全套 suite 结果以本轮最终验收记录为准。
+
+### 后续防线
+
+- 新模型的非 CE objective 必须进入 model-owned policy；Trainer 不识别模型字段名，pipeline 不实现模型分支。
+- 非线性 auxiliary metric 必须先定义可加和充分统计量，再做 distributed gather/finalize；禁止平均 batch scalar。
+- 分片后端“能启动”不能作为 resume 结论；至少比较权重、optimizer、scheduler、每 rank RNG、Trainer state、
+  backend shards 和 reload forward。tiny 架构证据必须与真实发布权重容量证据分开标注。
+- 对上游不支持的组合应早期、可操作地拒绝；不得复制 PEFT 内部注入器或用路径名猜测兼容性。
+
+## 2026-08-04：SFT 最终 review 暴露的 FP16 checkpoint 与证据矩阵问题
+
+### 现象
+
+- `model.torch_dtype=auto + train.fp16=true` 能通过字符串级配置校验；若 checkpoint 自身声明 FP16，HF 会把
+  trainable parameters 实际加载成 `torch.float16`，直到 GradScaler unscale 才失败。
+- 真实 Qwen3VL-2B FP16 首轮通常由 GradScaler 跳过 overflow，但 HF 同时把 `grad_norm=NaN` 写入
+  `trainer_state.json`；Shaft 的严格 JSON checkpoint commit 因而正确拒绝非有限常量，训练无法保存。
+- MoE eval statistic 把 accumulator 放在第一层 router-logit device，却没有把其它层 logits 迁到该设备；
+  `device_map` 跨设备放置会发生 device mismatch。
+- 初版 release gate 只验证 fresh export，FSDP native model state、DeepSpeed shard 数量/语义和分布式 eval 的
+  rank-1 实际贡献证据不足；部分文档还把 tiny/allowlisted 能力写成真实规模或跨精度验收。
+
+### 根因
+
+- 配置字符串只能表达用户请求，不能替代模型装配后的实际参数事实；训练精度防线缺少 post-model 校验。
+- FP16 overflow 是 scaler 的正常控制流，但非有限 grad norm 只是诊断值，不应进入要求标准 JSON 和 exact
+  resume 的持久化状态。
+- dataset-global router metric 的计算设备没有像上游 Qwen 实现一样统一所有 layer logits。
+- 测试曾把“文件存在/顶层权重相同/运行时 allowlist”混同为 backend-native resume 或正式模型验收。
+
+### 影响范围
+
+- 影响 SFT FP16 的首次 checkpoint、`torch_dtype=auto` 安全边界和 exact resume；BF16/FP32 objective 不变。
+- 影响使用跨设备 model placement 的 Qwen3.5/3.6 MoE eval；当前 DDP 每 rank 单设备训练不受影响。
+- 影响支持声明的可信度：Qwen3VL 2B/4B 有真实权重证据，Qwen3.5/3.6 dense/MoE 仍只有 tiny upstream，
+  Qwen3VL-32B、真实 27B/35B、varlen FP16 和 FSDP FP16 均不能外推。
+
+### 修复方式
+
+- SFT/RLHF pipeline 在模型与 finetune plan 装配后统一扫描 trainable floating parameters；FP16 AMP 发现实际
+  `torch.float16` trainable 参数立即报出示例名称。这样 `torch_dtype=auto` 不能绕过防线，冻结的 FP16 base
+  仍可由未来独立验证的 adapter 合同接入。
+- SFT 日志在 FP16 下把非有限 `grad_norm` 原位替换为 `grad_norm_overflow=1`，保留 scaler 跳步事实，不伪造
+  数值，也不放宽严格 JSON parser；有限 grad norm 仍按原字段记录。
+- Qwen3.5 MoE eval 将每层 router logits 显式迁到统一 accumulator device 后再 softmax/top-k。
+- release gate 比较 scaler、FSDP DTensor local state/native optimizer、DeepSpeed 每 rank model/optimizer shard
+  语义、恢复后的 telemetry 与 fresh/resumed 双侧 export；两 rank eval 使用 batch size 1 并要求每个 rank
+  都得到 dataset-global 指标。
+- 文档按“正式真实权重 / tiny validated / runtime allowlisted / rejected”拆分，删除 32B、FP16 varlen和真实
+  Qwen3.5/3.6 的过度声明。
+
+### 回归测试
+
+- 最终 framework 全量回归、smoke suite、distributed suite、MoE CPU fresh/resume/HF reload、W2/GA2 全局
+  loss/eval aux probe 全部通过；Ruff、compileall 与 diff check 通过。
+- CUDA 0/1（未操作 `gpu-holder`）：真实 Qwen3VL-2B 完成 FP16 AMP + FP32-load padded LoRA 8-step fresh、
+  checkpoint-4→step-8 exact resume、GradScaler state、非零 LoRA 更新和双侧 export/reload；真实 Qwen3VL-4B
+  完成 BF16 greedy-varlen LoRA fresh/resume/export/reload。
+- 同一最终源码态下，tiny upstream Qwen3.5/3.6 MoE DDP padded LoRA、DDP varlen full、FSDP fused-parameter
+  LoRA 与 ZeRO-3 full 的 fresh/resume/backend-native state/双侧 export gates 全部通过。
+
+### 后续防线
+
+- 任何 AMP 安全判断都必须同时校验请求配置和装配后的实际 trainable dtype；不能只相信 artifact config 或
+  YAML 字符串。
+- overflow 可作为有限离散事件记录，NaN/Infinity 不得进入 checkpoint JSON；loss 等主目标非有限仍应失败，
+  不能被日志清洗掩盖。
+- 分片 resume gate 必须检查后端真正读取的 state，且测试本身要证明所有 rank 的贡献；文件存在和字节哈希
+  只能作为补充。
+- 新的模型规模、precision、layout 或 topology 必须分别验收；注册兼容性、tiny gate 和 runtime allowlist
+  都不能替代真实 checkpoint/hardware 证据。
+
+## 2026-08-05：训练 `device_map` 晚失败与 distributed eval 证据碰撞
+
+### 现象
+
+- 训练 schema 接受非空 `model.device_map`，Qwen loader 会原样传给 HF；torchrun/FSDP/DeepSpeed 要到
+  Accelerate prepare 阶段才拒绝 `device_map=auto`，静态映射还可能让多个 rank 先把完整模型装到 GPU0。
+- 两 rank eval probe 虽设置了每卡 batch size 1，但三条样本的统计值为 `6/6/9`；rank 0 首条与 rank 1
+  独占样本碰巧同值，错误地重复 rank 0 contribution 仍可能得到正确均值。
+
+### 根因
+
+- 推理装载语义与训练分布式 placement 共用了 `ModelConfig.device_map`，训练入口缺少 pre-model 边界校验。
+- 测试只检查最终全局数值，没有保证每个 rank 的原始 contribution 可辨识且局部均值不同于全局均值。
+
+### 影响范围
+
+- 影响所有 Shaft 训练算法的启动成本与显存安全，真实 Qwen3.5/3.6 35B 风险最高；正常由 DDP/FSDP/
+  DeepSpeed 管理 placement 的配置不受影响。HF 本地推理继续支持 `device_map`。
+- 不改变 MoE eval 聚合实现，但旧 probe 对 rank-1 contribution 的证明不足，不能作为完整 release evidence。
+
+### 修复方式
+
+- `build_hf_training_args()` 在任何模型权重加载前拒绝非空 `model.device_map`，训练 placement 只允许由
+  `train.distributed.strategy` 负责；推理配置和 engine 保持原语义。
+- eval probe 改用互不相同的 `1/10/23` 样本统计值，收集并 all-gather 每 rank reduction 前的原始值；
+  两个 rank 的局部均值都必须不同于 dataset-global 均值，且最终每个 rank 必须得到同一全局结果。
+
+### 回归测试
+
+- 新增的 training-args 负向配置用例覆盖 `device_map=auto` 与显式 dict，两者均在模型装载前失败。
+- 两 rank Gloo global weighted loss/eval aux probe 通过，并显式观测 rank-local `[[1,10],[1,23]]` contribution。
+
+### 后续防线
+
+- 任何只适合 inference 的模型装载参数进入共享 schema 时，训练入口都必须在大 artifact 物化前 fail closed。
+- distributed metric 测试必须让各 rank contribution 可辨识；“每个 rank 最终值相同”不能单独证明所有 rank
+  都参与了 reduction。
+
+## 2026-08-05：本地大模型不可变身份的分布式重复全量读取
+
+### 现象
+
+- checkpointable 本地 HF 模型在 baseline 与 post-load closure 各做一次完整 SHA-256；原实现由每个 rank
+  独立执行。8-rank 训练会把身份校验的逻辑读取量放大为 `16 × artifact bytes`，真实 27B/35B 权重在共享
+  存储上会显著拉长启动并制造 I/O 峰值。
+- 初次拆分优化还存在 branch 风险：是否物化身份由 rank-local checkpointing intent 决定，若 rank 配置漂移，
+  一部分进程可能进入专用 collective，另一部分跳过。
+
+### 根因
+
+- immutable identity 的内容证据按进程重复建立，没有利用标准 torchrun 同节点子进程共享 mount namespace
+  的事实，也没有 node leader、跨 node manifest consensus 与独立挂载 fallback 的分层协议。
+- `save_strategy/resume` 决定 collective schedule，但最初未进入调用前的 rank-consensus fingerprint。
+
+### 影响范围
+
+- 影响所有从本地 HF 目录启动且需要 checkpoint/save/resume 的 SFT/RLHF，模型越大、rank 越多、共享盘越慢
+  越明显；`save_strategy=no`、Hub immutable revision 和 built-in smoke model 不承担同样的本地全量读取成本。
+- 不改变模型字节身份、plan fingerprint 或 exact-resume 轨迹语义；独立挂载仍必须自行完整 hash。
+
+### 修复方式
+
+- baseline 与 post-load closure 各由每 node 的 `LOCAL_RANK=0` 完整 hash；所有 node leader 对 content
+  fingerprint/file manifest 做全局一致性校验。同 node 非 leader 比较完整 stat manifest，无法证明共享同一
+  文件身份时自行 fallback hash。
+- 所有本地准备、hash、fallback 和最终 stat closure 异常先转为 status，再通过独立的长超时 Gloo group
+  收敛；大模型 hash 不再受默认 NCCL collective timeout 约束。
+- SFT/RLHF 的 `model-plan-local` 在调用该协调器前同时收敛 model-plan 与 checkpointing intent，禁止 rank
+  进入不同 collective 分支。
+
+### 回归测试
+
+- 单机两 rank Gloo probe 覆盖共享 stat（两阶段 hash 计数 `[4,0]`）与 rank-1 独立 stat fallback
+  （`[4,4]`）；两种情况下各 rank content fingerprint/file manifest 完全一致。
+- SFT/RLHF pipeline 测试显式检查 `model-plan-local` 包含 checkpointing fingerprint，且仅在需要保存/恢复时
+  物化 immutable identity；focused model/pipeline、Ruff、compileall 与 diff check 通过。
+
+### 后续防线
+
+- 任何决定 collective schedule 的条件必须在分支前做 all-rank consensus；不能依赖“正常配置应该一样”。
+- stat manifest 只用于证明标准同节点 torchrun 进程看到同一文件身份，不能作为内容 cache；每次 launch 的
+  baseline 与 post-load closure 都必须保留。
+- 当前证据不外推到真实双主机、NCCL default group + Gloo subgroup、多容器 mount namespace或多 GiB 吞吐。
+  对外声明真实多机前必须在冻结 SHA 上补对应 canary 和启动 I/O benchmark。
+
+## 2026-08-05：`half` dtype alias 在加载器与 varlen capability gate 间不一致
+
+### 现象
+
+- Qwen loader 接受 `model.torch_dtype=half` 并按 FP16 加载，但 Qwen3VL 与 Qwen3.5/3.6 的 CUDA varlen gate
+  只接受 `fp16/float16`，同一有效配置在 padded 与 varlen 间产生无意义差异。
+
+### 根因
+
+- dtype alias 在 loader 与 sequence execution policy 各自维护，varlen allowlist 漏掉了 loader 已公开接受的
+  `half`。
+
+### 影响范围
+
+- 仅影响显式使用 `half` alias 的 CUDA varlen SFT；`float16/fp16/bfloat16/bf16` 与 padded 路径不受影响。
+
+### 修复方式
+
+- Qwen3VL 与 Qwen3.5/3.6 varlen policy 统一接受 `half`，contract 仍保存规范化后的小写请求值并进入
+  fingerprint。
+
+### 回归测试
+
+- 两个模型族 policy 均以 `half + flash_attention_2 + DDP` 成功建立 varlen contract。
+
+### 后续防线
+
+- loader、precision validator 与 sequence policy 新增 dtype alias 时必须共享同一接受集合，或用跨层契约测试
+  锁住等价 alias；不得让布局切换改变 dtype 拼写语义。
+
+## 2026-08-05：SFT exact resume 丢失尚未 flush 的 reporting window
+
+### 现象
+
+- 当 `save_steps` 小于或不整除 `logging_steps` 时，checkpoint 可能落在两个 logging event 中间。模型、
+  optimizer、scheduler 与 RNG 恢复后仍能得到相同最终权重，但下一次 `loss` 和 model-owned
+  `aux/*` 日志只统计恢复后的半个窗口；`trainer_state.log_history` 与 `on_log` 事件因而和 uninterrupted
+  轨迹不一致。
+- 原有 fresh/resume gate 常令 `save_steps == logging_steps` 或每步都记录日志，恰好在保存前清空 accumulator，
+  因而没有发现该差异。这不是模型能力或 eval/codec/metric/data 的误判，而是 checkpoint reporting state
+  不完整。
+
+### 根因
+
+- Transformers 的 reporting loss、`_total_loss_scalar` 与 `_globalstep_last_logged` 是 Trainer 进程内的临时状态，
+  标准 checkpoint 不会自动持久化；Shaft 的 MoE auxiliary raw/weighted/count accumulator 同样只存在内存中。
+- resume 初始化会重新建立并清空上述窗口。只比较最终权重和 optimizer state，无法证明可观察训练日志也
+  exact。
+- 初版修复依赖 Transformers 5.10 的 `_init_training_state/self._tr_loss` 私有形态，但 `pyproject.toml` 仍错误
+  声明 `transformers>=4.57.6`；4.57 的 loss 是 inner-loop 局部变量，且仓库其它 checkpoint API 也已不兼容。
+  HF callback replacement 开关还会创建未 bind 的 reporting callback。
+- 初版恢复把累计 total 除以本次 executed steps，导致 resumed root `train_loss` 翻倍；DDP 下用 rank-local
+  pending 作为 baseline 还会引入 `P_mean-P_rank0`。GA>1 若到 optimizer boundary 才注入 pending，会改变
+  FP32 加法顺序；no-op resume 和 NaN/Inf filter 也会静默丢窗口。
+
+### 影响范围
+
+- 影响所有 SFT exact resume 的区间 loss 日志；使用 model-owned auxiliary objective 的 Qwen3.5/3.6 MoE
+  还会影响 `aux/*`。最终参数轨迹、optimizer update 和 eval 指标本身不受影响，但终态 `train_loss` 会误导
+  训练监控。
+- 新协议要求 checkpoint 含完整 per-rank reporting snapshot；修复前生成的旧 checkpoint 缺少该 state，不能
+  按当前协议 exact resume，只能用 `init_from_checkpoint` 载入权重后启动新 schedule。
+
+### 修复方式
+
+- 新增 stateful `ShaftSFTReportingStateCallback`。每次 checkpoint 在 HF 写 `trainer_state.json` 前，所有
+  rank 收集本地未 flush 的 reporting loss、`_total_loss_scalar/_globalstep_last_logged` 与 auxiliary accumulator，
+  保存 version/step/world/rank 完整的 snapshot。
+- resume 严格解析 callback schema、有限数值、rank 顺序、global step、world size与 auxiliary term 集合；
+  HF 完成 reporting state 初始化后，在 `on_train_begin` 恢复本 rank 窗口。任一 rank 构造 snapshot 失败时先
+  汇总 status，再一致失败，避免其它 rank 卡在 collective。
+- auxiliary 日志消费也先汇总每个 rank 的 term-name 集合；名字漂移时所有 rank 在进入逐项 tensor gather 前
+  一致失败。
+- checkpoint 捕获使用 HF 4.57/5.x 共有的 `_maybe_log_save_evaluate(tr_loss, ...)` 边界，不再覆写
+  `_init_training_state`；仓库基础依赖同时收紧为 `transformers>=5.10.1,<6`，与实际 checkpoint/Qwen3.5 API
+  对齐。`restore_callback_states_from_checkpoint=True` 明确拒绝，callback list 非 canonical state 也拒绝。
+- pending loss 在恢复后的首个 `training_step` 已完成 backward 后注入，保持 GA 微步顺序；nonfinite filter
+  复现 HF 对旧窗口的有限替代。snapshot 全 rank 的 `total+pending` 均值形成 resume baseline，最终 rank-local
+  remainder 再做全局平均，`train_loss` 只统计本次执行窗口。no-op resume 保留累计/global-step 终值。
+- run-root `save_state()` 移除 stale reporting callback；它只保留终态摘要，resume 仍只接受正式 checkpoint。
+
+### 回归测试
+
+- 新增 Trainer 级回归：fresh 4 step、step 2 保存、step 4 才 logging；checkpoint-2→4 恢复后的 loss、
+  auxiliary 日志、`log_history/on_log` 与 fresh 完全一致。测试在修复前稳定复现 resumed loss
+  `3.14017`、fresh loss `3.39312`，修复后通过。
+- tiny upstream Qwen3.5/3.6 MoE 两 rank CPU Gloo gate 改为 `save_steps=1/logging_steps=2`，当前源码下
+  fresh/resume、committed checkpoint、HF reload 全部通过；rank pending 明确不同，root resumed
+  `train_loss` 与两个 checkpoint 的全局累计差值一致。
+- focused 回归覆盖 GA=2 加法顺序、独立 `on_log` capture、callback replacement、rank schema、no-op resume、
+  NaN/Inf filter、final execution-window loss 和 direct `training_step`。当前源码还通过 CUDA0/1 的 tiny MoE
+  DDP/FSDP/ZeRO-3、真实 Qwen3VL-2B FP16 padded LoRA 与真实 Qwen3VL-4B BF16 greedy-varlen gates；远端
+  CI 和真实双主机仍需按最终提交 SHA 独立验收。
+
+### 后续防线
+
+- exact resume 的定义同时覆盖未来 optimizer trajectory 和已公开的可观察 reporting trajectory；测试不能
+  永远把 save/log 边界对齐。
+- 新增训练期 accumulator 时，必须明确它是 checkpoint state、可重算 state 还是纯 wall-clock telemetry；
+  前两者不得只留在 Trainer 内存。
+- distributed checkpoint snapshot 必须先收敛局部异常和字段集合，再进入顺序相关 collective；不能让单 rank
+  提前抛错造成 peer hang。
+
+## 2026-08-05：ZeRO-3 保存后 `total_flos` 口径漂移
+
+### 现象
+
+- tiny Qwen3.5 MoE 的 DeepSpeed ZeRO-3、GA=2 exact-resume gate 中，连续训练与从 checkpoint-1 恢复到
+  checkpoint-2 的模型权重、optimizer shard、scheduler 和每 rank RNG 均完全一致，但 `trainer_state.json`
+  的 `total_flos` 分别为 `1364505984` 与 `1063951872`。
+- 该差异不是模型能力，也不是 eval/codec/metric/data 误判，而是训练遥测口径随 ZeRO-3 运行时参数视图变化。
+
+### 根因
+
+- Transformers 默认在每个 microbatch 通过 live
+  `model.num_parameters(exclude_embeddings=True)` 计算 FLOPs。ZeRO-3 的 checkpoint gather/partition 会改变
+  参数的即时 `numel()` 视图，导致同一个连续进程在保存前后使用不同模型参数量；恢复进程没有继承这段临时
+  gather 状态，因此无法复现错误的计数轨迹。
+- 仅在 Trainer 构造时缓存 HF `num_parameters()` 也不充分：ZeRO-3-aware `from_pretrained` 可能已经把参数构造
+  为 `numel()==0` placeholder。第一次门禁只比较 fresh/resume 相等，曾让 `total_flos=0 == 0` 假绿。
+
+### 影响范围
+
+- 影响使用参数分片且中途保存 checkpoint 的 SFT `total_flos` 和由其派生的观测结果；不会改变 forward、
+  backward、optimizer update、最终参数或 eval 指标。
+- 若把 `total_flos` 作为 fresh/resume 状态的一部分，旧实现会产生假失败；若直接从比较中排除，又会掩盖真实
+  遥测漂移。
+
+### 修复方式
+
+- `ShaftSFTTrainer` 在构造时保存 HF-compatible 的 non-embedding logical parameter count 与 main input
+  name；普通参数使用 `numel()`，已由 ZeRO 构造为 placeholder 的参数使用 `ds_numel/ds_shape`。后续 FLOPs
+  只使用这一稳定参数量和当前输入元素数。
+- 不修改 DeepSpeed/PEFT 内部状态，也不放宽 checkpoint state 等价标准。
+
+### 回归测试
+
+- Trainer 单测主动改变构造后的 live logical parameter metadata，并单独构造 `numel()==0` 的
+  `ds_numel/ds_shape` placeholder（含 embedding exclusion），确认 FLOPs 始终使用构造期逻辑参数量。
+- CUDA0/1 tiny Qwen3.5 MoE sharded release gate 以 GA=2 重新通过 FSDP fused-parameter LoRA 与 ZeRO-3
+  full-finetune 的 fresh/resume、backend-native state 和双侧 export 验证；ZeRO-3 gate 额外要求
+  `total_flos > 0`，本次 fresh/resume 均为 `149655830528`。全程未操作 `gpu-holder`。
+- 冻结源码后，focused SFT/pipeline/finetune/optimizer 回归、framework、smoke、distributed suites，Ruff、
+  compileall、lock 与 diff check 全部通过；CUDA0/1 又通过 tiny MoE DDP padded/varlen、真实 Qwen3VL-2B
+  FP16 padded LoRA 与真实 Qwen3VL-4B BF16 greedy-varlen 的 fresh/resume/export/reload gates。
+
+### 后续防线
+
+- 与模型静态结构相关的训练遥测必须在 wrapper/sharder 接管参数前建立真源；不能在热路径从 live shard
+  tensor 反推全模型结构。
+- exact-resume gate 应继续比较 `total_flos` 等确定性累计状态，只排除 wall-clock、吞吐和显存峰值等真正的
+  环境遥测。
+
+## 2026-08-05：MoE router auxiliary coefficient 缺少安全的 run-level 覆写接口
+
+### 现象
+
+- Qwen3.5/3.6 MoE SFT 已能从 HF model config 读取 `router_aux_loss_coef`，但训练 YAML 无法为单次实验覆写；
+  唯一办法是修改模型 artifact 的 `config.json` 或另存一份 checkpoint，容易污染模型真源，也无法在 Shaft
+  exact-resume contract 中清楚表达训练目标差异。
+- `algorithm.params` 已进入 resume contract，却没有内置消费者；拼错的 SFT param 会保持在配置中但不改变
+  训练。该问题不是模型能力或 eval/codec/metric/data 误判，而是训练 objective 配置与模型 policy 的接口缺口。
+
+### 根因
+
+- `TrainingObjectivePolicy` 只返回运行时 auxiliary term/default coefficient，没有声明稳定、可配置的 term
+  names；`SFTAlgorithm.prepare_trainer()` 也明确忽略 `AlgorithmContext`。
+- eval raw metric 名 `router_global_balance` 与训练 term 名 `router_aux_loss` 不同，若通用 Trainer 按 metric
+  名猜关联，或在 model finalizer 前替换 coefficient，都会破坏跨模型泛化并可能污染 raw eval 指标。
+
+### 影响范围
+
+- 新接口只影响显式配置 `algorithm.params.auxiliary_loss_weights` 的 SFT。默认省略时，Qwen3.5/3.6 MoE
+  继续使用 checkpoint 中的 `router_aux_loss_coef`；dense/Qwen3VL 等未声明 auxiliary term 的 profile 会在
+  加载数据和权重前拒绝相关 override。
+- override 改变训练总 loss、`aux/*_weighted` 与对应 `eval_aux/*_weighted`；raw auxiliary 指标和 CE-only
+  `eval_loss` 不变，也不会修改 HF model config。权重设为 0 仍保留 router logits 与 raw 观测开销。
+
+### 修复方式
+
+- 内置 SFT params 严格只接受 `auxiliary_loss_weights`；term name 规范化为小写，值必须是非布尔的有限
+  非负数。空 map 归一为省略，未知 params/term fail closed。
+- `TrainingObjectivePolicy.auxiliary_loss_names()` 声明稳定 term names；pipeline 在 model plan 解析后、任何
+  immutable artifact hash 前用 resolved adapter 校验，并在 pre-model 阶段防御复核；`SFTAlgorithm` 与
+  Trainer 也保留边界校验。config-preflight 将 canonical weights 纳入跨 rank fingerprint，runtime 同时拒绝
+  未声明或重复 emitted terms。
+- `ShaftEvalAuxiliaryStatistic` 和 `ShaftEvalAuxiliaryMetric` 用必填 `coefficient_key` 显式传播关联。model
+  finalizer 始终看到默认 coefficient 并先生成 raw metric，Trainer 最后才对 `*_weighted` 应用 effective
+  coefficient。
+- normalized `algorithm.params` 已由统一 training resume contract 绑定；不新增第二份 objective fingerprint。
+
+### 回归测试
+
+- config 回归覆盖 canonicalization、空/未知/非 mapping、负数、布尔值和非 SFT 使用；pipeline smoke 证明
+  override 被传到 Trainer，并证明不支持的模型在 model loader 前失败。
+- Trainer 回归同时验证默认与 override 的训练 loss/gradient/logging、raw eval coefficient 不受覆写、weighted
+  eval 使用 effective coefficient，以及未知 term 拒绝；Qwen3.5 MoE policy 回归锁定声明名与默认 coefficient。
+- focused config/model/trainer/pipeline tests 已通过；CPU-only tiny Qwen3.5/3.6 MoE 端到端门禁也已通过
+  fresh train、checkpoint-1 精确恢复到 step 2、router/expert 参数更新、auxiliary loss 日志、full HF 保存与
+  reload。该门禁使用官方 Transformers 类随机初始化微型 MoE checkpoint，只证明框架接线与状态语义；本地
+  没有真实 Qwen3.5/3.6 MoE 权重，因此不能外推 35B 规模的显存、吞吐、分布式稳定性或长程收敛。
+
+### 后续防线
+
+- 新模型 auxiliary objective 必须同时声明 canonical term name、模型默认 coefficient 和 eval
+  `coefficient_key`；禁止在 Trainer 按模型族硬编码或按 metric 名推导。
+- 新增内置 `algorithm.params` 必须有严格 schema、真实 consumer、pre-expensive-start validation、resume
+  contract 和训练行为测试；不能再保留静默无效字段。
+- 任何 coefficient override 都只能改变 weighted contribution，不能提前进入 model-owned raw metric
+  finalizer。
+
+## 2026-08-05：Qwen3VL 30B-A3B MoE SFT 真实权重门禁
+
+### 现象
+
+- 本地完整 `Qwen3-VL-30B-A3B-Instruct` 是 HF `qwen3_vl_moe`，但 `qwen3vl` 只登记 dense
+  `qwen3_vl`，因此在读权重前被 descriptor preflight 拒绝，不能开始 SFT。
+- 既有 MoE objective 只确认 router trace 非空，不确认是否覆盖所有稀疏层；真实 48 层模型若漏 hook，
+  auxiliary loss 可能静默基于不完整 trace。
+- artifact 的 `text_config.use_cache=true`，而训练此前只在 gradient checkpointing 打开时关闭 cache；
+  关闭 checkpointing 的训练会无意义构造 generation cache。
+- 第一版两步门禁曾错误显示 fresh/resume 一致：默认 warmup 令 checkpoint-1 的学习率为零，掩盖了模型参数
+  恢复缺陷。将 warmup 设为零后，fresh step 2 的 loss/grad norm 为 `4.28125/19.6372`，旧 resume 则为
+  `4.765625/18.2464`，确认不是数值噪声。
+- 旧 checkpoint 中 `pytorch_model_fsdp.bin` 的 904 个 adapter 张量全部是沿 dim 0 的 rank-local DTensor；
+  rank 0 文件只有完整 adapter 的 50%，遗漏半片已有非零 LoRA-B 更新，却被当作完整模型状态恢复。
+
+### 根因
+
+- Qwen3VL 的 variant registry、sharding、PEFT 和 objective policy 只为 dense profile 建模，没有把
+  `qwen3_vl_moe` 作为同一公开 `qwen3vl` 模型族中的独立 model group。
+- router objective 的最初 gate 来自微型模型，只验证单项 shape，没有把 topology 完整性提升为模型合同。
+- `use_cache` 被误当成 gradient-checkpointing 附属开关，而不是所有训练态的统一禁用项。
+- Transformers 5.10.1 的 FSDP checkpoint kwargs 对 PEFT 使用 `adapter_only=true`；Accelerate 1.13 的
+  FSDP2 保存/加载路径因此绕过 full-state 选项，产生 rank-local adapter DTensor。Shaft SFT resume 此前在
+  FSDP wrap 后继续消费该文件，且 backend-native checkpoint identity/stat guard 没有绑定标准
+  `adapter_config.json` 与 `adapter_model.safetensors`，所以不完整状态既未被拒绝也未被完整 adapter 覆盖。
+
+### 影响范围
+
+- 影响 Qwen3VL MoE SFT 的装配、router auxiliary 正确性、FSDP/PEFT 路由与训练内存；dense Qwen3VL
+  forward、数据和原始模型权重均未修改。
+- 不完整 native adapter 的问题影响 Shaft 的 SFT FSDP+PEFT exact resume 语义，不只影响 MoE；DDP adapter
+  恢复与 full-finetune FSDP 模型状态不使用这条逻辑。DPO/GRPO 尚未按同一策略验收，不能由本次结论外推。
+- 两张 80GB 卡不具备 30B 全参数 AdamW 的容量，本轮验收范围明确为真实 BF16 FSDP LoRA，不外推 full SFT。
+
+### 修复方式
+
+- 在 `qwen3vl` 内新增 `qwen3_vl_moe` group：padded-only sequence policy、
+  `Qwen3VLMoeTextDecoderLayer/Qwen3VLMoeVisionBlock` FSDP wrap、fused expert/router
+  `target_parameters` 和通用 `QwenVLMoeTrainingObjectivePolicy`。
+- 新增 `model.experts_implementation`，真实 gate 显式使用 `grouped_mm` 并绑定 exact-resume contract；
+  dense profile、其它模型族和 Qwen3VL MoE ZeRO-3 均 fail closed。
+- 按 `num_hidden_layers/decoder_sparse_step/mlp_only_layers` 推导 router 层数，同时校验每层 expert 维度；
+  所有训练微调路径统一关闭 `use_cache`，推理/在线生成仍在各自作用域显式恢复。
+- 抽出公共 PEFT artifact resolver：固定选择标准 safetensors（否则 bin），绑定 adapter config/weights 的
+  size 与 SHA-256，并把同一 artifact 放入 backend-native generation identity 和启动 stat guard。
+- `ShaftSFTTrainer` 在 FSDP wrap 前向每个 rank 完整预载标准 adapter，严格校验 key、shape 与加载后 value；
+  进入 HF resume 时只跳过不完整 native 模型文件，optimizer、scheduler、scaler、RNG 与 Trainer state 仍按
+  backend-native 路径恢复。FSDP+PEFT 强制 `state_dict_type=full_state_dict`，并对
+  `load_best_model_at_end=true` fail closed。
+- adapter init/export 与 FSDP resume 复用同一个 model 层 exact-load 函数，不再各自维护 key/shape/load
+  逻辑；FSDP preload 还禁止 `model_init` 在上游重新替换模型，并把布尔 `resume_from_checkpoint=true`
+  一次解析为固定 canonical checkpoint 后再交给 Trainer。
+- 两步门禁显式使用 `warmup_ratio=0`，要求 checkpoint-1 已有非零 LoRA-B 更新且 checkpoint-1/2 artifact
+  必须不同，避免“零学习率第一步”再次制造假阳性。
+
+### 回归测试
+
+- focused config/model/objective/PEFT/sequence tests 与两进程 CPU tiny Qwen3VL MoE fresh/resume/HF reload 通过；
+  新增 focused Trainer 编排测试，锁定 preload 先于上游 train、只跳过同一 checkpoint 的 native 模型加载，
+  且 optimizer/scheduler 恢复入口仍会执行。
+- CUDA 0/1 真实 30B-A3B gate 通过：两卡 FSDP LoRA 两步 fresh，并从 checkpoint-1 在独立 output 目录
+  恢复至 step 2。fresh checkpoint-1 adapter SHA256 为
+  `912f771ad16464263bf640380c1ca543526c4cf445482d6a489457190b93d706`；fresh checkpoint-2、fresh best、
+  resumed checkpoint-2 与 resumed best 均为
+  `6c6a5fcd733e406c0ad7afca6ea7fffa91f9814b07a7b140b7c70d145f39ba7e`。
+- 两步 loss 为 `5.40625/4.28125`，grad norm 为 `21.4922/19.6372`；step 1 raw router aux 为 `8.0625`，
+  覆写权重 `0.002` 后 weighted 值为 `0.016125`。resume 的 step 2 loss、grad norm 与学习率逐项一致；
+  两步 optimizer update 均应用。fresh 每卡峰值约 `38.72 GiB allocated / 40.75 GiB reserved`。
+- 逻辑总参数 `31,397,204,976`，trainable/optimizer/adapter 参数均为 `326,450,944`，904 个 adapter tensor
+  全部覆盖；门禁从真实 config 推导并验证 48 个 language/router/expert 层、27 个 vision block，且所有
+  LoRA-B 非零；checkpoint-1→2 的 904 个 A/B tensor 也全部发生变化。
+- 标准 HF+PEFT 重载真实基座后完成有限 BF16 forward，并验证 router trace 为 48 层、每层 128 experts；
+  router、fused gate-up/down、language attention 与 vision LoRA 均有非零更新。
+
+### 后续防线
+
+- MoE release gate 不能只看退出码或 loss：必须检查完整 router topology、raw/weighted coefficient、
+  expert/router/普通模块更新、标准 adapter exact resume、backend-native optimizer state 和标准 PEFT reload。
+- FSDP+PEFT 的逻辑模型真源是完整标准 adapter；不得恢复或比较 rank-local `pytorch_model_fsdp.bin`。
+  checkpoint identity/stat guard 必须覆盖选中的 adapter config/weights，且 gate 的第一保存点必须已经发生
+  非零参数更新。
+- 不以短门禁宣称长程收敛或 full-parameter 容量；Qwen3VL MoE 的 DeepSpeed ZeRO-3 必须先实现并验收
+  routed-expert leaf-module contract，不能照搬 dense 或 Qwen3.5/3.6 profile。
+- `gpu-holder` 只负责自动让卡；门禁全程不得停止、重启、发信号或修改其配置。
+
+## 2026-08-06：Qwen3VL 多变体注册破坏远程 serving alias 推理
+
+### 现象
+
+- Qwen3VL 注册 dense/MoE 两种 HF architecture 后，vLLM OpenAI engine 使用 `banana`、
+  `arrow_mixed_4b` 等合法 served-model alias 时，在发出 HTTP 请求前被完整模型 adapter resolver 拒绝。
+- 全量测试同时暴露两条旧断言：FSDP 训练仍期待 `use_cache=true`，Qwen3VL freeze 测试仍使用旧版
+  `model.layers.*` 参数路径。
+
+### 根因
+
+- 远程推理只需要模型族拥有的 template 与 inference policy，却错误复用了训练、本地加载和分片执行所需的
+  完整 adapter 解析；served alias 本身不能提供 HF `config.json`，也不应被塞入本地模型 catalog。
+- 旧测试没有随统一训练态 `use_cache=false` 合同和 Transformers 5.10.1 的
+  `model.language_model.layers.*` 参数层级同步更新。
+
+### 影响范围
+
+- 影响 Qwen3VL vLLM OpenAI 远程推理入口；本地 HF 推理、训练、导出及 dense/MoE 完整变体判定不应放宽。
+- cache 与 freeze 两项是测试口径滞后，生产实现和真实 4B/30B 参数索引均支持当前实现。
+
+### 修复方式
+
+- 新增最小 `ShaftInferenceContract`，只承载 `template_type` 与 model-owned inference policy。
+- `ModelMeta.resolve_inference_contract()` 对 catalog/descriptor 命中的模型使用对应变体；未知远程 alias
+  仅在所有注册变体的有效 inference contract 完全一致时允许，否则继续 fail closed。
+- vLLM OpenAI adapter 不再持有包含 sequence、sharding、PEFT 和 objective 状态的完整
+  `ShaftModelAdapter`；完整 `resolve_adapter()` 保持严格，不默认 dense。
+- cache/freeze 测试改为统一训练 cache 合同和真实 Qwen3VL 参数路径，不改变生产逻辑。
+
+### 回归测试
+
+- vLLM OpenAI 请求、顺序多图、像素预算、deadline/cancellation 等 8 条原失败用例恢复通过。
+- 新增远程 alias contract 边界测试：Qwen3VL dense/MoE 共享推理合同时可解析；模板或 policy 不同的
+  多变体 family 必须拒绝。
+- infer、model builder、freeze、model meta focused suite 全部通过。
+
+### 后续防线
+
+- 远程 serving alias 不能承担本地 artifact identity；远程推理只解析实际消费的最小 contract。
+- 只有所有候选变体共享同一推理合同才能省略 variant；训练、本地加载、分片与导出始终要求完整 descriptor。
+- 模型族测试中的参数名必须来自当前上游真实权重索引或模型实现，不能长期保留能命中前缀但不存在的伪路径。

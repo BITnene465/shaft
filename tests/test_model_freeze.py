@@ -18,6 +18,7 @@ from shaft.model.freeze import (
     apply_full_freeze,
     build_freeze_plan,
     resolve_adapter_modules_to_save,
+    resolve_adapter_target_parameters,
     resolve_adapter_target_modules,
 )
 from shaft.model.qwen3vl import QWEN3VL_META
@@ -119,9 +120,14 @@ def test_qwen_module_groups_do_not_freeze_visual_paths_when_language_model_group
         finetune=FinetuneConfig(mode="full", freeze=FreezeConfig(groups=["language_model"])),
     )
 
-    assert plan.should_train_name("model.layers.0.self_attn.q_proj.weight") is False
-    assert plan.should_train_name("model.visual.blocks.0.attn.q_proj.weight") is True
-    assert plan.should_train_name("model.visual.merger.mlp.0.weight") is True
+    assert (
+        plan.should_train_name(
+            "model.language_model.layers.0.self_attn.qkv.weight"
+        )
+        is False
+    )
+    assert plan.should_train_name("model.visual.blocks.0.attn.qkv.weight") is True
+    assert plan.should_train_name("model.visual.merger.linear_fc1.weight") is True
     assert plan.should_train_name("lm_head.weight") is True
 
 
@@ -132,8 +138,8 @@ def test_qwen_module_groups_do_not_fold_aligner_into_vision_tower() -> None:
         finetune=FinetuneConfig(mode="full", freeze=FreezeConfig(groups=["vision_tower"])),
     )
 
-    assert plan.should_train_name("model.visual.blocks.0.attn.q_proj.weight") is False
-    assert plan.should_train_name("model.visual.merger.mlp.0.weight") is True
+    assert plan.should_train_name("model.visual.blocks.0.attn.qkv.weight") is False
+    assert plan.should_train_name("model.visual.merger.linear_fc1.weight") is True
 
 
 def test_smoke_module_groups_match_real_module_prefixes() -> None:
@@ -146,6 +152,25 @@ def test_smoke_module_groups_match_real_module_prefixes() -> None:
     assert plan.should_train_name("embed_tokens.weight") is False
     assert plan.should_train_name("proj.weight") is False
     assert plan.should_train_name("lm_head.weight") is True
+
+
+def test_adapter_target_parameters_use_deepspeed_global_shape() -> None:
+    model = torch.nn.Module()
+    model.experts = torch.nn.Module()
+    model.experts.gate_up_proj = torch.nn.Parameter(torch.empty(0))
+    model.experts.gate_up_proj.ds_shape = (4, 8, 16)
+    plan = build_freeze_plan(
+        model_adapter=_build_adapter(),
+        finetune=FinetuneConfig(mode="lora"),
+    )
+
+    resolved = resolve_adapter_target_parameters(
+        model,
+        ["experts.gate_up_proj"],
+        plan=plan,
+    )
+
+    assert resolved == ["experts.gate_up_proj"]
 
 
 def test_full_mode_trainable_prefix_override_wins_last() -> None:
@@ -250,6 +275,29 @@ def test_lora_explicit_target_modules_do_not_raise_when_freeze_groups_overlap() 
 
     filtered_targets = resolve_adapter_target_modules(model, finetune.target_modules, plan=plan)
     assert filtered_targets == ["vision_tower.0", "aligner"]
+
+
+def test_lora_mixed_auto_and_explicit_targets_expand_without_losing_either() -> None:
+    model = _TinyFreezeModel()
+    adapter = _build_adapter()
+    finetune = FinetuneConfig(
+        mode="lora",
+        target_modules=["auto", "vision_tower.0"],
+        freeze=FreezeConfig(groups=["vision_tower"]),
+    )
+    plan = build_freeze_plan(model_adapter=adapter, finetune=finetune)
+
+    policy_targets = adapter.resolve_target_modules(finetune.target_modules)
+    resolved_targets = resolve_adapter_target_modules(
+        model,
+        policy_targets,
+        plan=plan,
+    )
+
+    assert "language_model.0" in resolved_targets
+    assert "aligner" in resolved_targets
+    assert "vision_tower.0" in resolved_targets
+    assert "all-linear" not in resolved_targets
 
 
 def test_apply_finetune_strategy_passes_filtered_targets_and_modules_to_save_to_peft() -> None:

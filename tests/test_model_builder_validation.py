@@ -17,7 +17,7 @@ from shaft.model.builder import (
 )
 
 
-def test_model_loader_uses_effective_gradient_checkpointing_for_fsdp() -> None:
+def test_model_loader_disables_generation_cache_during_fsdp_training() -> None:
     cfg = RuntimeConfig()
     cfg.model.model_type = "smoke_vlm"
     cfg.train.gradient_checkpointing = True
@@ -26,7 +26,7 @@ def test_model_loader_uses_effective_gradient_checkpointing_for_fsdp() -> None:
 
     artifacts = build_model_tokenizer_processor(cfg)
 
-    assert getattr(artifacts.model.config, "use_cache", True) is True
+    assert getattr(artifacts.model.config, "use_cache", True) is False
 
 
 def test_hf_sharded_checkpoint_validation_allows_complete_index(tmp_path: Path) -> None:

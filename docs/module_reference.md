@@ -214,6 +214,7 @@
 - `src/shaft/model/qwen_inference.py`
 - `src/shaft/model/sequence.py`
 - `src/shaft/model/sharding.py`
+- `src/shaft/model/objective.py`
 - `src/shaft/model/finetune.py`
 - `src/shaft/model/qwen3vl.py`
 - `src/shaft/model/qwen35vl.py`
@@ -239,8 +240,10 @@
     重复解析路径、variant 或 checkpoint 类型。
   - checkpointable 本地 HF 路径在 plan 阶段建立一次完整 SHA-256 baseline；builder 用短生命周期 metadata
     load guard 包住 HF loader，并在 loader 返回后做一次完整 SHA-256 closure。常态每个文件只完整扫描两次，
-    不再执行 baseline/pre-load/post-load 三次扫描；即每 rank 额外读取 `2 × artifact bytes`（HF loader 本身
-    另计）。guard 不是持久 cache，不能替代 closure hash；当前也不跨 rank 共享本地 digest。
+    不再执行 baseline/pre-load/post-load 三次扫描。分布式时由每 node leader 执行两次扫描并做跨 node
+    content consensus；同 node stat manifest 不同的 rank 自行 fallback hash。因此共享挂载通常额外读取
+    每 node `2 × artifact bytes`（HF loader 本身另计），独立挂载最坏退回每 rank 两次。guard 不是持久
+    cache，不能替代 closure hash；复用假设标准 torchrun 子进程共享 mount namespace。
   - 本地 sharded checkpoint 的 `weight_map` 使用 strict entry/path validator；不会忽略非法 value，也不会
     hash 或加载模型目录之外（包括 symlink escape）的 shard。非 indexed weight、config 和本地 remote-code
     文件复用同一 containment validator。
@@ -254,6 +257,7 @@
 - `ShaftModelAdapter`
 - `ProcessorPolicy`
 - `ProcessorInputPolicy`
+- `ShaftInferenceContract`
 - `ShaftInferencePolicy`
 - `QwenVLInferencePolicy`
 - `ShaftProcessedBatch`
@@ -261,6 +265,19 @@
 - `ShaftProcessorCostEstimate`
 - `ShaftSequenceExecutionContract`
 - `SequenceExecutionPolicy`
+- `TrainingObjectivePolicy`
+- `ShaftAuxiliaryLossTerm`
+- `ShaftEvalAuxiliaryStatistic`
+- `ShaftEvalAuxiliaryMetric`
+
+`TrainingObjectivePolicy` 是模型拥有的 SFT objective 扩展边界。通用 Trainer 仍拥有 shifted CE；policy 只能
+准备 forward inputs、返回训练期 scalar auxiliary term，以及返回可跨 batch/rank 相加的 eval statistics。
+policy 通过 `auxiliary_loss_names()` 声明可由配置覆写的稳定 term names；每个 eval statistic 用必填的
+`coefficient_key` 显式关联其中一个 term，finalizer 必须把该 key 原样传播到 `ShaftEvalAuxiliaryMetric`。
+`QwenVLMoeTrainingObjectivePolicy` 由 Qwen3VL MoE 与 Qwen3.5/3.6 MoE profile 共用：打开
+`output_router_logits`，训练使用上游 batch-local router aux，并按模型 topology 校验 router trace 必须覆盖
+全部稀疏层且 expert 维度一致；eval 由全局
+expert counts/probability sums 生成独立 router balance metric，不能把 per-batch aux 平均混入 `eval_loss`。
 
 `ShaftProcessedBatch` 保存一次 batch processor 调用的完整输出，不把允许字段限制为 Qwen 当前使用的
 键。`ProcessorPolicy` 同时声明 processor 构造参数、pixel-budget forwarding、token-layout 规则、训练
@@ -282,10 +299,13 @@ input mode 定义为 `generation`，异长 query 不会继承 training/right pad
 online `eval_final_score`；由于 `ShaftGRPOTrainer` 尚未提供可靠的 loss eval / `eval_final_loss` 聚合，config
 normalize 会拒绝 `algorithm=grpo + eval.enabled=true + loss_metrics_enabled=true`。
 
-`ShaftInferencePolicy` 是模型推理输入契约真源，经 `ModelMeta` 解析到 `ShaftModelAdapter`。它负责
-media、messages、chat-template backend kwargs 与 pixel-budget 行为，并按 backend 显式 opt in；默认
-policy 对本地和远端都 fail closed。`QwenVLInferencePolicy` 才拥有 Qwen smart resize 和
-Qwen35/36 thinking template 参数，`src/shaft/infer` 不按模型名分支。
+`ShaftInferencePolicy` 是模型推理输入契约真源。HF local 通过完整 `ShaftModelAdapter` 消费；远程
+OpenAI-compatible backend 只消费最小 `ShaftInferenceContract(template_type, policy)`，不能把 served-model
+alias 当成本地 artifact identity。未知 alias 仅在全部注册 model variant 的有效 template/policy 一致时可解析，
+否则 fail closed；训练、本地加载、分片和导出仍必须解析完整 variant。policy 负责 media、messages、
+chat-template backend kwargs 与 pixel-budget 行为，并按 backend 显式 opt in；默认 policy 对本地和远端都
+fail closed。`QwenVLInferencePolicy` 才拥有 Qwen smart resize 和 Qwen35/36 thinking template 参数，
+`src/shaft/infer` 不按模型名分支。
 
 `ShaftSequenceExecutionContract` 是一次训练唯一的模型执行能力决议，绑定 layout、device、attention
 backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版本。pipeline 在数据/权重加载前
@@ -335,9 +355,10 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 补充说明：
 
 - 模型装配固定为三相：`prepare_model_build()` 只做 shard/require/load-guard 与 adapter 预检，
-  `invoke_model_loader()` 是唯一允许拥有 HF/DeepSpeed collective 的相位，`finalize_model_build()` 做完整
-  artifact SHA closure、remote-code identity 与 adapter 后验。SFT/RLHF 只给 prepare/finalize 套
-  all-rank status convergence；raw loader 必须裸调用。普通 infer/export 继续调用
+  `invoke_model_loader()` 是 HF/DeepSpeed loader collective owner；`finalize_model_build()` 做完整 artifact
+  SHA closure、remote-code identity 与 adapter 后验，其中 checkpointable 本地 HF closure 拥有独立的
+  长超时 Gloo consensus。SFT/RLHF 给 prepare/finalize 套 all-rank failure convergence；raw loader 必须裸
+  调用，不能嵌套在 status envelope。普通 infer/export 继续调用
   `build_model_tokenizer_processor()`，由兼容 wrapper 顺序串联三相。
 - `ModelModuleGroups` 负责声明模型族的结构分组：
   - `language_model`
@@ -449,6 +470,10 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `DPOAlgorithm`
 - `GRPOAlgorithm`
 - `PPOAlgorithm`
+
+`SFTAlgorithm` 是 `algorithm.params.auxiliary_loss_weights` 的唯一内置消费者：它把 normalized override
+传给 `ShaftSFTTrainer`，并在构造 Trainer 前按 resolved model policy 的 `auxiliary_loss_names()` 校验 term。
+其它 SFT params 会在配置 normalize 阶段拒绝，不能成为静默无效字段。
 
 ### 关键函数
 
@@ -611,6 +636,18 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 
 补充说明：
 
+- `ShaftSFTTrainer` 对 primary CE 与 model-owned auxiliary objective 分开归约：训练 auxiliary 按实际
+  optimizer frame 的 rank/microbatch 语义加入反向；eval 只上报 token-global CE，并通过
+  `gather_for_metrics` 汇聚 batch-first additive statistics，避免 distributed sampler 尾部副本和 batch
+  partition 改变 MoE 指标。`aux/router_aux_loss` 与 `eval_aux/router_global_balance` 是 raw 值；相应
+  `*_weighted` 使用 policy 默认或 `algorithm.params.auxiliary_loss_weights.router_aux_loss` 覆写后的
+  effective coefficient。override 只在 model finalizer 产生 raw eval metric 后应用，`eval_loss` 始终只含
+  token-normalized CE。
+- `ShaftSFTTrainer` 构造时通过普通 tensor `numel()` 或 ZeRO placeholder 的 `ds_numel/ds_shape` 固定
+  HF-compatible non-embedding logical parameter count；`floating_point_ops()` 只将它与当前 main-input
+  元素数相乘。这样 ZeRO-3 checkpoint gather/partition 不会改变后续 `total_flos` 口径，fresh/resume 仍可
+  把该确定性累计状态纳入严格比较。
+
 - checkpoint 与 run metadata 分层：
   - `checkpoint-*` 是训练状态 generation；DDP/native-HF 只有通过 manifest validator 的目录才是 Shaft
     exact-resume 点，FSDP/DeepSpeed 的可恢复性由 backend-native contract 决定
@@ -635,9 +672,25 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
     artifact 只做一次完整 digest 校验，preflight、planned state 与 train 入口复用同一 token。进入 Trainer 前
     再检查小 marker 与 stat guard，并对 generation identity 做全 rank consensus，避免重复多 GiB I/O，同时拒绝
     启动窗口内 stat-visible 的替换/改写或各 rank 同名路径对应不同内容
+  - backend-native FSDP+PEFT checkpoint 的逻辑模型身份由完整标准 PEFT adapter 提供：resolver 固定选择
+    `adapter_model.safetensors`（否则 `adapter_model.bin`），并把 adapter config/weights 的路径、大小和 SHA-256
+    纳入 generation identity 与 stat guard。`ShaftSFTTrainer` 在 FSDP wrap 前向每个 rank 完整预载该 adapter，
+    精确校验 key/shape/value，再跳过 Transformers/Accelerate 生成的不完整 rank-local
+    `pytorch_model_fsdp.bin`；optimizer、scheduler、scaler、RNG 与 Trainer state 仍由 backend-native 路径恢复。
+    该恢复语义当前只对 SFT 验收，不能外推到 DPO/GRPO；FSDP+PEFT 同时要求 `full_state_dict` 且禁止
+    `load_best_model_at_end`
   - 所有训练路径都把 canonical `ShaftBatchContract` 通过 stateful callback 写入 HF
     `trainer_state.json`；改变 grouping/cardinality/packing/layout、local batch、DP world size 或 GA 时，
     exact resume 会拒绝
+  - SFT 另由 `ShaftSFTReportingStateCallback` 在同一 `trainer_state.json` 中保存每个 rank 尚未写出的
+    `_tr_loss/_total_loss_scalar/_globalstep_last_logged` 与 model-owned auxiliary 累积窗口；这样 checkpoint
+    位于两个 logging event 之间时，恢复后的 `loss`、`aux/*`、`log_history/on_log` 仍与 uninterrupted
+    轨迹一致。callback state 缺失、rank/world/step 不完整、非有限数值或 auxiliary term 集合不一致均
+    fail closed；旧 checkpoint 需要走 `init_from_checkpoint`，不能冒充当前 exact-resume protocol
+  - pending HF loss 在首个 resumed `training_step` 的 backward 之后、后续 GA microstep 之前恢复；
+    `logging_nan_inf_filter`、no-op resume 和各 rank pending 不同均有独立处理。最终 `train_loss` 使用全局
+    checkpoint baseline，只统计本次恢复进程执行窗口。run-root state 会移除该 callback，不能作为 resume
+    checkpoint
   - GRPO checkpoint 额外按真实 rank-local epoch microstep 几何验证 TRL generation buffer phase。完整
     grouped epoch 的末端天然是安全边界；step save、部分 epoch save 和 resume checkpoint 都使用 shortened
     accumulation 后的实际 microstep cursor 校验，不能只比较 `global_step * GA`。vLLM sampled rollout 的
@@ -752,6 +805,8 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
     - 负责把 effective gradient checkpointing 传给 `TrainingArguments`
   - `src/shaft/model/finetune.py`
     - 负责在训练态关闭 `use_cache`
+    - 保留 base artifact 原始 cache 默认值；Trainer full save 与 PEFT merge save 只在序列化作用域内恢复，
+      保存后训练进程仍保持 `use_cache=false`，标准 HF full/merged artifact 不继承训练态开关
     - `qlora` 路径会把该开关传给 `prepare_model_for_kbit_training`
 - `train.distributed` 当前通过 `src/shaft/pipeline/training_args.py` 接入 HF Trainer：
   - `strategy=ddp` 保持默认 torchrun/DDP
@@ -759,12 +814,21 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
   - `strategy=deepspeed` 透传 `TrainingArguments.deepspeed`
   - Qwen3VL 的 FSDP `transformer_layer_cls_to_wrap=["auto"]` 会解析为
     `Qwen3VLTextDecoderLayer` 与 `Qwen3VLVisionBlock`
+  - Qwen3VL MoE 会解析为 `Qwen3VLMoeTextDecoderLayer` 与 `Qwen3VLMoeVisionBlock`，绑定
+    padded-only `Qwen3VLMoeSequenceExecutionPolicy`、fused-parameter PEFT policy 和 router objective；当前
+    expert backend 的 profile 默认值为 `grouped_mm` 并进入 model-plan/exact-resume 语义；ZeRO-3 在 expert
+    leaf-module contract 完成前 fail closed
   - Qwen3.5 / Qwen3.6 dense 会解析为 `Qwen3_5DecoderLayer` 与
     `Qwen3_5VisionBlock`
-  - Qwen3.5 / Qwen3.6 MoE descriptor 骨架会解析为 `Qwen3_5MoeDecoderLayer` 与
-    `Qwen3_5MoeVisionBlock`；这只用于识别/兼容性防线，当前不表示训练支持
-  - Qwen3.6 当前推荐关闭 FSDP activation checkpointing，使用 Trainer/model gradient checkpointing；
-    full-parameter AdamW 训练还需要 ZeRO-3/offload/低内存 optimizer 或更高显存预算。
+  - Qwen3.5 / Qwen3.6 MoE profile 会解析为 `Qwen3_5MoeDecoderLayer` 与
+    `Qwen3_5MoeVisionBlock`，并绑定 fused-parameter PEFT policy 与 router objective policy
+  - Qwen3.5/3.6 dense 与 MoE 当前硬性要求关闭 FSDP activation checkpointing，使用 Trainer/model
+    gradient checkpointing；full-parameter AdamW 训练还需要 ZeRO-3/offload/低内存 optimizer 或更多显存。
+- `target_parameters` 与 `target_modules/modules_to_save` 一起进入 `ShaftPeftSignature`。Qwen3VL MoE 与
+  Qwen3.5/3.6 MoE
+  在显式配置 `[auto]` 时解析 fused routed experts/router；DeepSpeed ZeRO-3 parameter-LoRA 在 model
+  sharding policy 中提前拒绝。当前 tiny-validated 矩阵是 DDP/FSDP LoRA 与 ZeRO-3 full，不能外推到
+  真实 35B 权重。
 - adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
 
 ## 9. `codec`

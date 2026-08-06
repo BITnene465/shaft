@@ -5,6 +5,10 @@ import math
 import re
 from typing import Any, get_args, get_type_hints
 
+from .algorithm import (
+    SFT_AUXILIARY_LOSS_WEIGHTS_PARAM,
+    normalize_sft_algorithm_params,
+)
 from .data import SHAFT_BATCH_RESOURCE_NAMES
 from .runtime import RuntimeConfig
 from .training import resolve_eval_input_policy
@@ -40,6 +44,17 @@ _PARAM_GROUP_LR_KEYS = {
     "modules_to_save",
 }
 _EFFICIENCY_DEVICE_TIMING = {"auto", "off"}
+_MODEL_TORCH_DTYPES = {
+    "auto",
+    "bf16",
+    "bfloat16",
+    "fp16",
+    "float16",
+    "half",
+    "fp32",
+    "float32",
+}
+_COMPUTE_TORCH_DTYPES = _MODEL_TORCH_DTYPES - {"auto"}
 
 
 def _normalize_bool(value: object, field_name: str) -> bool:
@@ -162,6 +177,20 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(
             f"Unsupported algorithm.name={config.algorithm.name!r}. Expected one of {_ALGORITHMS}."
         )
+    if config.algorithm.name == "sft":
+        config.algorithm.params = normalize_sft_algorithm_params(
+            config.algorithm.params
+        )
+    else:
+        if not isinstance(config.algorithm.params, dict):
+            raise TypeError("algorithm.params must be a mapping.")
+        algorithm_params = dict(config.algorithm.params)
+        if SFT_AUXILIARY_LOSS_WEIGHTS_PARAM in algorithm_params:
+            raise ValueError(
+                "algorithm.params.auxiliary_loss_weights is only supported when "
+                "algorithm.name='sft'."
+            )
+        config.algorithm.params = algorithm_params
 
     config.model.model_type = str(config.model.model_type).strip().lower()
     if not config.model.model_type:
@@ -187,6 +216,26 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         config.model.trust_remote_code,
         "model.trust_remote_code",
     )
+    config.model.experts_implementation = (
+        str(config.model.experts_implementation).strip().lower() or None
+        if config.model.experts_implementation is not None
+        else None
+    )
+    if config.model.experts_implementation == "auto":
+        config.model.experts_implementation = None
+    if (
+        config.model.experts_implementation is not None
+        and config.model.model_type not in {"qwen3vl", "qwen35vl", "qwen36vl"}
+    ):
+        raise ValueError(
+            "model.experts_implementation is currently supported only by Qwen VL MoE profiles."
+        )
+    config.model.torch_dtype = str(config.model.torch_dtype).strip().lower()
+    if config.model.torch_dtype not in _MODEL_TORCH_DTYPES:
+        raise ValueError(
+            f"Unsupported model.torch_dtype={config.model.torch_dtype!r}. "
+            f"Expected one of {sorted(_MODEL_TORCH_DTYPES)}."
+        )
 
     schedule = config.data.schedule
     schedule.mixing = str(schedule.mixing).strip().lower()
@@ -375,11 +424,22 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         finetune.freeze.trainable_regex,
         "model.finetune.freeze.trainable_regex",
     )
-    if not finetune.target_modules:
-        finetune.target_modules = ["auto"]
     finetune.target_modules = _normalize_string_list(finetune.target_modules)
-    if not finetune.target_modules:
-        raise ValueError("model.finetune.target_modules cannot be empty.")
+    finetune.target_parameters = _normalize_string_list(finetune.target_parameters)
+    finetune.qlora_compute_dtype = str(finetune.qlora_compute_dtype).strip().lower()
+    if finetune.qlora_compute_dtype not in _COMPUTE_TORCH_DTYPES:
+        raise ValueError(
+            "Unsupported model.finetune.qlora_compute_dtype="
+            f"{finetune.qlora_compute_dtype!r}. Expected one of "
+            f"{sorted(_COMPUTE_TORCH_DTYPES)}."
+        )
+    if finetune.mode in {"lora", "dora", "qlora"} and not (
+        finetune.target_modules or finetune.target_parameters
+    ):
+        raise ValueError(
+            "Adapter finetuning requires at least one of "
+            "model.finetune.target_modules or target_parameters."
+        )
 
     config.eval.enabled = _normalize_bool(config.eval.enabled, "eval.enabled")
     for dataset in config.data.datasets:

@@ -1050,6 +1050,7 @@ def _training_execution(
     resolved_finetune_plan_fingerprint: str,
     resolved_optimizer_plan_fingerprint: str,
     sequence_execution_contract_fingerprint: str | None,
+    resolved_experts_implementation: str | None,
 ) -> dict[str, Any]:
     distributed = config.train.distributed
     strategy = str(distributed.strategy).strip().lower()
@@ -1110,6 +1111,8 @@ def _training_execution(
             ),
             "torch_dtype": str(config.model.torch_dtype),
             "attention_implementation": config.model.attn_implementation,
+            "experts_implementation": resolved_experts_implementation,
+            "experts_implementation_request": config.model.experts_implementation,
             "device_map": _canonical_json_value(config.model.device_map),
             "torch_compile": bool(getattr(training_args, "torch_compile", False)),
             "torch_compile_backend": getattr(
@@ -1426,12 +1429,16 @@ def build_training_resume_contract(
     resolved_optimizer_plan_fingerprint: str,
     sequence_execution_contract_fingerprint: str | None = None,
     sequence_execution_capabilities: Sequence[str] = (),
+    resolved_experts_implementation: str | None = None,
     resolved_dpo_args: Any | None = None,
     resolved_grpo_args: Any | None = None,
     hook_instances: Sequence[Any] = (),
     interceptor_instances: Sequence[Any] = (),
 ) -> ShaftTrainingResumeContract:
     """Build the one trajectory contract shared by fixed and planned training."""
+
+    if resolved_experts_implementation is None:
+        resolved_experts_implementation = config.model.experts_implementation
 
     if not str(model_plan_fingerprint).strip():
         raise ValueError("Training resume contract requires a model-plan fingerprint.")
@@ -1500,6 +1507,9 @@ def build_training_resume_contract(
                     resolved_optimizer_plan_fingerprint=(resolved_optimizer_plan_fingerprint),
                     sequence_execution_contract_fingerprint=(
                         sequence_execution_contract_fingerprint
+                    ),
+                    resolved_experts_implementation=(
+                        resolved_experts_implementation
                     ),
                 ).items()
             )
@@ -1574,6 +1584,21 @@ def build_training_resume_preflight_contract(
         optimizer_plan_fingerprint,
         sequence_contract_fingerprint,
     ) = checkpoint_contract.model_execution_fingerprints()
+    stored_execution = dict(checkpoint_contract.execution)
+    stored_model_execution = stored_execution.get("model_execution")
+    if type(stored_model_execution) is not dict:
+        raise ValueError("Training resume contract has no canonical model_execution mapping.")
+    resolved_experts_implementation = stored_model_execution.get(
+        "experts_implementation"
+    )
+    if resolved_experts_implementation is not None and (
+        type(resolved_experts_implementation) is not str
+        or not resolved_experts_implementation.strip()
+    ):
+        raise TypeError(
+            "Training resume contract model_execution.experts_implementation "
+            "must be null or a non-empty JSON string."
+        )
     if not sequence_execution_capabilities:
         stored_implementation = dict(checkpoint_contract.implementation)
         stored_capabilities = stored_implementation.get(
@@ -1595,6 +1620,7 @@ def build_training_resume_preflight_contract(
         resolved_finetune_plan_fingerprint=finetune_plan_fingerprint,
         resolved_optimizer_plan_fingerprint=optimizer_plan_fingerprint,
         sequence_execution_contract_fingerprint=sequence_contract_fingerprint,
+        resolved_experts_implementation=resolved_experts_implementation,
         resolved_dpo_args=resolved_dpo_args,
         resolved_grpo_args=resolved_grpo_args,
         hook_instances=hook_instances,

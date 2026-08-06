@@ -10,6 +10,8 @@ from shaft.algorithms.base import AlgorithmContext
 from shaft.algorithms.registry import ALGORITHM_REGISTRY
 from shaft.algorithms import sft as _sft  # noqa: F401
 from shaft.config import RuntimeConfig, resolve_eval_input_policy
+from shaft.config.algorithm import SFT_AUXILIARY_LOSS_WEIGHTS_PARAM
+from shaft.config.algorithm import normalize_sft_algorithm_params
 from shaft.data import (
     SFTCollator,
     SFTDataset,
@@ -28,9 +30,12 @@ from shaft.data import (
 )
 from shaft.model import (
     build_model_tokenizer_processor,
+    materialize_resolved_model_artifact_identity,
     resolve_model_plan,
     summarize_resolved_finetune_plan,
+    validate_auxiliary_weight_names,
     validate_model_artifact_checkpointability,
+    validate_resolved_model_descriptor,
     write_resolved_finetune_summary,
 )
 from shaft.model.generation import align_model_generation_config
@@ -98,7 +103,11 @@ from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .execution import finalize_training_outputs, prepare_pipeline_call
-from .training_args import build_hf_training_args, resolve_training_compute_dtype
+from .training_args import (
+    build_hf_training_args,
+    resolve_training_compute_dtype,
+    validate_trainable_parameter_precision,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -259,10 +268,14 @@ class ShaftSFTPipeline:
         config = self.config
         initialize_process_group_if_needed(use_cpu=config.train.use_cpu)
         algorithm_name = str(config.algorithm.name).strip().lower()
+        auxiliary_loss_weights: dict[str, float] = {}
         with distributed_training_contract_stage(
             stage="config-preflight",
             fingerprints=lambda: {
                 "algorithm": algorithm_name,
+                "auxiliary_loss_weights": repr(
+                    tuple(sorted(auxiliary_loss_weights.items()))
+                ),
                 "hooks": "\x1f".join(config.plugins.hooks) or "none",
                 "interceptors": ("\x1f".join(config.plugins.interceptors) or "none"),
             },
@@ -275,6 +288,15 @@ class ShaftSFTPipeline:
                     f"ShaftSFTPipeline only supports sft, got {algorithm_name!r}. "
                     "Use ShaftRLHFPipeline for DPO/PPO."
                 )
+            config.algorithm.params = normalize_sft_algorithm_params(
+                config.algorithm.params
+            )
+            auxiliary_loss_weights = dict(
+                config.algorithm.params.get(
+                    SFT_AUXILIARY_LOSS_WEIGHTS_PARAM,
+                    {},
+                )
+            )
             validate_training_state_policy(config)
             validate_training_topology(config)
         # This helper owns a distributed I/O convergence collective. It must run
@@ -317,6 +339,7 @@ class ShaftSFTPipeline:
                 config.train.resume_from_checkpoint,
                 protocol=checkpoint_protocol,
                 require_planning_state=planned,
+                finetune_mode=config.model.finetune.mode,
             )
             resume_checkpoint = (
                 None
@@ -352,6 +375,33 @@ class ShaftSFTPipeline:
                     require_training_resume_contract_payload=True,
                 )
 
+        checkpointing_requested = (
+            str(config.train.save_strategy).strip().lower() != "no"
+            or resume_checkpoint is not None
+        )
+        with distributed_training_contract_stage(
+            stage="model-plan-local",
+            fingerprints=lambda: {
+                "checkpointing": (
+                    "required" if checkpointing_requested else "disabled"
+                ),
+                "model_plan": model_plan.fingerprint,
+            },
+        ):
+            model_plan = resolve_model_plan(
+                config,
+                init_from_checkpoint=config.train.init_from_checkpoint,
+                require_immutable_artifact=False,
+            )
+            validate_auxiliary_weight_names(
+                model_plan.model_adapter,
+                auxiliary_loss_weights,
+            )
+        if checkpointing_requested:
+            # This helper owns a long-timeout Gloo consensus and must not be
+            # nested inside the generic rank-status envelope above.
+            model_plan = materialize_resolved_model_artifact_identity(model_plan)
+
         with distributed_training_contract_stage(
             stage="pre-model",
             fingerprints=lambda: {
@@ -365,14 +415,19 @@ class ShaftSFTPipeline:
                 "training": pre_model_training_contract.fingerprint,
             },
         ):
-            checkpointing_requested = (
-                str(config.train.save_strategy).strip().lower() != "no"
-                or resume_checkpoint is not None
+            validate_resolved_model_descriptor(model_plan)
+            # Defensive repeat after immutable artifact resolution; the first
+            # gate above intentionally runs before any potentially large hash.
+            validate_auxiliary_weight_names(
+                model_plan.model_adapter,
+                auxiliary_loss_weights,
             )
-            model_plan = resolve_model_plan(
-                config,
-                init_from_checkpoint=config.train.init_from_checkpoint,
-                require_immutable_artifact=checkpointing_requested,
+            model_plan.model_adapter.validate_training_finetune_config(
+                config.model.finetune
+            )
+            model_plan.model_adapter.validate_distributed_config(
+                config.train,
+                finetune=config.model.finetune,
             )
             validate_model_artifact_checkpointability(
                 model_plan,
@@ -431,6 +486,11 @@ class ShaftSFTPipeline:
                 resolved_optimizer_plan_fingerprint="pending-model-load",
                 sequence_execution_contract_fingerprint=(sequence_execution_contract.fingerprint),
                 sequence_execution_capabilities=(sequence_execution_contract.capability_signature),
+                resolved_experts_implementation=(
+                    model_plan.model_adapter.resolve_experts_implementation(
+                        config.model.experts_implementation
+                    )
+                ),
                 hook_instances=self.hook_manager.hooks,
                 interceptor_instances=self.interceptor_manager.interceptors,
             )
@@ -513,7 +573,8 @@ class ShaftSFTPipeline:
 
         # HF/DeepSpeed model loading may own collectives. The preceding data
         # stage is its data readiness consensus. Model construction additionally
-        # converges its pure-local prepare/finalize phases, while the raw loader
+        # converges prepare/finalize failures; checkpointable local-HF finalize
+        # owns its own long-timeout artifact-identity consensus. The raw loader
         # invocation between them remains outside every status envelope.
         def run_local_model_build_phase(phase: str, operation):
             result = None
@@ -558,6 +619,7 @@ class ShaftSFTPipeline:
                 raise RuntimeError(
                     "Checkpointable SFT requires a resolved finetune plan from the model loader."
                 )
+            validate_trainable_parameter_precision(artifacts.model, training_args)
             resolved_optimizer_plan = build_resolved_optimizer_plan(
                 model=artifacts.model,
                 args=training_args,
@@ -619,6 +681,11 @@ class ShaftSFTPipeline:
                 resolved_optimizer_plan_fingerprint=(resolved_optimizer_plan.fingerprint),
                 sequence_execution_contract_fingerprint=(sequence_execution_contract.fingerprint),
                 sequence_execution_capabilities=(sequence_execution_contract.capability_signature),
+                resolved_experts_implementation=(
+                    model_plan.model_adapter.resolve_experts_implementation(
+                        config.model.experts_implementation
+                    )
+                ),
                 hook_instances=self.hook_manager.hooks,
                 interceptor_instances=self.interceptor_manager.interceptors,
             )
@@ -940,6 +1007,11 @@ class ShaftSFTPipeline:
                 "resolved_optimizer_plan": resolved_optimizer_plan,
                 "efficiency_monitor": efficiency_monitor,
                 "shaft_checkpoint_protocol": checkpoint_protocol,
+                "resume_peft_artifact": (
+                    None
+                    if resolved_resume_checkpoint is None
+                    else resolved_resume_checkpoint.adapter_artifact
+                ),
             }
             trainer_spec = algorithm.prepare_trainer(**trainer_kwargs)
         # Trainer/Accelerator construction may initialize backend collectives.

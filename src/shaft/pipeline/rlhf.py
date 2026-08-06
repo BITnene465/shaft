@@ -35,8 +35,10 @@ from shaft.data import (
 )
 from shaft.model import (
     build_model_tokenizer_processor,
+    materialize_resolved_model_artifact_identity,
     resolve_model_plan,
     validate_model_artifact_checkpointability,
+    validate_resolved_model_descriptor,
 )
 from shaft.model import summarize_resolved_finetune_plan, write_resolved_finetune_summary
 from shaft.observability import build_progress_manager
@@ -88,7 +90,11 @@ from shaft.training.resume_contract import (
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .execution import finalize_training_outputs, prepare_pipeline_call
-from .training_args import build_hf_training_args, resolve_training_compute_dtype
+from .training_args import (
+    build_hf_training_args,
+    resolve_training_compute_dtype,
+    validate_trainable_parameter_precision,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +259,7 @@ class ShaftRLHFPipeline:
             resolved_resume_checkpoint = resolve_resume_checkpoint_generation(
                 config.train.resume_from_checkpoint,
                 protocol=checkpoint_protocol,
+                finetune_mode=config.model.finetune.mode,
             )
             resume_checkpoint = (
                 None
@@ -290,6 +297,29 @@ class ShaftRLHFPipeline:
                     require_training_resume_contract_payload=True,
                 )
 
+        checkpointing_requested = algorithm_name != "ppo" and (
+            str(config.train.save_strategy).strip().lower() != "no"
+            or resume_checkpoint is not None
+        )
+        with distributed_training_contract_stage(
+            stage="model-plan-local",
+            fingerprints=lambda: {
+                "checkpointing": (
+                    "required" if checkpointing_requested else "disabled"
+                ),
+                "model_plan": model_plan.fingerprint,
+            },
+        ):
+            model_plan = resolve_model_plan(
+                config,
+                init_from_checkpoint=config.train.init_from_checkpoint,
+                require_immutable_artifact=False,
+            )
+        if checkpointing_requested:
+            # This helper owns a long-timeout Gloo consensus and must not be
+            # nested inside the generic rank-status envelope above.
+            model_plan = materialize_resolved_model_artifact_identity(model_plan)
+
         with distributed_training_contract_stage(
             stage="pre-model",
             fingerprints=lambda: {
@@ -309,14 +339,13 @@ class ShaftRLHFPipeline:
                 ),
             },
         ):
-            checkpointing_requested = algorithm_name != "ppo" and (
-                str(config.train.save_strategy).strip().lower() != "no"
-                or resume_checkpoint is not None
+            validate_resolved_model_descriptor(model_plan)
+            model_plan.model_adapter.validate_training_finetune_config(
+                config.model.finetune
             )
-            model_plan = resolve_model_plan(
-                config,
-                init_from_checkpoint=config.train.init_from_checkpoint,
-                require_immutable_artifact=checkpointing_requested,
+            model_plan.model_adapter.validate_distributed_config(
+                config.train,
+                finetune=config.model.finetune,
             )
             validate_model_artifact_checkpointability(
                 model_plan,
@@ -385,6 +414,11 @@ class ShaftRLHFPipeline:
                     ),
                     sequence_execution_capabilities=(
                         sequence_execution_contract.capability_signature
+                    ),
+                    resolved_experts_implementation=(
+                        model_plan.model_adapter.resolve_experts_implementation(
+                            config.model.experts_implementation
+                        )
                     ),
                     resolved_dpo_args=resolved_dpo_args,
                     resolved_grpo_args=resolved_grpo_args,
@@ -489,7 +523,8 @@ class ShaftRLHFPipeline:
                 )
         # HF/DeepSpeed model loading may own collectives. The preceding data
         # stage is its data readiness consensus. Model construction additionally
-        # converges its pure-local prepare/finalize phases, while the raw loader
+        # converges prepare/finalize failures; checkpointable local-HF finalize
+        # owns its own long-timeout artifact-identity consensus. The raw loader
         # invocation between them remains outside every status envelope.
         def run_local_model_build_phase(phase: str, operation):
             result = None
@@ -527,6 +562,7 @@ class ShaftRLHFPipeline:
             finetune_plan = getattr(artifacts, "finetune_plan", None)
             if finetune_plan is None:
                 raise RuntimeError("RLHF model loader must publish a resolved finetune plan.")
+            validate_trainable_parameter_precision(artifacts.model, training_args)
             resolved_optimizer_plan = build_resolved_optimizer_plan(
                 model=artifacts.model,
                 args=training_args,
@@ -614,6 +650,11 @@ class ShaftRLHFPipeline:
                     ),
                     sequence_execution_capabilities=(
                         sequence_execution_contract.capability_signature
+                    ),
+                    resolved_experts_implementation=(
+                        model_plan.model_adapter.resolve_experts_implementation(
+                            config.model.experts_implementation
+                        )
                     ),
                     resolved_dpo_args=resolved_dpo_args,
                     resolved_grpo_args=resolved_grpo_args,

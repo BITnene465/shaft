@@ -4,23 +4,43 @@
 
 ## 当前主线
 
-- 稳定 Qwen3VL / Qwen3.5 / Qwen3.6 dense 的 HF-first SFT、RLHF、checkpoint、resume、infer 与 export 主链。
+- 稳定 Qwen3VL / Qwen3.5 / Qwen3.6 dense 与 MoE 的 HF-first SFT、checkpoint、resume、infer 与 export 主链。
 - 保持配置、数据、模型、模板、算法、pipeline、training、infer、codec、metrics、export 的单一真源。
 
 ## 发布前仍需按需执行的验收
 
 - 在最终冻结 SHA 上执行 CUDA Qwen release gates；CPU tiny-model 测试不能替代真实 CUDA kernel 验收。
-- 如果要对外声明真实多机能力，执行双主机 NCCL/NIC/共享存储 canary；同机 Gloo 多 launcher 只验证
-  rank、topology、checkpoint 和故障收敛契约。
+- 如果要对外声明真实多机能力，执行双主机 NCCL/NIC/共享存储 canary，并覆盖本地 HF artifact 的
+  node-leader baseline/post-load identity consensus；同机 Gloo 多 launcher 只验证 rank、topology、
+  checkpoint 和故障收敛契约，不能替代 NCCL default group + Gloo identity group 或真实共享存储证据。
 
 ## 明确暂缓
 
-- Qwen3.5/3.6 及其它模型族的 MoE 训练：当前只保留 descriptor、模块分组、导出兼容性与 tiny 测试骨架，
-  不作为正式训练能力。开放前必须分别完成真实 MoE 权重的 optimizer/router/expert 语义、DDP/FSDP/
-  DeepSpeed checkpoint-resume、显存/吞吐、HF/PEFT 导出回载以及至少一条目标硬件 E2E；dense gate 不能替代。
+- Qwen3VL 30B-A3B MoE 的两卡 BF16 FSDP LoRA 短门禁已经通过，但目标数据长程收敛、吞吐调优和
+  full-parameter SFT 容量仍未验收。两卡全参数 AdamW 不在当前资源边界内；DeepSpeed ZeRO-3 还缺模型专属
+  routed-expert leaf-module contract，因此 Qwen3VL MoE 当前只声明 padded FSDP LoRA 路线。
+- Qwen3.5/3.6 真实 MoE 发布权重的生产验收：tiny upstream architecture 已覆盖 router objective、DDP、
+  FSDP LoRA、ZeRO-3 full、exact resume 与 HF/PEFT export，但还需要真实 35B 权重的目标硬件显存/吞吐、
+  长程数值稳定性和目标数据收敛 canary。tiny gate 不能替代该容量结论。
+- `DeepSpeed ZeRO-3 + PEFT target_parameters`：PEFT 0.18.1 不能对构造期 partition placeholder 注入
+  direct-parameter wrapper，当前明确拒绝。只有上游提供稳定支持并完成 fresh/resume/export gate 后才重新开放；
+  不在 Shaft 内复制或猴子补丁 PEFT 注入器。
+- 尚未验收的真实规模/精度组合：Qwen3.5/3.6 dense 27B、Qwen3.5/3.6 MoE 35B、Qwen3VL-32B、varlen
+  FP16 与 FSDP FP16。当前模型注册或 runtime allowlist 不能替代对应 checkpoint/hardware gate。
+- adapter-on-adapter 再训练的 merge provenance：当前可从 PEFT adapter 精确初始化并继续训练，但若产物的
+  declared base 已变为上一个 adapter，安全 merge 不会自动递归追溯 adapter chain。需要定义扁平化 base
+  provenance 与双 adapter state 语义后再开放，当前不要依赖 `allow-unverified-base-model` 绕过。
+- PEFT 显式 `target_parameters` 与 freeze override 的优先级尚未统一为稳定公共语义；当前仍按 freeze plan
+  过滤 direct-parameter target。模型族默认 `[auto]` 路径已有测试，用户显式覆盖 freeze 的语义在定稿前
+  保持保守，不声明与显式 `target_modules` 完全等价。
 - 多图 sequence packing：单图 varlen/packing 已有执行骨架，但多图 media-segment 对齐、隔离与模型族
   correctness 需要独立设计和 GPU 验收；普通 padded SFT/DPO 与有序多图推理已经支持，不在此 TODO 内。
 - FSDP/DeepSpeed 下尚未开放的 planned sampler 组合：继续 fail closed，不以兼容开关伪装支持。
+- FSDP/DeepSpeed 的 typed committed checkpoint protocol：当前 backend-native 路径由后端负责保存和
+  rotation，不提供 DDP `committed_manifest` 同等级的 torn/atomic 保证。SFT FSDP+PEFT 已单独把完整标准
+  adapter 绑定到 generation identity/stat guard，但 optimizer、scheduler、每-rank RNG、可选 scaler 与
+  full/native shard 仍需统一的 typed manifest、完整性校验和 run-root fallback gate；完成前不要把 intact
+  checkpoint 的 exact-resume 验收表述为任意崩溃点原子提交。
 - 脱离 Hugging Face Trainer 的大规模训练内核重写：当前继续 HF-first，除非真实瓶颈和收益足以支撑独立立项。
 - 重型离线 benchmark / Eval Bench 产品：已经从主线切除；未来如有真实需求，作为独立项目重新立项，
   不复制 Shaft 的 codec、metric 或 infer 真源。

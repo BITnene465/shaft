@@ -13,12 +13,14 @@ except ImportError:  # Transformers 5.x removed this deprecated alias.
 
 from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
 
+from .descriptor import ResolvedModelDescriptor
 from .finetune import apply_resolved_finetune_plan, make_bnb_4bit_config
 from .finetune_plan import build_resolved_finetune_plan
+from .objective import QwenVLMoeTrainingObjectivePolicy
 from .qwen_inference import QwenVLInferencePolicy
 from .policies import build_peft_policy, build_processor_policy
 from .registry import default_model_groups, register_model
-from .sequence import Qwen3VLSequenceExecutionPolicy
+from .sequence import Qwen3VLMoeSequenceExecutionPolicy, Qwen3VLSequenceExecutionPolicy
 from .sharding import ModelShardingPolicy
 from .types import (
     ModelArtifacts,
@@ -33,13 +35,18 @@ from .types import (
 
 def _resolve_dtype(dtype_name: str) -> torch.dtype | str:
     normalized = str(dtype_name).strip().lower()
+    if normalized == "auto":
+        return "auto"
     if normalized in {"bf16", "bfloat16"}:
         return torch.bfloat16
-    if normalized in {"fp16", "float16"}:
+    if normalized in {"fp16", "float16", "half"}:
         return torch.float16
     if normalized in {"fp32", "float32"}:
         return torch.float32
-    return "auto"
+    raise ValueError(
+        f"Unsupported torch dtype {dtype_name!r}; expected auto, bf16/bfloat16, "
+        "fp16/float16/half, or fp32/float32."
+    )
 
 
 def _resolve_attn_implementation(
@@ -67,19 +74,76 @@ def _resolve_attn_implementation(
     return None
 
 
+def _is_qwen3vl_dense_descriptor(descriptor: ResolvedModelDescriptor) -> bool:
+    architectures = tuple(value.lower() for value in descriptor.architectures)
+    return descriptor.hf_model_type == "qwen3_vl" and not any(
+        "moe" in value for value in architectures
+    )
+
+
+def _is_qwen3vl_moe_descriptor(descriptor: ResolvedModelDescriptor) -> bool:
+    architectures = tuple(value.lower() for value in descriptor.architectures)
+    return descriptor.hf_model_type == "qwen3_vl_moe" and (
+        not architectures or any("moe" in value for value in architectures)
+    )
+
+
+_QWEN3VL_DENSE_MODULE_GROUPS = ModelModuleGroups(
+    language_model=("model.language_model",),
+    vision_tower=("model.visual",),
+    aligner=("model.visual.merger", "model.visual.deepstack_merger_list"),
+    generator=("lm_head",),
+)
+
+
+_QWEN3VL_MOE_MODULE_GROUPS = ModelModuleGroups(
+    language_model=("model.language_model",),
+    vision_tower=("model.visual",),
+    aligner=("model.visual.merger", "model.visual.deepstack_merger_list"),
+    generator=("lm_head",),
+)
+
+
 QWEN3VL_META = ModelMeta(
     model_type="qwen3vl",
     family="qwen",
     default_template="qwen3vl",
-    hf_model_types=("qwen3_vl",),
-    model_groups=default_model_groups("qwen3-vl-4b-instruct", "qwen3-vl", template="qwen3vl"),
-    capabilities=ModelCapabilities(is_multimodal=True),
-    module_groups=ModelModuleGroups(
-        language_model=("model",),
-        vision_tower=("model.visual",),
-        aligner=("model.visual.merger", "model.visual.deepstack_merger_list"),
-        generator=("lm_head",),
+    hf_model_types=("qwen3_vl", "qwen3_vl_moe"),
+    model_groups=(
+        *default_model_groups(
+            "qwen3-vl-2b-instruct",
+            "qwen3-vl-4b-instruct",
+            "qwen3-vl",
+            name="dense",
+            hf_model_types=("qwen3_vl",),
+            descriptor_matcher=_is_qwen3vl_dense_descriptor,
+            template="qwen3vl",
+        ),
+        *default_model_groups(
+            "qwen3-vl-30b-a3b-instruct",
+            "qwen3-vl-30b-a3b",
+            name="moe",
+            hf_model_types=("qwen3_vl_moe",),
+            descriptor_matcher=_is_qwen3vl_moe_descriptor,
+            template="qwen3vl",
+            module_groups=_QWEN3VL_MOE_MODULE_GROUPS,
+            sequence_execution_policy=Qwen3VLMoeSequenceExecutionPolicy(),
+            training_objective_policy=QwenVLMoeTrainingObjectivePolicy(),
+            peft_policy=build_peft_policy("qwen_vl_moe"),
+            default_experts_implementation="grouped_mm",
+            sharding_policy=ModelShardingPolicy(
+                fsdp_transformer_layer_cls_to_wrap=(
+                    "Qwen3VLMoeTextDecoderLayer",
+                    "Qwen3VLMoeVisionBlock",
+                ),
+                supports_fsdp_activation_checkpointing=False,
+                supports_deepspeed_zero3=False,
+            ),
+            requires=("module:transformers.models.qwen3_vl_moe",),
+        ),
     ),
+    capabilities=ModelCapabilities(is_multimodal=True),
+    module_groups=_QWEN3VL_DENSE_MODULE_GROUPS,
     processor_policy=build_processor_policy("qwen_vl"),
     inference_policy=QwenVLInferencePolicy(),
     sequence_execution_policy=Qwen3VLSequenceExecutionPolicy(),
@@ -127,6 +191,11 @@ class Qwen3VLLoader(ModelLoader):
         )
         if attn_implementation:
             common_kwargs["attn_implementation"] = attn_implementation
+        experts_implementation = model_adapter.resolve_experts_implementation(
+            config.model.experts_implementation
+        )
+        if experts_implementation is not None:
+            common_kwargs["experts_implementation"] = experts_implementation
         if finetune.mode == "qlora" and bool(finetune.qlora_load_in_4bit):
             if importlib.util.find_spec("bitsandbytes") is None:
                 raise ImportError(
@@ -154,6 +223,19 @@ class Qwen3VLLoader(ModelLoader):
                 f"Failed to load {model_meta.model_type} model from {model_name!r}. "
                 "Please verify model path and transformers version."
             ) from last_err
+        if experts_implementation is not None:
+            resolved_experts = getattr(model.config, "_experts_implementation", None)
+            resolved_text_experts = getattr(
+                getattr(model.config, "text_config", None),
+                "_experts_implementation",
+                None,
+            )
+            if resolved_experts != experts_implementation or resolved_text_experts != experts_implementation:
+                raise RuntimeError(
+                    "The loaded MoE model did not retain the requested experts implementation: "
+                    f"requested={experts_implementation!r}, root={resolved_experts!r}, "
+                    f"text={resolved_text_experts!r}."
+                )
 
         processor = AutoProcessor.from_pretrained(
             model_name,

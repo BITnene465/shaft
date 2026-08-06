@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 from importlib.metadata import version as distribution_version
 from pathlib import Path
@@ -71,17 +72,35 @@ def test_rlhf_pipeline_materializes_model_identity_only_when_checkpointable(
     cfg = load_config(config_writer(tmp_path))
     cfg.train.save_strategy = save_strategy
     from shaft.pipeline import rlhf as rlhf_pipeline
+    observed_stage_fingerprints: dict[str, dict[str, str]] = {}
+
+    @contextmanager
+    def _capture_stage(*, stage, fingerprints):
+        yield
+        observed_stage_fingerprints[stage] = dict(fingerprints())
 
     with patch(
         "shaft.pipeline.rlhf.resolve_model_plan",
         wraps=rlhf_pipeline.resolve_model_plan,
     ) as resolver:
-        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as builder:
-            builder.return_value = _build_fake_model_artifacts()
-            with patch(trainer_target, _FakeTrainer):
-                run_rlhf(cfg)
+        with patch(
+            "shaft.pipeline.rlhf.materialize_resolved_model_artifact_identity",
+            wraps=rlhf_pipeline.materialize_resolved_model_artifact_identity,
+        ) as materialize:
+            with patch(
+                "shaft.pipeline.rlhf.distributed_training_contract_stage",
+                _capture_stage,
+            ):
+                with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as builder:
+                    builder.return_value = _build_fake_model_artifacts()
+                    with patch(trainer_target, _FakeTrainer):
+                        run_rlhf(cfg)
 
-    assert resolver.call_args.kwargs["require_immutable_artifact"] is expected_immutable
+    assert resolver.call_args.kwargs["require_immutable_artifact"] is False
+    assert materialize.call_count == int(expected_immutable)
+    assert observed_stage_fingerprints["model-plan-local"]["checkpointing"] == (
+        "required" if expected_immutable else "disabled"
+    )
 
 
 def test_run_rlhf_initializes_seed_before_model_and_adapter_build(tmp_path: Path) -> None:

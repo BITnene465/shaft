@@ -8,7 +8,8 @@
 
 - 以 `Hugging Face` 生态为唯一主干。
 - 围绕多模态模型训练与推理构建稳定框架。
-- 优先打磨 `Qwen3VL / Qwen3.5-VL / Qwen3.6-VL dense + SFT` 主路径；MoE 训练暂未开放。
+- 优先打磨 `Qwen3VL / Qwen3.5-VL / Qwen3.6-VL + SFT` 主路径；MoE padded SFT 已接入，真实大权重
+  生产验收与 varlen/packing 仍保持独立边界。
 - 通过注册表和适配层支持后续模型族、算法和推理后端扩展。
 - 保持训练、保存、续训、导出都兼容 HF / PEFT / TRL 标准能力。
 
@@ -213,7 +214,7 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - 用户训练 YAML 必须显式声明 `data.batching.grouping`、`cardinality`、`packing.mode` 与 `layout`。
   当前执行面是 `none + fixed + none + padded`、`length + fixed + none + padded|varlen`、
   `length + fixed + greedy + varlen`，以及 `bounded_cost + fixed|token_budget + none + padded`。
-  Qwen3VL 与 HF `qwen3_5` dense（Qwen3.5/Qwen3.6 alias）image SFT 已实现各自的 varlen execution policy；
+  Qwen3VL 与 HF `qwen3_5` dense/MoE（Qwen3.5/Qwen3.6 alias）image SFT 已实现各自的 varlen execution policy；
   其它模型族和未验收 backend/topology fail closed。
 - 数据与推理的单样本 media 真源都是有序 `image_paths`：JSONL 用 `images` 表达多图，运行时按顺序传给
   placeholder 和 processor。单数 `image_path/image` 只是单图兼容面。padded SFT/DPO 支持多图；varlen
@@ -232,6 +233,17 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   canonical payload/fingerprint 进入所有训练 checkpoint，exact resume 会在模型加载前拒绝 batch contract
   漂移。`cost_cache_size` 仅控制 host LRU，是 audit/performance 参数，不进入 exact contract；调整缓存容量
   不会伪装成训练语义变化。
+- SFT checkpoint 还通过 `ShaftSFTReportingStateCallback` 保存每个 data rank 尚未 flush 的 HF loss 窗口、
+  `total_loss_scalar/globalstep_last_logged` 和 model-owned auxiliary loss 累积量。恢复时在 HF 初始化并清空
+  reporting state 之后原位还原，因此 `save_steps` 落在 `logging_steps` 区间中间时，后续 `loss`、
+  `aux/*`、`log_history` 与 `on_log` 事件仍和不中断轨迹一致。pending loss 在恢复后的首个
+  `training_step` backward 完成后注入 reporting tensor，保持 GA>1 的 FP32 加法顺序；NaN/Inf filter、no-op
+  resume 和 rank-local pending skew 也使用同一状态机。snapshot 的 schema、step、world size、
+  rank 完整性及 auxiliary term 集合均严格校验；缺少该 callback state 的旧 checkpoint 不能按当前协议做
+  exact resume，只能作为 `init_from_checkpoint` 权重来源开始新 schedule。
+- 最终 `train_loss` 仍表示本次进程实际执行的恢复窗口，不把 checkpoint 前历史重复计入；每 rank snapshot
+  先形成全局 resume baseline，训练结束再归约 rank-local remainder。run-root `trainer_state.json` 只是终态
+  可观察摘要，保存时移除 reporting callback state；只有 committed/backend-native checkpoint 可用于 resume。
 - `ShaftBatchPlanningSpec` 是 duration-independent 的不可变 sampler 契约，只绑定 schedule/cost
   fingerprint、DP world size、buffer、cardinality policy、per-device 上限、token/resource budgets、seed 与 planner
   版本。它不包含 max steps、GA、target samples 或完整训练 horizon。
@@ -291,9 +303,10 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   新 schedule。duration/GA/optimizer/scheduler 改变同样必须使用 `init_from_checkpoint`。
   `shaft_batching_run_metadata.json` 记录用户可观察的 resolved 策略与预算。
 - sequence packing 与 context parallel 是独立能力；bounded grouping 不伪装成 packing。当前已实现 bounded
-  lookahead 上的 length grouping、whole-sample greedy packing，以及 Qwen3VL / Qwen3.5 / Qwen3.6 dense image-SFT
+  lookahead 上的 length grouping、whole-sample greedy packing，以及 Qwen3VL / Qwen3.5 / Qwen3.6 dense/MoE image-SFT
   varlen 执行链。varlen 的 plan/media 私有元数据由模型 `SequenceExecutionPolicy` 在 host 侧消费：Qwen3VL
-  使用 reset 4-axis M-RoPE，Qwen3.5/3.6 dense hybrid policy 额外提供 linear-attention/causal-conv boundaries。
+  使用 reset 4-axis M-RoPE，Qwen3.5/3.6 dense/MoE hybrid policy 额外提供 linear-attention/causal-conv
+  boundaries。MoE 的 varlen 证据目前仅来自 tiny upstream full-finetune gate，不外推到真实 35B 或 LoRA。
   上述 varlen 路径当前只接受单图；多图 padded 路径不复用 packing media contract。concrete class、
   kernel/backend 与 runtime shim 都由模型层验证；其它模型族和未验收 topology fail closed。
   context parallel 仍后置。
@@ -308,13 +321,14 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   remote-code 文件做一次完整 SHA-256，形成内容 identity；进入 HF loader 前只捕获并核对文件清单、大小、
   mtime/ctime/device/inode 的短生命周期 load guard，loader 返回后立即再做一次完整 SHA-256 并与 plan
   identity 比较。常态不再在 loader 前重复全量 hash；同尺寸/同 mtime 改写仍由 post-load SHA 捕获，加载
-  窗口内可观察的替换由 guard 捕获。这里不使用 stat-only 持久缓存，也不跨 rank 信任本地路径，因为不同
-  rank/node 的同名路径可能不是同一组 bytes；因此 exact 模式的安全下限仍是每个 rank 两次内容扫描，第二次
-  通常命中 loader/OS page cache。当前可量化的额外读取量是每 rank `2 × artifact bytes`（不含 HF loader
-  自己的读取）；本次只修复冗余的第三次 full pass，不宣称消除全部 hash 成本。跨 rank 共享 digest 需要另行
-  设计 node-local/split-mount consensus，否则会漏掉不同 rank 挂载到不同 bytes 的错误。若以后要进一步降到
-  一次，必须先引入可信只读 snapshot 或让 loader 在读取权重时同时产出经过验证的内容 digest，不能靠时间戳
-  跳过。
+  窗口内可观察的替换由 guard 捕获。分布式启动时，每个 torchrun node 的 `LOCAL_RANK=0` 在 baseline 与
+  post-load closure 各完整 hash 一次；各 node leader 对 fingerprint 和 manifest 做全局 consensus。同节点
+  非 leader 只有在完整 stat manifest 与 leader 一致时才复用 digest，独立 mount/stat identity 的 rank 会
+  自行完整 hash 并再次比对。共享本地 artifact 的额外读取量因此约为每 node
+  `2 × artifact bytes`（不含 HF loader 自身读取）；独立挂载最坏情况安全退回每 rank 两次。该优化依赖标准
+  torchrun 子进程共享 mount namespace，不外推到同节点多容器隔离挂载。
+  这里不使用 stat-only 持久缓存；每次启动仍保留 baseline 与 post-load closure。若以后要进一步降到一次，
+  必须先引入可信只读 snapshot，或让 loader 在读取权重时同时产出经过验证的内容 digest，不能靠时间戳跳过。
   HF shard index 同样是 identity 边界：`weight_map` 的每个 tensor key/shard value 必须是非空规范字符串，
   JSON 顶层必须是 object 且不能有重复 key；shard 必须位于模型目录内。绝对路径、`..`、反斜杠歧义路径和
   经 symlink 逃逸目录都会在 hash 前拒绝。
@@ -352,6 +366,30 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - 模型族只提供必要的结构默认值，例如 Qwen3VL 的 FSDP transformer layer class names。
 - `data`、`template`、`codec` 和任务 prompt 不允许根据分片策略分叉。
 - SFT 已接入 FSDP 与 DeepSpeed；DPO/PPO/GRPO 后续必须复用同一配置语义，不新增平行字段。
+- PEFT fused `target_parameters` 属于模型/PEFT policy，而不是分片后端特例：Qwen3.5/3.6 MoE 用它覆盖
+  routed experts 与 router。当前 tiny-upstream 验证矩阵是 DDP/FSDP LoRA、DeepSpeed ZeRO-3 full；ZeRO-3 在模型构造时
+  把参数分区为 empty shard，而 PEFT 0.18.1 的 parameter wrapper 不能在该状态下注入，因此
+  `ZeRO-3 + target_parameters` 在加载权重前 fail closed。禁止在 pipeline 猴子补丁第三方 wrapper。
+- Qwen3.5/3.6 的 FSDP activation checkpoint wrapper 当前不满足 hybrid/MoE 重计算合同，模型 policy 要求
+  `distributed.fsdp.activation_checkpointing=false`，需要重计算时使用 model-side gradient checkpointing。
+
+### 5.4.1 模型拥有的训练 objective
+
+- SFT 的 next-token CE 仍由 `training/loss.py` 统一计算；模型差异只能通过
+  `TrainingObjectivePolicy` 暴露 forward 输入、训练 auxiliary term 和可加和的 eval statistics。
+- model policy 拥有 auxiliary term 的 raw value、默认 coefficient 和由
+  `TrainingObjectivePolicy.auxiliary_loss_names()` 声明的稳定 canonical name；
+  `algorithm.params.auxiliary_loss_weights` 只提供稀有的 run-level coefficient override。Trainer 统一解析
+  `w_effective = override[name]`（显式配置时），否则使用 policy 默认值，不在 pipeline 或模型配置中维护
+  第二份 coefficient。
+- Qwen3.5/3.6 MoE 训练使用 Transformers 上游 batch-local router auxiliary loss，并在一个 optimizer
+  frame 内按 rank/microbatch 等权平均；loss 与 `aux/*_weighted` 始终使用同一个 effective coefficient，
+  它不能被伪装成 token-weighted additive loss。
+- eval 不把 batch-local router aux 混入 `eval_loss`。policy 输出 batch-first additive expert counts、router
+  probability sums 与有效 routed-token 数，Trainer 用 `gather_for_metrics` 去除 distributed sampler 尾部副本后，
+  再生成 dataset-global `eval_aux/router_global_balance`。`ShaftEvalAuxiliaryStatistic.coefficient_key` 必须显式
+  关联训练 term，raw metric 在 model finalizer 完成后才由 Trainer 生成加权诊断；禁止按 eval metric 名推断
+  关联，也禁止 override 改写 raw metric。因此指标不随 eval batch 切分改变，`eval_loss` 仍是 CE-only。
 
 ### 5.5 冻结边界
 
@@ -374,6 +412,9 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - `lora / dora / qlora` 的冻结语义：
   - 仅作用于 `target_modules=["auto"] / ["all-linear"]` 的自动展开结果
   - 显式 `target_modules` 保持权威
+  - `target_parameters` 用于没有独立 `nn.Linear` 子模块的 2-D/3-D fused 参数；`auto` 只能由模型 policy
+    展开，解析结果与 adapter signature 一起进入 resume/export 兼容性校验
+  - parameter-target LoRA 要求 dropout 为 0，不支持 DoRA；Qwen3.5/3.6 MoE 也明确拒绝 QLoRA
   - `trainable override` 会额外导出为 `modules_to_save`
 - 训练执行消费唯一 `resolved finetune plan`；adapter 导入与 merge/export 消费唯一
   `ResolvedModelPlan / ResolvedAdapterInit` 并共享 exact state loader，避免多处重复推导或宽松加载
@@ -528,8 +569,10 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 ## 9. 当前明确受限的能力
 
 - PPO 仍是受限能力，不能视为完整生产功能。
-- 当前正式 Qwen 多模态模型族包括 `qwen3vl` 与新一代兼容注册项 `qwen35vl`/`qwen36vl`；
-  `smoke_vlm` 仅用于测试。
+- 当前正式 Qwen 多模态训练主线是 `qwen3vl`；新一代兼容注册项 `qwen35vl`/`qwen36vl` 的 dense/MoE
+  仍是 tiny-upstream validated experimental 能力，`smoke_vlm` 仅用于测试。
+- Qwen3.5/3.6 MoE padded SFT 的接口和 tiny upstream release gate 已完成；真实 35B 权重的显存、吞吐、
+  长程数值稳定性和目标集收敛尚未验证，不能从 tiny gate 推导生产容量。
 - 结构化任务评估当前支持轻量在线 metric；完整离线评测工作台不属于当前主线能力。
 - 发布到 Hub 的工具链尚未开始。
 

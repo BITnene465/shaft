@@ -887,15 +887,15 @@ def test_unregistered_model_inference_policy_fails_closed_before_http(monkeypatc
         raise AssertionError("unsupported model must fail before HTTP")
 
     monkeypatch.setattr(urllib.request, "urlopen", _unexpected_urlopen)
-    model_adapter = ModelMeta(
+    inference_contract = ModelMeta(
         model_type="unsupported",
         family="unsupported",
         default_template="unsupported",
-    ).resolve_adapter(model_name_or_path="unsupported")
+    ).resolve_inference_contract(model_name_or_path="unsupported")
     adapter = VLLMOpenAIInferAdapter(
         endpoint="http://127.0.0.1:8001",
         model_name="unsupported",
-        model_adapter=model_adapter,
+        inference_contract=inference_contract,
     )
 
     with pytest.raises(ValueError, match="does not support the vllm_openai backend"):

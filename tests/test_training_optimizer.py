@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -199,6 +200,202 @@ def test_optimizer_supports_param_group_lrs_for_lora_and_modules_to_save() -> No
         for group in modules_to_save_groups
         for name in group.parameter_names
     )
+
+
+def test_qwen35_moe_peft_auto_resolves_fused_experts_and_router(tmp_path: Path) -> None:
+    from peft import PeftModel
+    from transformers import Qwen3_5MoeForCausalLM, Qwen3_5MoeTextConfig
+
+    model = Qwen3_5MoeForCausalLM(
+        Qwen3_5MoeTextConfig(
+            vocab_size=64,
+            hidden_size=32,
+            intermediate_size=64,
+            moe_intermediate_size=16,
+            shared_expert_intermediate_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            head_dim=8,
+            layer_types=["full_attention"],
+            num_experts=4,
+            num_experts_per_tok=2,
+            max_position_embeddings=64,
+            use_cache=False,
+        )
+    )
+    base_dir = tmp_path / "base"
+    model.save_pretrained(base_dir)
+    model = Qwen3_5MoeForCausalLM.from_pretrained(base_dir)
+    adapter = build_model_meta("qwen35vl").resolve_adapter(
+        model_name_or_path="Qwen3.5-35B-A3B"
+    )
+    finetune = FinetuneConfig(
+        mode="lora",
+        target_modules=[],
+        target_parameters=["auto"],
+        lora_r=2,
+        lora_alpha=4,
+    )
+
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=adapter)
+
+    assert plan.adapter_plan is not None
+    assert plan.adapter_plan.resolved_target_modules == ()
+    assert plan.adapter_plan.resolved_target_parameters == (
+        "model.layers.0.mlp.experts.gate_up_proj",
+        "model.layers.0.mlp.experts.down_proj",
+        "model.layers.0.mlp.gate.weight",
+    )
+    wrapped = apply_resolved_finetune_plan(model, plan, finetune=finetune)
+    trainable = {
+        name: parameter
+        for name, parameter in wrapped.named_parameters()
+        if parameter.requires_grad
+    }
+    frozen = {
+        name: parameter
+        for name, parameter in wrapped.named_parameters()
+        if not parameter.requires_grad
+    }
+    assert any("mlp.gate.lora_A" in name for name in trainable)
+    assert any("mlp.experts" in name and "lora_A" in name for name in trainable)
+    assert frozen
+    assert all("lora_" in name for name in trainable)
+
+    inputs = torch.randint(0, 64, (2, 8))
+    output = wrapped(
+        input_ids=inputs,
+        use_cache=False,
+        output_router_logits=True,
+    )
+    output.logits.sum().backward()
+    assert all(parameter.grad is not None for parameter in trainable.values())
+    torch.optim.SGD(trainable.values(), lr=0.01).step()
+
+    adapter_dir = tmp_path / "adapter"
+    wrapped.save_pretrained(adapter_dir)
+    adapter_config = (adapter_dir / "adapter_config.json").read_text(encoding="utf-8")
+    assert '"target_parameters"' in adapter_config
+    reloaded = PeftModel.from_pretrained(
+        Qwen3_5MoeForCausalLM.from_pretrained(base_dir),
+        adapter_dir,
+    ).eval()
+    wrapped.eval()
+    with torch.no_grad():
+        expected_logits = wrapped(input_ids=inputs, use_cache=False).logits
+        reloaded_logits = reloaded(input_ids=inputs, use_cache=False).logits
+    torch.testing.assert_close(reloaded_logits, expected_logits)
+
+    merged = reloaded.merge_and_unload(safe_merge=True).eval()
+    with torch.no_grad():
+        merged_logits = merged(input_ids=inputs, use_cache=False).logits
+    torch.testing.assert_close(merged_logits, expected_logits)
+
+
+def test_qwen3vl_moe_peft_auto_trains_and_reloads_fused_parameters(tmp_path: Path) -> None:
+    from peft import PeftModel
+    from transformers import Qwen3VLMoeConfig, Qwen3VLMoeForConditionalGeneration
+
+    config = Qwen3VLMoeConfig(
+        text_config={
+            "vocab_size": 64,
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "moe_intermediate_size": 16,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 4,
+            "num_key_value_heads": 2,
+            "head_dim": 8,
+            "num_experts": 4,
+            "num_experts_per_tok": 2,
+            "max_position_embeddings": 64,
+            "use_cache": False,
+        },
+        vision_config={
+            "depth": 1,
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_heads": 4,
+            "in_channels": 3,
+            "patch_size": 16,
+            "spatial_merge_size": 2,
+            "temporal_patch_size": 2,
+            "out_hidden_size": 32,
+            "num_position_embeddings": 256,
+            "deepstack_visual_indexes": [0],
+        },
+        image_token_id=60,
+        video_token_id=61,
+        vision_start_token_id=58,
+        vision_end_token_id=59,
+    )
+    config._experts_implementation = "grouped_mm"
+    base_dir = tmp_path / "qwen3vl-moe-base"
+    Qwen3VLMoeForConditionalGeneration(config).save_pretrained(base_dir)
+    model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
+        base_dir,
+        experts_implementation="grouped_mm",
+    )
+    adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="Qwen3-VL-30B-A3B-Instruct"
+    )
+    finetune = FinetuneConfig(
+        mode="lora",
+        target_modules=[],
+        target_parameters=["auto"],
+        lora_r=2,
+        lora_alpha=4,
+    )
+
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=adapter)
+
+    assert plan.adapter_plan is not None
+    assert plan.adapter_plan.resolved_target_parameters == (
+        "model.language_model.layers.0.mlp.experts.gate_up_proj",
+        "model.language_model.layers.0.mlp.experts.down_proj",
+        "model.language_model.layers.0.mlp.gate.weight",
+    )
+    wrapped = apply_resolved_finetune_plan(model, plan, finetune=finetune)
+    trainable = {
+        name: parameter
+        for name, parameter in wrapped.named_parameters()
+        if parameter.requires_grad
+    }
+    frozen = {
+        name: parameter
+        for name, parameter in wrapped.named_parameters()
+        if not parameter.requires_grad
+    }
+    assert any("mlp.gate.lora_A" in name for name in trainable)
+    assert any("mlp.experts" in name and "lora_A" in name for name in trainable)
+    assert frozen
+    assert all("lora_" in name for name in trainable)
+
+    inputs = torch.randint(0, 50, (2, 8))
+    output = wrapped(
+        input_ids=inputs,
+        use_cache=False,
+        output_router_logits=True,
+    )
+    (output.logits.float().mean() + output.aux_loss).backward()
+    assert all(parameter.grad is not None for parameter in trainable.values())
+    torch.optim.SGD(trainable.values(), lr=0.01).step()
+
+    adapter_dir = tmp_path / "qwen3vl-moe-adapter"
+    wrapped.save_pretrained(adapter_dir)
+    reloaded = PeftModel.from_pretrained(
+        Qwen3VLMoeForConditionalGeneration.from_pretrained(
+            base_dir,
+            experts_implementation="grouped_mm",
+        ),
+        adapter_dir,
+    ).eval()
+    wrapped.eval()
+    with torch.no_grad():
+        expected_logits = wrapped(input_ids=inputs, use_cache=False).logits
+        reloaded_logits = reloaded(input_ids=inputs, use_cache=False).logits
+    torch.testing.assert_close(reloaded_logits, expected_logits)
 
 
 def test_optimizer_summary_reports_grouped_learning_rates() -> None:

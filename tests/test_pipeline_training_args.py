@@ -3,16 +3,18 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 
 import pytest
 import torch
+from transformers import TrainingArguments
 
 from shaft.data import ShaftBatchPlanningSpec
 from shaft.model import build_model_tokenizer_processor
 from shaft.pipeline.training_args import (
     build_hf_training_args,
     resolve_training_compute_dtype,
+    validate_trainable_parameter_precision,
 )
 from shaft.training.batch_planning import (
     build_batch_contract,
@@ -44,7 +46,15 @@ def test_build_hf_training_args_enables_fp16_on_cuda(tmp_path: Path) -> None:
     config.train.bf16 = False
     config.train.fp16 = True
 
-    with patch("shaft.pipeline.training_args.torch.cuda.is_available", return_value=True):
+    with (
+        patch("shaft.pipeline.training_args.torch.cuda.is_available", return_value=True),
+        patch.object(
+            TrainingArguments,
+            "_setup_devices",
+            new_callable=PropertyMock,
+            return_value=torch.device("cuda:0"),
+        ),
+    ):
         args = build_hf_training_args(config)
 
     assert args.fp16 is True
@@ -63,6 +73,25 @@ def test_build_hf_training_args_rejects_fp16_without_cuda(tmp_path: Path) -> Non
             build_hf_training_args(config)
 
 
+def test_fp16_rejects_actual_trainable_half_parameters_after_auto_load(
+    tmp_path: Path,
+) -> None:
+    model = torch.nn.Linear(4, 3).to(dtype=torch.float16)
+    training_args = type("Args", (), {"fp16": True})()
+
+    with pytest.raises(ValueError, match="trainable torch.float16"):
+        validate_trainable_parameter_precision(model, training_args)
+
+    for parameter in model.parameters():
+        parameter.requires_grad_(False)
+    validate_trainable_parameter_precision(model, training_args)
+
+    model.float()
+    for parameter in model.parameters():
+        parameter.requires_grad_(True)
+    validate_trainable_parameter_precision(model, training_args)
+
+
 def test_build_hf_training_args_defends_against_mixed_precision_conflicts(
     tmp_path: Path,
 ) -> None:
@@ -75,6 +104,18 @@ def test_build_hf_training_args_defends_against_mixed_precision_conflicts(
         build_hf_training_args(config)
 
 
+@pytest.mark.parametrize("device_map", ["auto", {"": "cuda:0"}])
+def test_build_hf_training_args_rejects_inference_device_map(
+    tmp_path: Path,
+    device_map: str | dict[str, str],
+) -> None:
+    config = _write_config(tmp_path)
+    config.model.device_map = device_map
+
+    with pytest.raises(ValueError, match="inference-only"):
+        build_hf_training_args(config)
+
+
 def test_training_compute_dtype_uses_effective_amp_precision(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     config.model.torch_dtype = "float32"
@@ -82,7 +123,15 @@ def test_training_compute_dtype_uses_effective_amp_precision(tmp_path: Path) -> 
     config.train.bf16 = False
     config.train.fp16 = True
 
-    with patch("shaft.pipeline.training_args.torch.cuda.is_available", return_value=True):
+    with (
+        patch("shaft.pipeline.training_args.torch.cuda.is_available", return_value=True),
+        patch.object(
+            TrainingArguments,
+            "_setup_devices",
+            new_callable=PropertyMock,
+            return_value=torch.device("cuda:0"),
+        ),
+    ):
         args = build_hf_training_args(config)
 
     assert resolve_training_compute_dtype(
@@ -466,6 +515,7 @@ def test_build_hf_training_args_resolves_qwen36vl_fsdp_auto_layers(tmp_path: Pat
         )
     )
     config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.activation_checkpointing = False
     config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
 
     args = build_hf_training_args(config)
@@ -493,6 +543,7 @@ def test_fsdp_auto_layers_consume_descriptor_driven_model_plan(tmp_path: Path) -
     config.model.model_type = "qwen36vl"
     config.model.model_name_or_path = str(model_dir)
     config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.activation_checkpointing = False
     config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
     from shaft.model import resolve_model_plan
 
@@ -523,6 +574,7 @@ def test_fsdp_auto_layers_follow_full_init_checkpoint_descriptor(tmp_path: Path)
     config.model.model_name_or_path = "models/Qwen3.6-27B"
     config.train.init_from_checkpoint = str(checkpoint)
     config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.activation_checkpointing = False
     config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
     from shaft.model import resolve_model_plan
 

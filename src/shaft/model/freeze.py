@@ -137,6 +137,15 @@ def _find_all_linear_module_names(model: torch.nn.Module) -> list[str]:
     return names
 
 
+def _parameter_global_shape(parameter: torch.nn.Parameter) -> tuple[int, ...]:
+    """Return the logical shape when ZeRO-3 has materialized an empty shard."""
+
+    deepspeed_shape = getattr(parameter, "ds_shape", None)
+    if deepspeed_shape is not None:
+        return tuple(int(dimension) for dimension in deepspeed_shape)
+    return tuple(int(dimension) for dimension in parameter.shape)
+
+
 def resolve_adapter_target_modules(
     model: torch.nn.Module,
     target_modules: list[str],
@@ -144,13 +153,56 @@ def resolve_adapter_target_modules(
     plan: ShaftFreezePlan,
 ) -> list[str] | str:
     normalized = list(target_modules)
-    if normalized != ["all-linear"]:
-        return normalized
-    normalized = _find_all_linear_module_names(model)
-    filtered = plan.filter_module_names(normalized)
-    if not filtered:
+    if not normalized:
+        return []
+    resolved: list[str] = []
+    for target in normalized:
+        if target == "all-linear":
+            resolved.extend(
+                plan.filter_module_names(_find_all_linear_module_names(model))
+            )
+        else:
+            # Explicit module targets remain authoritative even when they overlap
+            # a freeze group. Only the model-owned all-linear expansion is filtered.
+            resolved.append(target)
+    resolved = list(dict.fromkeys(resolved))
+    if not resolved:
         raise ValueError("No adapter target modules remain after applying freeze filters.")
-    return filtered
+    return resolved
+
+
+def resolve_adapter_target_parameters(
+    model: torch.nn.Module,
+    target_parameters: list[str],
+    *,
+    plan: ShaftFreezePlan,
+) -> list[str]:
+    resolved: list[str] = []
+    named_parameters = tuple(model.named_parameters())
+    for requested in target_parameters:
+        normalized = str(requested).strip()
+        if not normalized:
+            continue
+        matches = [
+            (name, parameter)
+            for name, parameter in named_parameters
+            if name == normalized or name.endswith(f".{normalized}")
+        ]
+        if not matches:
+            raise ValueError(
+                f"Adapter target parameter {normalized!r} does not match the model."
+            )
+        for name, parameter in matches:
+            if not plan.should_train_name(name):
+                continue
+            parameter_shape = _parameter_global_shape(parameter)
+            if len(parameter_shape) not in {2, 3}:
+                raise ValueError(
+                    f"Adapter target parameter {name!r} must be 2-D or 3-D; "
+                    f"got shape={parameter_shape}."
+                )
+            resolved.append(name)
+    return list(dict.fromkeys(resolved))
 
 
 def resolve_adapter_modules_to_save(

@@ -74,6 +74,7 @@ def test_adapter_compatibility_uses_peft_persisted_target_canonicalization() -> 
             peft_config={
                 "default": SimpleNamespace(
                     target_modules={"q_proj", "v_proj"},
+                    target_parameters=["mlp.experts.gate_up_proj"],
                     modules_to_save=None,
                 )
             }
@@ -84,14 +85,18 @@ def test_adapter_compatibility_uses_peft_persisted_target_canonicalization() -> 
                     "model.layers.0.self_attn.q_proj",
                     "model.layers.0.self_attn.v_proj",
                 ),
+                resolved_target_parameters=("mlp.experts.gate_up_proj",),
                 modules_to_save=(),
             )
         ),
     )
 
-    targets, modules_to_save = _expected_adapter_names_from_artifacts(artifacts)
+    targets, target_parameters, modules_to_save = (
+        _expected_adapter_names_from_artifacts(artifacts)
+    )
 
     assert sorted(targets or ()) == ["q_proj", "v_proj"]
+    assert target_parameters == ["mlp.experts.gate_up_proj"]
     assert modules_to_save == []
 
 
@@ -134,7 +139,7 @@ def test_adapter_plan_detects_same_size_weight_replacement_before_load(
     payload[-1] ^= 1
     weights_path.write_bytes(payload)
 
-    with pytest.raises(ValueError, match="changed after ResolvedModelPlan"):
+    with pytest.raises(ValueError, match="weights changed after artifact resolution"):
         build_model_tokenizer_processor(
             cfg,
             init_from_checkpoint=str(adapter_dir),

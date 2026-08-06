@@ -14,6 +14,8 @@ from .types import (
     ModelModuleGroups,
     PeftPolicy,
     ProcessorPolicy,
+    SequenceExecutionPolicy,
+    TrainingObjectivePolicy,
 )
 from .descriptor import ResolvedModelDescriptor
 
@@ -41,8 +43,11 @@ def default_model_groups(
     module_groups: ModelModuleGroups | None = None,
     processor_policy: ProcessorPolicy | None = None,
     inference_policy: ShaftInferencePolicy | None = None,
+    sequence_execution_policy: SequenceExecutionPolicy | None = None,
+    training_objective_policy: TrainingObjectivePolicy | None = None,
     peft_policy: PeftPolicy | None = None,
     sharding_policy: ModelShardingPolicy | None = None,
+    default_experts_implementation: str | None = None,
     requires: Iterable[str] = (),
     additional_saved_files: Iterable[str] = (),
     descriptor_matcher: Callable[[ResolvedModelDescriptor], bool] | None = None,
@@ -58,8 +63,15 @@ def default_model_groups(
             module_groups=module_groups,
             processor_policy=processor_policy,
             inference_policy=inference_policy,
+            sequence_execution_policy=sequence_execution_policy,
+            training_objective_policy=training_objective_policy,
             peft_policy=peft_policy,
             sharding_policy=sharding_policy,
+            default_experts_implementation=(
+                str(default_experts_implementation).strip().lower()
+                if default_experts_implementation is not None
+                else None
+            ),
             requires=tuple(str(item).strip() for item in requires if str(item).strip()),
             additional_saved_files=tuple(
                 str(item).strip() for item in additional_saved_files if str(item).strip()

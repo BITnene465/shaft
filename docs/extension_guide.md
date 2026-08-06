@@ -34,7 +34,10 @@
 7. 为真实 processor 输出实现并验证 batch 构造、rendered-token -> processed-token layout 与训练输入装配
 8. 若开放 varlen，实现 family-owned `SequenceExecutionPolicy`，同时验证 position reset、全/线性 attention
    state isolation、media kwargs 路由、backend/kernel/version 与 runtime shim；通用 trainer 不写模型分支
-9. 补模型、模板、descriptor variant、processor/inference 契约和 packed-vs-standalone
+9. 若模型有 SFT auxiliary objective，实现 `TrainingObjectivePolicy`：用 `auxiliary_loss_names()` 声明稳定、
+   唯一、canonical 的可覆写 term names，term 自带模型默认 coefficient；eval statistic 必须用
+   `coefficient_key` 显式关联并由 final metric 原样传播。Trainer 不硬编码模型族，也不按 metric 名猜关联
+10. 补模型、模板、descriptor variant、processor/inference 契约和 packed-vs-standalone
    logits/loss/gradient 测试
 
 `ResolvedModelPlan` 是 artifact/variant/adapter/sequence contract 的单一决议入口。新增模型族只能注册
@@ -303,7 +306,8 @@ ShaftCodecResult(
 - 冻结规则和模型结构分组必须分开：
   - 规则层：`groups / prefixes / regex / trainable override`
   - 结构层：`language_model / vision_tower / aligner / generator`
-- 训练执行与 adapter 导入校验必须共用同一份 `resolved finetune plan`，不要在 `loader / builder / export` 各自重复推导 target/modules_to_save
+- 训练执行与 adapter 导入校验必须共用同一份 `resolved finetune plan`，不要在
+  `loader / builder / export` 各自重复推导 `target_modules / target_parameters / modules_to_save`
 - `trainable_*` 优先级高于 `freeze_*`
 - `full` 与 adapter 模式的冻结语义不同：
   - `full` 真正修改 `requires_grad`

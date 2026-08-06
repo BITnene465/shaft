@@ -70,7 +70,7 @@ class Qwen3VLSequenceExecutionPolicy(SequenceExecutionPolicy):
                         "CUDA Qwen3VL varlen requires attention_implementation="
                         "'flash_attention_2'."
                     )
-                if dtype not in {"bf16", "bfloat16", "fp16", "float16"}:
+                if dtype not in {"bf16", "bfloat16", "fp16", "float16", "half"}:
                     raise ValueError(
                         "CUDA Qwen3VL varlen requires bfloat16 or float16 dtype."
                     )
@@ -89,7 +89,6 @@ class Qwen3VLSequenceExecutionPolicy(SequenceExecutionPolicy):
             torch_compile=torch_compile,
             capability_signature=self._capability_signature(),
         )
-
     def validate_runtime(
         self,
         *,
@@ -362,6 +361,11 @@ class Qwen3VLSequenceExecutionPolicy(SequenceExecutionPolicy):
 
 
 @dataclass(frozen=True)
+class Qwen3VLMoeSequenceExecutionPolicy(SequenceExecutionPolicy):
+    """Declare the first Qwen3VL MoE training contract as padded-only."""
+
+
+@dataclass(frozen=True)
 class Qwen35VLSequenceExecutionPolicy(Qwen3VLSequenceExecutionPolicy):
     """Packed execution for Qwen3.5/Qwen3.6 hybrid attention models.
 
@@ -416,7 +420,7 @@ class Qwen35VLSequenceExecutionPolicy(Qwen3VLSequenceExecutionPolicy):
                 "CUDA Qwen3.5/3.6 varlen requires "
                 "attention_implementation='flash_attention_2'."
             )
-        if dtype not in {"bf16", "bfloat16", "fp16", "float16"}:
+        if dtype not in {"bf16", "bfloat16", "fp16", "float16", "half"}:
             raise ValueError("CUDA Qwen3.5/3.6 varlen requires bfloat16 or float16 dtype.")
         if strategy != "ddp":
             raise ValueError("CUDA Qwen3.5/3.6 varlen currently supports DDP only.")

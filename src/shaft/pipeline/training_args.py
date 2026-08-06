@@ -27,6 +27,47 @@ def resolve_training_compute_dtype(
     return str(model_torch_dtype).strip().lower()
 
 
+def validate_trainable_parameter_precision(
+    model: torch.nn.Module,
+    training_args: Any,
+) -> None:
+    """Fail before Trainer when FP16 AMP would own FP16 trainable parameters."""
+
+    if not bool(getattr(training_args, "fp16", False)):
+        return
+    offending = [
+        name
+        for name, parameter in model.named_parameters()
+        if parameter.requires_grad
+        and parameter.is_floating_point()
+        and parameter.dtype == torch.float16
+    ]
+    if not offending:
+        return
+    raise ValueError(
+        "train.fp16=true uses AMP/GradScaler and cannot optimize trainable "
+        "torch.float16 parameters. Load trainable parameters as float32 or use "
+        "a validated frozen-base adapter layout. "
+        f"Example offending parameters: {offending[:8]}."
+    )
+
+
+def _validate_training_device_map(config: RuntimeConfig) -> None:
+    device_map = config.model.device_map
+    if device_map is None:
+        return
+    if isinstance(device_map, str) and not device_map.strip():
+        return
+    if isinstance(device_map, dict) and not device_map:
+        return
+    raise ValueError(
+        "model.device_map is inference-only in Shaft. Training placement must be "
+        "owned by train.distributed.strategy (DDP, FSDP, or DeepSpeed); otherwise "
+        "torchrun ranks can load the model onto the same device or fail only after "
+        "the full checkpoint has been materialized."
+    )
+
+
 def _resolve_hf_precision_flags(train_cfg: Any) -> tuple[bool, bool]:
     requested_bf16 = bool(train_cfg.bf16)
     requested_fp16 = bool(train_cfg.fp16)
@@ -62,6 +103,10 @@ def _resolve_fsdp_transformer_layers(
                 f"is not available for model.model_type={model_type!r}. Configure "
                 "explicit transformer layer class names."
             ) from exc
+    resolved_model_plan.model_adapter.validate_distributed_config(
+        config.train,
+        finetune=config.model.finetune,
+    )
     return resolved_model_plan.model_adapter.resolve_fsdp_transformer_layer_cls_to_wrap(
         configured
     )
@@ -185,8 +230,17 @@ def build_hf_training_args(
     *,
     resolved_model_plan=None,
 ) -> TrainingArguments:
+    _validate_training_device_map(config)
     train_cfg = config.train
     eval_cfg = config.eval
+    if resolved_model_plan is not None:
+        resolved_model_plan.model_adapter.validate_training_finetune_config(
+            config.model.finetune
+        )
+        resolved_model_plan.model_adapter.validate_distributed_config(
+            config.train,
+            finetune=config.model.finetune,
+        )
     eval_strategy = "no" if not eval_cfg.enabled else eval_cfg.eval_strategy
     use_bf16, use_fp16 = _resolve_hf_precision_flags(train_cfg)
     dataloader_num_workers = int(config.data.num_workers)

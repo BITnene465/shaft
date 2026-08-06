@@ -12,6 +12,7 @@ from shaft.model import (
     load_adapter_artifacts,
     resolve_model_plan,
 )
+from shaft.model.generation import export_model_cache
 from shaft.training.batch_planning import (
     load_batching_run_metadata,
     load_checkpoint_batching_metadata,
@@ -289,11 +290,12 @@ def merge_peft_adapter(
     )
     merged_model = artifacts.model.merge_and_unload()
     target_dir.mkdir(parents=True, exist_ok=True)
-    merged_model.save_pretrained(
-        target_dir,
-        safe_serialization=bool(safe_serialization),
-        max_shard_size=max_shard_size,
-    )
+    with export_model_cache(merged_model):
+        merged_model.save_pretrained(
+            target_dir,
+            safe_serialization=bool(safe_serialization),
+            max_shard_size=max_shard_size,
+        )
     _save_processing_assets(
         output_dir=target_dir,
         processor=artifacts.processor,

@@ -119,29 +119,33 @@ Required workflow 不使用 PR path filter。GitHub 在整个 required workflow 
 真实 GPU、FlashAttention、真实模型与外部推理服务继续通过 `gpu/integration` suite 人工或专用 runner
 执行，不在 GitHub-hosted CPU runner 上伪造通过。
 
-Qwen3.5/3.6 MoE 目前不是正式训练能力。下面的 CPU 用例只回归 Transformers MoE class、tiny 随机权重、
-descriptor 与基础保存骨架，防止扩展接口腐化；它不是发布 gate，也不能作为支持声明：
+Qwen3.5/3.6 MoE padded SFT 已进入 tiny-upstream validated 状态。下面的 CPU 用例回归 Transformers MoE
+class、真实 processor、router objective、full-finetune、exact resume 与 HF reload：
 
 ```bash
 CUDA_VISIBLE_DEVICES='' uv run pytest -q \
   tests/test_integration_qwen_standard.py::test_qwen35_qwen36_moe_cpu_train_save_exact_resume_and_hf_reload
 ```
 
-该内部用例覆盖两 rank Gloo 的多模态 forward/backward、full-finetune、committed save、
+该用例覆盖两 rank Gloo 的多模态 forward/backward、full-finetune、committed save、
 `full_determinism + DDP static_graph` exact resume、标准 HF reload，以及 Qwen3.6 alias 对导出目录的验证。
-它不覆盖 FlashAttention 2、FLA/causal-conv、BF16 CUDA、NCCL、真实 MoE shard、optimizer/router/expert
-生产语义、显存或吞吐。正式开放条件以 `docs/todo.md` 为准。
+测试故意令 `save_steps=1`、`logging_steps=2`，从 logging window 中间的 checkpoint 恢复，并比较最终
+`log_history/on_log` 与 MoE `aux/*` 日志。两 rank 的 pending loss 必须不同，恢复后的 root `train_loss`
+还要等于相邻 checkpoint 全局累计 loss 的差值，防止 rank-0 baseline 或最终摘要产生假阳性。
+它不覆盖真实 35B 权重的显存、吞吐或长程数值，不能单独作为生产容量声明。
 
-Qwen 训练 release gate 需要本地 `models/Qwen3-VL-4B-Instruct`、`models/Qwen3.6-27B` processor 资产和两张
-可用 CUDA 卡，显式执行：
+Qwen 训练 release gate 需要本地 `models/Qwen3-VL-2B-Instruct`、`models/Qwen3-VL-4B-Instruct`、
+`models/Qwen3.6-27B` processor 资产和两张可用 CUDA 卡，显式执行：
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE=1 \
   uv run pytest -q tests/test_integration_qwen_standard.py \
-  -k 'two_rank_train_save_and_exact_resume_release_gate or two_rank_lora_varlen_and_export_release_gate'
+  -k '2b_two_rank_fp16 or two_rank_train_save_and_exact_resume_release_gate or two_rank_lora_varlen_and_export_release_gate or sharded_backend_release_gate'
 ```
 
-它覆盖真实 Qwen3VL-4B LoRA greedy-varlen 的 fresh/checkpoint resume、PEFT validate、标准
+它覆盖真实 Qwen3VL-2B FP16 AMP + FP32-load padded LoRA 的 8-step fresh、checkpoint-4→step-8 exact
+resume、GradScaler state、非零更新与双侧 export/reload，以及真实 Qwen3VL-4B LoRA greedy-varlen 的
+fresh/checkpoint resume、PEFT validate、标准
 `PeftModel.from_pretrained` + export processor forward 与 adapter reload，以及 tiny upstream Qwen3.5 dense
 architecture 的 Qwen3.5 fixed padded、Qwen3.6 greedy-varlen fresh/save/exact-resume 和最终 HF
 processor+model forward。exact-resume gate 比较模型/adapter、optimizer、scheduler、每 rank RNG、
@@ -150,6 +154,48 @@ processor+model forward。exact-resume gate 比较模型/adapter、optimizer、s
   交叉验证后可由 2-rank runtime 完整恢复的 telemetry workload/span；wall-clock efficiency 字段不参与
   bitwise 比较。所有 gate 显式启用
 `full_determinism`。资源守护进程只负责让卡，不得由测试或操作人停止、重启、发送信号或修改配置。
+
+MoE 是同一 release-gate 组内的独立 experimental capability gate，另外验证：DDP padded LoRA 与 DDP
+varlen full、FSDP padded fused-parameter LoRA、DeepSpeed
+ZeRO-3 padded full；FSDP/ZeRO-3 gate 使用 GA=2，FSDP 同时打开 model-side gradient checkpointing，避免
+只证明最简单的 GA=1/no-recompute 组合。fresh 与 checkpoint-1→step-2 resume 的最终权重、
+optimizer/scheduler、每 rank RNG、
+Trainer state 与恢复后的 telemetry 必须语义一致。full finetune 继续比较 backend-native model/optimizer
+state；FSDP+PEFT 则以完整标准 PEFT adapter 作为逻辑模型真源，只把 backend-native optimizer 等训练状态
+纳入比较。router/expert/ordinary LoRA 或 full weights 必须确实更新，
+fresh/resumed export 均要由标准 HF/PEFT loader 回载。这里的确定性状态包括 `total_flos`：模型参数量必须
+在 distributed wrapping 前固定，不能随 ZeRO-3 checkpoint gather 后的 live shard `numel()` 漂移，也不能从
+Trainer-state 等价检查中直接忽略。`ZeRO-3 + target_parameters`、MoE QLoRA 与预量化 FP8
+训练属于明确负例。上述 Qwen3.5/3.6 证据仍是 tiny architecture release gate，不替代真实 35B
+checkpoint canary。
+gate 还会断言 efficiency contract 中 GA=2、两步对应的 epoch 几何；Trainer 在进入 inner loop 前验证
+`model.is_gradient_checkpointing` 已真实激活，因此 FSDP 配置不能被静默忽略。
+
+Qwen3VL 30B-A3B 的真实 MoE SFT 门禁单独执行，避免日常 integration 意外占用两张 80GB GPU：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 OMP_NUM_THREADS=1 \
+  SHAFT_RUN_QWEN3VL_MOE_30B_GATE=1 \
+  uv run pytest -q tests/test_integration_qwen_standard.py::\
+test_qwen3vl_30b_moe_two_rank_fsdp_lora_release_gate -s
+```
+
+该门禁使用真实 `models/Qwen3-VL-30B-A3B-Instruct`、BF16、显式 `grouped_mm`、padded 单图、FSDP
+full-shard、model-side gradient checkpointing 和 fused-parameter LoRA。它执行两步 fresh，再从
+checkpoint-1 在独立 output 目录恢复到 step 2，比较标准 adapter、FSDP optimizer、scheduler、RNG 与
+Trainer state，
+并显式使用 `warmup_ratio=0`，要求 checkpoint-1 已发生非零更新且 checkpoint-1/2 的全部 adapter tensor
+逐项变化；同时核对 adapter 参数总数、finetune trainable 参数数与 optimizer 参数数完全一致。门禁从模型
+config 推导层数，检查 48 个 language/router/expert 层与 27 个 vision block 的 LoRA 均有非零更新，最后由
+标准 HF+PEFT 重载并验证
+48 层×128 experts 的有限 forward。该门禁证明真实 30B MoE LoRA SFT 链可训练，不证明两卡全参数 SFT
+容量或长程目标数据收敛。
+
+FSDP+PEFT checkpoint 中的 `pytorch_model_fsdp.bin` 是 Transformers/Accelerate adapter-only 保存路径产生的
+rank-local DTensor 派生物，不是完整逻辑 adapter，门禁不得把它当作模型恢复真源。SFT resume 会在 FSDP
+wrap 前从已解析、已绑定 size/SHA-256 的标准 PEFT artifact 完整预载每个 rank，再跳过该 native 模型文件；
+optimizer、scheduler、scaler、RNG 和 Trainer state 仍走 backend-native 恢复。该组合只允许
+`state_dict_type=full_state_dict` 且要求 `load_best_model_at_end=false`。
 
 ## 5. Branch protection 迁移
 

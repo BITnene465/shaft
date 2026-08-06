@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ data:
     assert cfg.data.datasets[0].dataset_name == "ds1"
     assert cfg.model.finetune.mode == "full"
     assert cfg.model.attn_implementation is None
+    assert cfg.model.experts_implementation is None
     assert isinstance(cfg.train.distributed, TrainDistributedConfig)
     assert isinstance(cfg.train.distributed.ddp, TrainDDPConfig)
     assert cfg.train.distributed.strategy == "ddp"
@@ -115,6 +117,7 @@ train:
 eval:
   epoch_interval: 3
 model:
+  experts_implementation: GROUPED_MM
   finetune:
     mode: DORA
 progress:
@@ -147,6 +150,7 @@ progress:
     }
     assert cfg.train.no_decay_name_patterns == ["embed_tokens.weight", "lm_head.weight"]
     assert cfg.model.finetune.mode == "dora"
+    assert cfg.model.experts_implementation == "grouped_mm"
     assert cfg.progress.display == "interactive"
     assert cfg.progress.width == 80
     assert cfg.progress.refresh_interval == pytest.approx(0.75)
@@ -155,6 +159,127 @@ progress:
     assert cfg.progress.persist is False
     assert cfg.data.datasets[0].help == "demo dataset"
     assert cfg.data.datasets[0].tags == ["a", "b"]
+
+
+def test_experts_implementation_is_rejected_outside_qwen_vl_profiles(
+    tmp_path: Path,
+) -> None:
+    payload = """
+model:
+  model_type: smoke_vlm
+  experts_implementation: grouped_mm
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+"""
+
+    with pytest.raises(ValueError, match="only by Qwen VL MoE profiles"):
+        load_config_from_yaml(tmp_path, payload)
+
+
+def test_sft_auxiliary_loss_weights_are_normalized(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: SFT
+  params:
+    auxiliary_loss_weights:
+      Router_Aux_Loss: 0.002
+      Disabled_Loss: -0.0
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+
+    cfg = load_config_from_yaml(tmp_path, payload)
+
+    assert cfg.algorithm.params == {
+        "auxiliary_loss_weights": {
+            "disabled_loss": 0.0,
+            "router_aux_loss": pytest.approx(0.002),
+        }
+    }
+    assert math.copysign(
+        1.0,
+        cfg.algorithm.params["auxiliary_loss_weights"]["disabled_loss"],
+    ) == 1.0
+
+    empty_cfg = load_config_from_yaml(
+        tmp_path,
+        """
+algorithm:
+  name: sft
+  params:
+    auxiliary_loss_weights: {}
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+""",
+        filename="empty-auxiliary-weights.yaml",
+    )
+    assert empty_cfg.algorithm.params == {}
+
+
+@pytest.mark.parametrize(
+    ("algorithm_name", "weights", "message"),
+    [
+        ("sft", "[]", "must be a mapping"),
+        ("sft", "{router_aux_loss: -0.1}", "must be finite and >= 0"),
+        ("sft", "{router_aux_loss: .nan}", "must be finite and >= 0"),
+        ("sft", "{router_aux_loss: true}", "must be a number"),
+        ("sft", "{router_aux_loss: '0.1'}", "must be a number"),
+        ("sft", "{' ': 0.1}", "empty term name"),
+        (
+            "sft",
+            "{Router_Aux_Loss: 0.1, router_aux_loss: 0.2}",
+            "duplicate normalized term name",
+        ),
+        ("dpo", "{router_aux_loss: 0.1}", "only supported.*algorithm.name='sft'"),
+    ],
+)
+def test_invalid_auxiliary_loss_weights_are_rejected(
+    tmp_path: Path,
+    algorithm_name: str,
+    weights: str,
+    message: str,
+) -> None:
+    source_type = "jsonl_sft" if algorithm_name == "sft" else "jsonl_dpo"
+    payload = f"""
+algorithm:
+  name: {algorithm_name}
+  params:
+    auxiliary_loss_weights: {weights}
+data:
+  datasets:
+    - dataset_name: ds1
+      source_type: {source_type}
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+
+    with pytest.raises((TypeError, ValueError), match=message):
+        load_config_from_yaml(tmp_path, payload)
+
+
+def test_unknown_builtin_sft_algorithm_param_is_rejected(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+  params:
+    auxiliary_loss_weight: 0.1
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+
+    with pytest.raises(ValueError, match="Unknown algorithm.params keys.*auxiliary_loss_weight"):
+        load_config_from_yaml(tmp_path, payload)
 
 
 @pytest.mark.parametrize(

@@ -32,7 +32,8 @@
 
 当校验 adapter 时，可同时传入 `model_name_or_path`、`revision`、`cache_dir` 和
 `local_files_only`。这些参数与训练加载器共用 HF config resolver；Hub、cache snapshot 与本地目录都会先
-解析 config identity，再验证 adapter base、模型族 variant、target modules、state keys 与 shape。
+解析 config identity，再验证 adapter base、模型族 variant、target modules、target parameters、state keys 与
+shape。
 
 对应接口：
 
@@ -112,6 +113,7 @@ manifest 中每个文件的完整字节并计算 SHA256。这样会增加顺序�
 - adapter checkpoint 初始化时，会额外校验：
   - LoRA/DoRA/QLoRA 关键配置一致
   - `target_modules` 一致
+  - `target_parameters` 一致
   - `modules_to_save` 一致
 
 ### `resume_from_checkpoint`

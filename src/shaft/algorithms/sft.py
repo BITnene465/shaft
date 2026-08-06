@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from shaft.config import TrainConfig
+from shaft.config.algorithm import (
+    SFT_AUXILIARY_LOSS_WEIGHTS_PARAM,
+    normalize_sft_algorithm_params,
+)
+from shaft.model.types import validate_auxiliary_weight_names
 from shaft.training.sft_trainer import ShaftSFTTrainer
 
 from .base import AlgorithmContext, ShaftTrainerSpec, trainer_spec_contract
@@ -21,8 +26,16 @@ class SFTAlgorithm:
         context: AlgorithmContext,
         **kwargs: Any,
     ) -> ShaftTrainerSpec[ShaftSFTTrainer]:
-        _ = context
         train_config: TrainConfig = kwargs.pop("train_config")
+        model_adapter = kwargs.pop("model_adapter")
+        algorithm_params = normalize_sft_algorithm_params(context.params)
+        auxiliary_loss_weights = dict(
+            algorithm_params.get(SFT_AUXILIARY_LOSS_WEIGHTS_PARAM, {})
+        )
+        validate_auxiliary_weight_names(
+            model_adapter,
+            auxiliary_loss_weights,
+        )
         trainer_kwargs = {
             "loss_name": train_config.loss_name,
             "optimizer_name": train_config.optimizer_name,
@@ -32,7 +45,8 @@ class SFTAlgorithm:
             "adam_beta1": train_config.adam_beta1,
             "adam_beta2": train_config.adam_beta2,
             "adam_epsilon": train_config.adam_epsilon,
-            "model_adapter": kwargs.pop("model_adapter"),
+            "model_adapter": model_adapter,
+            "auxiliary_loss_weights": auxiliary_loss_weights,
             "finetune_plan": kwargs.pop("finetune_plan"),
             "resolved_optimizer_plan": kwargs.pop("resolved_optimizer_plan"),
             "param_group_lrs": dict(train_config.param_group_lrs),
@@ -47,7 +61,10 @@ class SFTAlgorithm:
                 algorithm=self.name,
                 args=trainer_kwargs["args"],
                 train_config=train_config,
-                extra={"loss_name": train_config.loss_name},
+                extra={
+                    "loss_name": train_config.loss_name,
+                    "auxiliary_loss_weights": auxiliary_loss_weights,
+                },
             ),
         )
 

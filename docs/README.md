@@ -17,7 +17,7 @@
 
 - [config_reference.md](config_reference.md)
   - `RuntimeConfig` 顶层职责树与 YAML 加载流程
-  - schedule/mixing、transforms、batching、optimizer 的数据执行树与职责矩阵
+  - algorithm objective、schedule/mixing、transforms、batching、optimizer 的职责树与矩阵
   - batching 四轴合法组合矩阵、选择决策树、跨层字段关系和常用字段原则
 
 - [online_eval_design.md](online_eval_design.md)

@@ -1,7 +1,58 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from typing import Any
+
+
+SFT_AUXILIARY_LOSS_WEIGHTS_PARAM = "auxiliary_loss_weights"
+
+
+def normalize_auxiliary_loss_weights(
+    value: Any,
+    *,
+    field_name: str = "algorithm.params.auxiliary_loss_weights",
+) -> dict[str, float]:
+    """Normalize the generic SFT auxiliary-objective coefficient overrides."""
+
+    if not isinstance(value, dict):
+        raise TypeError(f"{field_name} must be a mapping.")
+    normalized: dict[str, float] = {}
+    for raw_name, raw_weight in value.items():
+        if not isinstance(raw_name, str):
+            raise TypeError(f"{field_name} term names must be strings.")
+        name = raw_name.strip().lower()
+        if not name:
+            raise ValueError(f"{field_name} contains an empty term name.")
+        if name in normalized:
+            raise ValueError(
+                f"{field_name} contains duplicate normalized term name {name!r}."
+            )
+        if isinstance(raw_weight, bool) or not isinstance(raw_weight, (int, float)):
+            raise TypeError(f"{field_name}.{name} must be a number.")
+        weight = float(raw_weight)
+        if not math.isfinite(weight) or weight < 0.0:
+            raise ValueError(f"{field_name}.{name} must be finite and >= 0.")
+        if weight == 0.0:
+            weight = 0.0
+        normalized[name] = weight
+    return dict(sorted(normalized.items()))
+
+
+def normalize_sft_algorithm_params(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise TypeError("algorithm.params must be a mapping.")
+    if any(not isinstance(key, str) for key in value):
+        raise TypeError("algorithm.params keys must be strings.")
+    unknown = sorted(set(value) - {SFT_AUXILIARY_LOSS_WEIGHTS_PARAM})
+    if unknown:
+        raise ValueError(f"Unknown algorithm.params keys for built-in SFT: {unknown}.")
+    weights = normalize_auxiliary_loss_weights(
+        value.get(SFT_AUXILIARY_LOSS_WEIGHTS_PARAM, {})
+    )
+    if not weights:
+        return {}
+    return {SFT_AUXILIARY_LOSS_WEIGHTS_PARAM: weights}
 
 
 @dataclass

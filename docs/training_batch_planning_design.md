@@ -1,7 +1,8 @@
 # Shaft batch planning design
 
 状态：**bounded grouping、length grouping、whole-sample greedy packing、Qwen3VL 与
-Qwen3.5/3.6 dense image-SFT varlen、committed efficiency telemetry 已实现；context parallel 不在本轮范围内**
+Qwen3.5/3.6 dense/MoE image-SFT varlen、committed efficiency telemetry 已实现；MoE 证据仍限于
+tiny upstream gate，context parallel 不在本轮范围内**
 
 ## 1. 问题与设计结论
 
@@ -69,8 +70,8 @@ grouping = bounded_cost, cardinality = fixed|token_budget, packing.mode = none, 
 grouping       cardinality   packing   layout    首轮状态
 none           fixed         none      padded    已实现
 length         fixed         none      padded    已实现
-length         fixed         none      varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 dense image SFT
-length         fixed         greedy    varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 dense image SFT
+length         fixed         none      varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 dense/MoE image SFT
+length         fixed         greedy    varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 dense/MoE image SFT
 bounded_cost   fixed         none      padded    已实现
 bounded_cost   token_budget  none      padded    已实现
 ```
@@ -423,11 +424,12 @@ hybrid-language hidden state parity、完整 vision forward 和 lm-head gradient
 |---|---|---|
 | 真实 Qwen3VL-4B PEFT | 2-rank greedy varlen | fresh/resume、planning completion、telemetry restore、标准 PEFT + processor reload/forward |
 | tiny upstream Qwen3.5/3.6 dense | 2-rank padded/varlen | fresh/resume、模型/optimizer/scheduler/RNG 等价、full HF + processor reload/forward |
-| tiny upstream Qwen3.5/3.6 MoE（内部骨架回归） | 2-rank padded/varlen | router/expert 结构与基础保存链；不构成真实 MoE 训练支持 |
+| tiny upstream Qwen3.5/3.6 MoE | 2-rank padded/varlen | objective、router/expert 更新、fresh/resume、DDP/FSDP/ZeRO-3 保存导出；仅为 tiny capability gate |
 
-统一命令选择 3 个 opt-in integration gate，历史结果 3/3 通过。前两项可作为 dense 发布链证据；MoE
-一项只证明 tiny architecture 骨架当时可执行，未覆盖真实权重、目标硬件、optimizer/router/expert、
-生产 checkpoint topology、显存或吞吐，因此当前仍列入 TODO，不得据此声明训练支持。
+统一命令选择 3 个 opt-in integration gate。第一项是 Qwen3VL 真实权重发布链证据；第二项仅证明
+Qwen3.5/3.6 dense tiny-upstream capability。MoE 已从早期架构骨架回归提升为 tiny capability gate，覆盖
+optimizer/router/expert 和 backend-native checkpoint topology，但仍未覆盖真实 35B 权重、目标硬件容量、
+长程数值、显存或吞吐，因此保持 experimental，不得据此声明生产支持。
 
 ## 9. Varlen layout
 
@@ -484,10 +486,12 @@ model family + concrete HF config
 ```text
 Qwen3VL image SFT + CPU + eager/SDPA + fp32/bf16   correctness oracle only
 Qwen3VL image SFT + CUDA + FlashAttention 2
-                    + bf16/fp16 + DDP              release path
-Qwen3.5/3.6 dense image SFT + CUDA + FlashAttention 2
+                    + bf16 + DDP                   varlen release path
+                    + fp16 + DDP                   runtime allowlisted; padded 2B only validated
+Qwen3.5/3.6 dense/MoE image SFT + CUDA + FlashAttention 2
                     + FLA + causal-conv
-                    + bf16/fp16 + DDP              release path
+                    + bf16 + DDP                   dense/MoE tiny-validated
+                    + fp16 + DDP                   runtime allowlisted; varlen not yet validated
 ```
 
 CUDA SDPA/eager、CUDA fp32 FA2、FSDP、DeepSpeed、torch.compile、SmokeVLM、未知或
@@ -509,7 +513,7 @@ Qwen3VL 首轮策略：
    varlen 边界。
 5. 逐段校验 modality run、grid row 和 patch slice 数量，任何 media manifest 漂移都在 forward 前失败。
 
-Qwen3.5/3.6 dense 使用独立 hybrid policy：除同样的 segment-local 四轴 M-RoPE 外，还生成 `seq_idx`、
+Qwen3.5/3.6 dense/MoE 使用独立 hybrid policy：除同样的 segment-local 四轴 M-RoPE 外，还生成 `seq_idx`、
 `cu_seq_lens_q/k` 与 max lengths，分别隔离 causal-conv、GatedDeltaNet/FLA 和 full attention。Transformers
 5.10.1 会把语言侧 kwargs 同时传给 vision encoder，因此 policy 在模型 runtime 安装版本化 media-kwarg
 filter，只从 vision feature 调用移除这些语言字段；trainer/collator 不包含模型名分支。CPU fallback 不满足

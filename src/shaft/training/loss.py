@@ -59,6 +59,7 @@ def auto_loss(
     ignore_index: int = -100,
     loss_scale: torch.Tensor | None = None,
     normalization_denominator: torch.Tensor | int | float | None = None,
+    component_output: dict[str, torch.Tensor] | None = None,
     **_: Any,
 ) -> torch.Tensor:
     if loss_scale is not None or normalization_denominator is not None:
@@ -73,6 +74,7 @@ def auto_loss(
             ignore_index=ignore_index,
             loss_scale=loss_scale,
             normalization_denominator=normalization_denominator,
+            component_output=component_output,
         )
     maybe_loss = _extract_loss(outputs)
     if isinstance(maybe_loss, torch.Tensor):
@@ -91,6 +93,7 @@ def causal_lm_loss(
     ignore_index: int = -100,
     loss_scale: torch.Tensor | None = None,
     normalization_denominator: torch.Tensor | int | float | None = None,
+    component_output: dict[str, torch.Tensor] | None = None,
     **_: Any,
 ) -> torch.Tensor:
     logits = _extract_logits(outputs)
@@ -102,6 +105,7 @@ def causal_lm_loss(
         ignore_index=ignore_index,
         loss_scale=loss_scale,
         normalization_denominator=normalization_denominator,
+        component_output=component_output,
     )
 
 
@@ -112,6 +116,7 @@ def causal_lm_cross_entropy(
     ignore_index: int = -100,
     loss_scale: torch.Tensor | None = None,
     normalization_denominator: torch.Tensor | int | float | None = None,
+    component_output: dict[str, torch.Tensor] | None = None,
 ) -> torch.Tensor:
     shift_logits = logits[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
@@ -128,7 +133,18 @@ def causal_lm_cross_entropy(
     else:
         shift_loss_scale = loss_scale[..., 1:].contiguous().to(device=token_loss.device, dtype=token_loss.dtype)
         weights = shift_loss_scale * valid_mask.to(dtype=token_loss.dtype)
+    weighted_token_loss = token_loss * weights
     local_denominator = weights.sum()
+    if component_output is not None:
+        batch_size = int(weighted_token_loss.shape[0])
+        component_output["numerator"] = weighted_token_loss.reshape(
+            batch_size,
+            -1,
+        ).sum(dim=-1)
+        component_output["denominator"] = weights.reshape(
+            batch_size,
+            -1,
+        ).sum(dim=-1)
     denom = (
         local_denominator
         if normalization_denominator is None
@@ -140,4 +156,4 @@ def causal_lm_cross_entropy(
     )
     if float(denom.detach().item()) <= 0:
         return token_loss.sum() * 0.0
-    return (token_loss * weights).sum() / denom
+    return weighted_token_loss.sum() / denom

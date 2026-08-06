@@ -14,7 +14,12 @@ import uuid
 import transformers.trainer as hf_trainer_module
 
 from shaft.config import RuntimeConfig
-from shaft.model import ModelMeta, ShaftModelAdapter
+from shaft.model import (
+    ModelMeta,
+    ResolvedAdapterInit,
+    ShaftModelAdapter,
+    resolve_adapter_artifact,
+)
 from shaft.model.finetune_plan import FINETUNE_SUMMARY_FILENAME
 from shaft.observability import (
     PROGRESS_SNAPSHOT_FILENAME,
@@ -106,12 +111,23 @@ class ResolvedResumeCheckpoint:
     generation_fingerprint: str
     commit_fingerprint: str | None
     stat_guard: tuple[tuple[str, int, int, int, int, int], ...]
+    adapter_artifact: ResolvedAdapterInit | None = None
 
     def __post_init__(self) -> None:
         if not self.path.is_absolute():
             object.__setattr__(self, "path", self.path.resolve())
         if type(self.global_step) is not int or self.global_step < 0:
             raise ValueError("Resolved resume global_step must be a non-negative integer.")
+        if self.adapter_artifact is not None:
+            if self.protocol is not ShaftCheckpointProtocol.BACKEND_NATIVE:
+                raise ValueError(
+                    "Resolved PEFT resume artifacts are supported only by backend-native "
+                    "checkpoints."
+                )
+            if Path(self.adapter_artifact.path).resolve() != self.path:
+                raise ValueError(
+                    "Resolved PEFT artifact path differs from its resume checkpoint."
+                )
         for name, value in (
             ("generation_fingerprint", self.generation_fingerprint),
             ("commit_fingerprint", self.commit_fingerprint),
@@ -221,12 +237,19 @@ def _committed_checkpoint_stat_guard(
 
 def _backend_checkpoint_stat_guard(
     checkpoint: Path,
+    adapter_artifact: ResolvedAdapterInit | None = None,
 ) -> tuple[tuple[str, int, int, int, int, int], ...]:
-    return (
-        _file_stat_token(
-            checkpoint / "trainer_state.json",
-            relative_name="trainer_state.json",
-        ),
+    names = ["trainer_state.json"]
+    if adapter_artifact is not None:
+        names.extend(
+            (
+                "adapter_config.json",
+                *(name for name, _size, _sha256 in adapter_artifact.weight_manifest),
+            )
+        )
+    return tuple(
+        _file_stat_token(checkpoint / name, relative_name=name)
+        for name in sorted(names)
     )
 
 
@@ -248,7 +271,10 @@ def validate_resolved_resume_checkpoint_guard(
             raise ValueError("Resolved training checkpoint commit marker changed during startup.")
         actual = _committed_checkpoint_stat_guard(resolved.path, manifest)
     else:
-        actual = _backend_checkpoint_stat_guard(resolved.path)
+        actual = _backend_checkpoint_stat_guard(
+            resolved.path,
+            resolved.adapter_artifact,
+        )
     if actual != resolved.stat_guard:
         raise ValueError("Resolved training checkpoint artifacts changed during startup.")
 
@@ -1251,6 +1277,8 @@ def _resolved_committed_checkpoint(
 def _resolved_backend_checkpoint(
     checkpoint: Path,
     trainer_state: Mapping[str, Any],
+    *,
+    adapter_artifact: ResolvedAdapterInit | None = None,
 ) -> ResolvedResumeCheckpoint:
     global_step = json_int(
         trainer_state,
@@ -1263,6 +1291,11 @@ def _resolved_backend_checkpoint(
             "protocol": ShaftCheckpointProtocol.BACKEND_NATIVE.value,
             "global_step": global_step,
             "trainer_state_fingerprint": trainer_state_fingerprint,
+            "adapter_artifact_fingerprint": (
+                None
+                if adapter_artifact is None
+                else adapter_artifact.artifact_fingerprint
+            ),
         }
     )
     return ResolvedResumeCheckpoint(
@@ -1271,8 +1304,33 @@ def _resolved_backend_checkpoint(
         global_step=global_step,
         generation_fingerprint=generation_fingerprint,
         commit_fingerprint=None,
-        stat_guard=_backend_checkpoint_stat_guard(checkpoint),
+        stat_guard=_backend_checkpoint_stat_guard(checkpoint, adapter_artifact),
+        adapter_artifact=adapter_artifact,
     )
+
+
+def _resolve_backend_adapter_artifact(
+    checkpoint: Path,
+    *,
+    finetune_mode: str | None,
+) -> ResolvedAdapterInit | None:
+    if finetune_mode is None:
+        return None
+    mode = str(finetune_mode).strip().lower()
+    if mode == "full":
+        return None
+    if mode not in {"lora", "dora", "qlora"}:
+        raise ValueError(f"Unsupported finetune mode: {finetune_mode!r}")
+    config_path = checkpoint / "adapter_config.json"
+    if config_path.is_symlink():
+        raise ValueError("Backend-native PEFT adapter_config.json must not be a symlink.")
+    artifact = resolve_adapter_artifact(checkpoint)
+    for name, _size, _sha256 in artifact.weight_manifest:
+        if (checkpoint / name).is_symlink():
+            raise ValueError(
+                f"Backend-native PEFT adapter weight must not be a symlink: {name}."
+            )
+    return artifact
 
 
 def resolve_resume_checkpoint_generation(
@@ -1280,6 +1338,7 @@ def resolve_resume_checkpoint_generation(
     *,
     protocol: ShaftCheckpointProtocol | str,
     require_planning_state: bool = False,
+    finetune_mode: str | None = None,
 ) -> ResolvedResumeCheckpoint | None:
     if path is None:
         return None
@@ -1311,9 +1370,17 @@ def resolve_resume_checkpoint_generation(
             for _step, candidate in sorted(child_candidates, reverse=True):
                 try:
                     trainer_state = _validate_backend_native_checkpoint_location(candidate)
+                    adapter_artifact = _resolve_backend_adapter_artifact(
+                        candidate,
+                        finetune_mode=finetune_mode,
+                    )
                 except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
                     continue
-                return _resolved_backend_checkpoint(candidate, trainer_state)
+                return _resolved_backend_checkpoint(
+                    candidate,
+                    trainer_state,
+                    adapter_artifact=adapter_artifact,
+                )
         else:
             # Validate newest-first and stop at the first complete generation.
             # A successful manifest already verifies its planning extension, so
@@ -1344,7 +1411,15 @@ def resolve_resume_checkpoint_generation(
     if resolved_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE:
         if layout.has_trainer_state:
             trainer_state = _validate_backend_native_checkpoint_location(target)
-            return _resolved_backend_checkpoint(target, trainer_state)
+            adapter_artifact = _resolve_backend_adapter_artifact(
+                target,
+                finetune_mode=finetune_mode,
+            )
+            return _resolved_backend_checkpoint(
+                target,
+                trainer_state,
+                adapter_artifact=adapter_artifact,
+            )
         raise ValueError(f"No backend-native trainer checkpoint found under: {target}")
 
     if layout.has_trainer_state and layout.kind in {"full", "adapter"}:
@@ -1369,6 +1444,7 @@ def resolve_resume_checkpoint(
     *,
     protocol: ShaftCheckpointProtocol | str,
     require_planning_state: bool = False,
+    finetune_mode: str | None = None,
 ) -> str | None:
     """Compatibility path API; pipelines should retain the typed generation."""
 
@@ -1376,6 +1452,7 @@ def resolve_resume_checkpoint(
         path,
         protocol=protocol,
         require_planning_state=require_planning_state,
+        finetune_mode=finetune_mode,
     )
     return None if resolved is None else str(resolved.path)
 
@@ -1445,8 +1522,18 @@ def validate_resume_checkpoint(
         _validate_backend_native_checkpoint_location(checkpoint)
         if mode not in {"full", "lora", "dora", "qlora"}:
             raise ValueError(f"Unsupported finetune mode: {finetune_mode!r}")
-        # FSDP/DeepSpeed own the storage representation and compatibility
-        # validation even when they also expose conventional-looking files.
+        if mode in {"lora", "dora", "qlora"}:
+            adapter_artifact = (
+                None
+                if resolved_generation is None
+                else resolved_generation.adapter_artifact
+            )
+            if adapter_artifact is None:
+                adapter_artifact = _resolve_backend_adapter_artifact(
+                    checkpoint,
+                    finetune_mode=mode,
+                )
+            assert adapter_artifact is not None
         return
     trainer_state = _load_trainer_state(checkpoint)
     _validate_checkpoint_step(

@@ -16,7 +16,12 @@ import urllib.request
 import torch
 
 from shaft.config import RuntimeConfig
-from shaft.model import ShaftModelAdapter, build_model_meta, build_model_tokenizer_processor
+from shaft.model import (
+    ShaftInferenceContract,
+    ShaftModelAdapter,
+    build_model_meta,
+    build_model_tokenizer_processor,
+)
 from shaft.model.generation import align_model_generation_config, set_model_use_cache
 from shaft.template import Template
 from shaft.template import ShaftChatRenderer
@@ -288,7 +293,7 @@ class VLLMOpenAIInferAdapter(InferAdapter):
         *,
         endpoint: str,
         model_name: str,
-        model_adapter: ShaftModelAdapter,
+        inference_contract: ShaftInferenceContract,
         api_key: str | None = None,
         timeout_seconds: float = 60.0,
         default_generation: InferGenerationConfig | None = None,
@@ -302,7 +307,7 @@ class VLLMOpenAIInferAdapter(InferAdapter):
         self.endpoint = endpoint_value.rstrip("/")
         self.chat_completions_url = self._resolve_chat_completions_url(self.endpoint)
         self.model_name = model_name_value
-        self.model_adapter = model_adapter
+        self.inference_contract = inference_contract
         self.api_key = str(api_key).strip() if api_key is not None else None
         self.timeout_seconds = float(timeout_seconds)
         if self.timeout_seconds <= 0:
@@ -353,7 +358,7 @@ class VLLMOpenAIInferAdapter(InferAdapter):
         if request.execution is not None:
             request.execution.checkpoint(context="vLLM request preparation")
         generation = request.generation or self.default_generation
-        prepared = self.model_adapter.inference_policy.prepare_openai(
+        prepared = self.inference_contract.policy.prepare_openai(
             image_paths=request.image_paths,
             user_prompt=request.user_prompt,
             system_prompt=request.system_prompt,
@@ -361,7 +366,7 @@ class VLLMOpenAIInferAdapter(InferAdapter):
             min_pixels=request.min_pixels,
             max_pixels=request.max_pixels,
             backend_options=request.backend_options,
-            template_type=self.model_adapter.template_type,
+            template_type=self.inference_contract.template_type,
         )
         if request.execution is not None:
             request.execution.checkpoint(context="vLLM request preparation")
@@ -547,14 +552,14 @@ class ShaftInferEngine:
         if backend_name == "vllm_openai":
             model_name = str(config.served_model_name or config.model_name_or_path).strip()
             model_meta = build_model_meta(config.model_type)
-            model_adapter = model_meta.resolve_adapter(
+            inference_contract = model_meta.resolve_inference_contract(
                 model_name_or_path=config.model_name_or_path,
                 template_type=config.template,
             )
             adapter: InferAdapter = VLLMOpenAIInferAdapter(
                 endpoint=str(config.endpoint or "").strip(),
                 model_name=model_name,
-                model_adapter=model_adapter,
+                inference_contract=inference_contract,
                 api_key=config.api_key,
                 timeout_seconds=float(config.request_timeout_seconds),
                 default_generation=config.generation,

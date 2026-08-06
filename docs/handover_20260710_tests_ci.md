@@ -1,14 +1,14 @@
 # Handover: Shaft 测试与 CI/CD
 
-更新时间：2026-07-16 UTC
+更新时间：2026-08-05 UTC
 
 本文档记录当前测试和 CI 主线。测试命令与 suite 语义以 `docs/testing.md` 为最终真源。
 
 ## 1. 当前方向
 
 - 仓库继续以 HF-first 多模态训练/推理框架为主线。
-- 当前优先保证 Qwen3VL/Qwen3.5/Qwen3.6 dense 的 SFT、保存、恢复、导出和推理契约；MoE 只保留内部
-  扩展骨架回归，尚不属于正式训练能力。
+- 当前优先保证 Qwen3VL/Qwen3.5/Qwen3.6 dense 与 MoE 的 SFT、保存、恢复、导出和推理契约。MoE 已完成
+  tiny upstream 的 DDP/FSDP/ZeRO-3 release gate，但真实 35B 权重仍属于生产容量待验收项。
 - 原 `projects/eval_bench` 独立评测工作台已从主线切除。它没有被 `src/shaft` 反向依赖，且维护了
   独立 evaluator/metric 数据流，不应与在线评估形成双真源。
 - 分支名 `feat/eval-bench` 只是历史名称，不再表示当前树包含该产品。
@@ -76,13 +76,21 @@ CPU 回归已经覆盖：
 
 - framework 和 smoke 主链
 - 同机 Gloo distributed contract
-- Qwen3.5/Qwen3.6 tiny MoE architecture/save 骨架回归（不构成真实 MoE 训练支持）
+- Qwen3.5/Qwen3.6 tiny MoE router objective 的 CPU fresh/resume/HF reload
 - lockfile、workflow YAML、wheel build
+
+两卡 CUDA opt-in/manual gate 另外覆盖 tiny MoE 的 DDP/FSDP/ZeRO-3 fresh-resume-export；它不属于 CPU
+回归，也不替代真实 35B 权重验收。
+
+2026-08-05 本地最终源码态已在 CUDA 0/1 通过真实 Qwen3VL-2B FP16 padded LoRA、真实 Qwen3VL-4B
+BF16 greedy-varlen LoRA，以及 tiny MoE DDP/FSDP/ZeRO-3 gates；全程未操作 `gpu-holder`。远端 CI 终态仍需
+以最终提交 SHA 为准。
 
 合并主线前仍需基于最终冻结 SHA：
 
 1. 让远端 `framework-ci / required` 与 `framework-runtime / distributed-contracts` 成功运行。
-2. 补跑当前 HEAD 的 CUDA Qwen release gates。
+2. 当前 HEAD 的 CUDA Qwen release gates 已完成；若冻结前继续修改 trainer、model、data、checkpoint 或
+   distributed 主链，再按受影响矩阵补跑，不能沿用本轮结果。
 3. 如果对外承诺真实多机能力，再增加双主机 NCCL/NIC/共享存储 canary；否则在能力矩阵明确标记未验收。
 
 ## 5. 当前收口状态
@@ -92,6 +100,8 @@ CPU 回归已经覆盖：
 - `docs/development_log.md` 与 `docs/todo.md` 已恢复为仓库真源；本轮没有修改 `.gitignore`。
 - 首次 `main` clean-runner 暴露的本地模型目录、optional dependency 和 `torchrun` import 隔离问题已修复；
   最终结论仍以修复 commit 对应的远端 `framework-ci` 与 `framework-runtime` 终态为准。
+- tiny-upstream MoE 能力矩阵：DDP/FSDP 支持 fused-parameter LoRA，ZeRO-3 支持 full finetune；
+  `ZeRO-3 + target_parameters`、MoE QLoRA 和预量化 FP8 artifact 训练会在启动前明确拒绝。
 
 ## 6. 协作与提交
 

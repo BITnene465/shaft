@@ -76,6 +76,7 @@ from shaft.training.input_contract import (
 )
 from shaft.training.resume_contract import (
     ShaftTrainingResumeContract,
+    build_training_resume_preflight_contract,
     build_training_resume_contract as _build_training_resume_contract,
     distributed_training_contract_stage,
 )
@@ -937,17 +938,82 @@ def test_backend_native_validation_rejects_invalid_trainer_step(
         )
 
 
-def test_backend_native_validation_delegates_conventional_layout_compatibility(
+def test_backend_native_peft_validation_requires_complete_standard_adapter(
     tmp_path: Path,
 ) -> None:
     checkpoint = tmp_path / "checkpoint-2"
     _write_full_checkpoint(checkpoint, global_step=2)
 
+    with pytest.raises(FileNotFoundError, match="adapter config"):
+        validate_resume_checkpoint(
+            checkpoint,
+            finetune_mode="lora",
+            protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        )
+
+    adapter = tmp_path / "checkpoint-3"
+    _write_adapter_checkpoint(adapter, global_step=3)
+    resolved = resolve_resume_checkpoint_generation(
+        adapter,
+        protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        finetune_mode="lora",
+    )
+    assert resolved is not None
+    assert resolved.adapter_artifact is not None
     validate_resume_checkpoint(
-        checkpoint,
+        resolved,
         finetune_mode="lora",
         protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
     )
+
+
+def test_backend_native_peft_generation_and_guard_bind_adapter_bytes(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "checkpoint-2"
+    _write_adapter_checkpoint(checkpoint, global_step=2)
+    resolved = resolve_resume_checkpoint_generation(
+        checkpoint,
+        protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        finetune_mode="lora",
+    )
+    assert resolved is not None
+    original_fingerprint = resolved.generation_fingerprint
+
+    (checkpoint / "adapter_model.safetensors").write_bytes(b"changed-adapter")
+    with pytest.raises(ValueError, match="artifacts changed"):
+        validate_resolved_resume_checkpoint_guard(resolved)
+
+    changed = resolve_resume_checkpoint_generation(
+        checkpoint,
+        protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        finetune_mode="lora",
+    )
+    assert changed is not None
+    assert changed.generation_fingerprint != original_fingerprint
+
+
+def test_backend_native_peft_resolver_skips_newer_incomplete_adapter(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "run"
+    complete = root / "checkpoint-1"
+    incomplete = root / "checkpoint-2"
+    _write_adapter_checkpoint(complete, global_step=1)
+    incomplete.mkdir(parents=True)
+    (incomplete / "trainer_state.json").write_text(
+        json.dumps({"global_step": 2}),
+        encoding="utf-8",
+    )
+
+    resolved = resolve_resume_checkpoint_generation(
+        root,
+        protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        finetune_mode="lora",
+    )
+
+    assert resolved is not None
+    assert resolved.path == complete.resolve()
 
 
 def test_backend_native_protocol_does_not_install_commit_wrapper() -> None:
@@ -2998,7 +3064,15 @@ def _write_adapter_checkpoint(
     global_step: int = 0,
 ) -> None:
     path.mkdir(parents=True)
-    (path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (path / "adapter_config.json").write_text(
+        json.dumps(
+            {
+                "base_model_name_or_path": "fixture-base",
+                "peft_type": "LORA",
+            }
+        ),
+        encoding="utf-8",
+    )
     (path / "adapter_model.safetensors").write_bytes(b"adapter")
     if trainer_state:
         (path / "trainer_state.json").write_text(
@@ -3727,9 +3801,19 @@ def test_training_resume_contract_binds_effective_model_execution() -> None:
         training_args=_resume_training_args(torch_compile=False),
         batch_contract_fingerprint=batch_contract.fingerprint,
     )
+    resolved_default = build_training_resume_contract(
+        config=config,
+        training_args=_resume_training_args(torch_compile=False),
+        batch_contract_fingerprint=batch_contract.fingerprint,
+        resolved_experts_implementation="grouped_mm",
+    )
+    resolved_execution = resolved_default.to_dict()["execution"]["model_execution"]
+    assert resolved_execution["experts_implementation"] == "grouped_mm"
+    assert resolved_execution["experts_implementation_request"] is None
 
     config.model.torch_dtype = "float32"
     config.model.attn_implementation = "sdpa"
+    config.model.experts_implementation = "grouped_mm"
     config.model.device_map = "auto"
     changed = build_training_resume_contract(
         config=config,
@@ -3745,6 +3829,43 @@ def test_training_resume_contract_binds_effective_model_execution() -> None:
     assert (
         original.to_dict()["execution"]["model_execution"]
         != changed.to_dict()["execution"]["model_execution"]
+    )
+    assert (
+        changed.to_dict()["execution"]["model_execution"]["experts_implementation"]
+        == "grouped_mm"
+    )
+    assert (
+        changed.to_dict()["execution"]["model_execution"][
+            "experts_implementation_request"
+        ]
+        == "grouped_mm"
+    )
+
+
+def test_training_resume_preflight_preserves_resolved_experts_implementation() -> None:
+    config = RuntimeConfig()
+    config.algorithm.name = "sft"
+    batch_contract = _fixed_batch_contract()
+    stored = build_training_resume_contract(
+        config=config,
+        training_args=_resume_training_args(),
+        batch_contract_fingerprint=batch_contract.fingerprint,
+        resolved_experts_implementation="grouped_mm",
+    )
+
+    preflight = build_training_resume_preflight_contract(
+        checkpoint_contract=stored,
+        config=config,
+        training_args=_resume_training_args(),
+        batch_contract_fingerprint=batch_contract.fingerprint,
+    )
+
+    assert preflight == stored
+    assert (
+        preflight.to_dict()["execution"]["model_execution"][
+            "experts_implementation"
+        ]
+        == "grouped_mm"
     )
 
 
@@ -3966,7 +4087,9 @@ def test_training_resume_contract_binds_hook_order_state_and_algorithm_params() 
     config = RuntimeConfig()
     config.algorithm.name = "sft"
     config.plugins.hooks = ["fixture"]
-    config.algorithm.params = {"trajectory_scale": 1}
+    config.algorithm.params = {
+        "auxiliary_loss_weights": {"router_aux_loss": 0.001}
+    }
     batch_contract = _fixed_batch_contract()
     with patch(
         "shaft.plugins.hooks.HOOK_REGISTRY.create",
@@ -3985,7 +4108,9 @@ def test_training_resume_contract_binds_hook_order_state_and_algorithm_params() 
         )
         assert create_hook.call_count == 1
 
-    config.algorithm.params = {"trajectory_scale": 9}
+    config.algorithm.params = {
+        "auxiliary_loss_weights": {"router_aux_loss": 0.009}
+    }
     with patch(
         "shaft.plugins.hooks.HOOK_REGISTRY.create",
         return_value=SimpleNamespace(

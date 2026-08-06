@@ -222,6 +222,23 @@ def test_qwen35vl_and_qwen36vl_adapters_share_verified_hybrid_policy() -> None:
             )
 
 
+@pytest.mark.parametrize(
+    "policy",
+    [Qwen3VLSequenceExecutionPolicy(), Qwen35VLSequenceExecutionPolicy()],
+)
+def test_qwen_varlen_policies_accept_loader_float16_alias_half(policy) -> None:
+    with patch.object(type(policy), "_package_version", return_value="test-version"):
+        contract = policy.build_contract(
+            layout="varlen",
+            device_type="cuda",
+            attention_implementation="flash_attention_2",
+            torch_dtype="half",
+            distributed_strategy="ddp",
+        )
+
+    assert contract.torch_dtype == "half"
+
+
 def test_qwen35vl_hybrid_varlen_fails_closed_without_cuda_or_ddp() -> None:
     policy = Qwen35VLSequenceExecutionPolicy()
     with pytest.raises(ValueError, match="requires CUDA kernels"):

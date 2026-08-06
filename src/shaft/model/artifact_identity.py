@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import re
 import time
 from typing import Any
+
+import torch.distributed as dist
+
+from shaft.utils.distributed import get_rank, get_world_size
 
 
 logger = logging.getLogger(__name__)
@@ -295,20 +301,366 @@ def _local_file_manifest(
     started_at = time.perf_counter()
     total_bytes = 0
     manifest: list[tuple[str, int, str]] = []
-    stat_manifest: list[tuple[str, int, int, int, int, int]] = []
-    for path in files:
-        relative = path.relative_to(root).as_posix()
+    relative_files = tuple(path.relative_to(root).as_posix() for path in files)
+    baseline_stats = tuple(
+        _manifest_stat_entry(relative, _stat_signature(path))
+        for relative, path in zip(relative_files, files, strict=True)
+    )
+    for relative, path, baseline_stat in zip(
+        relative_files,
+        files,
+        baseline_stats,
+        strict=True,
+    ):
         stat, digest = _full_file_snapshot(path)
+        if _manifest_stat_entry(relative, stat) != baseline_stat:
+            raise RuntimeError(
+                "Model artifact changed after the whole-file baseline was captured: "
+                f"{path}."
+            )
         size = int(stat["size"])
         total_bytes += size
         manifest.append((relative, size, digest))
-        stat_manifest.append(_manifest_stat_entry(relative, stat))
+    final_stats = tuple(
+        _manifest_stat_entry(relative, _stat_signature(path))
+        for relative, path in zip(relative_files, files, strict=True)
+    )
+    if final_stats != baseline_stats:
+        raise RuntimeError(
+            "Model artifact changed while the complete multi-file manifest was "
+            "being resolved."
+        )
     return (
         tuple(manifest),
-        tuple(stat_manifest),
+        baseline_stats,
         total_bytes,
         time.perf_counter() - started_at,
     )
+
+
+def _complete_local_identity(
+    root: Path,
+    files: tuple[Path, ...],
+    *,
+    trust_remote_code: bool,
+) -> ResolvedModelArtifactIdentity:
+    manifest, stat_manifest, total_bytes, elapsed = _local_file_manifest(root, files)
+    payload = {
+        "version": _MODEL_ARTIFACT_IDENTITY_VERSION,
+        "kind": "local_hf",
+        "file_manifest": manifest,
+        "trust_remote_code": bool(trust_remote_code),
+    }
+    logger.info(
+        "[model-artifact] kind=local_hf files=%s artifact_bytes=%s "
+        "full_hash_read_bytes=%s cache=disabled elapsed_seconds=%.3f",
+        len(manifest),
+        total_bytes,
+        total_bytes,
+        elapsed,
+    )
+    return ResolvedModelArtifactIdentity(
+        kind="local_hf",
+        fingerprint=_fingerprint(payload),
+        complete=True,
+        file_manifest=manifest,
+        file_stat_manifest=stat_manifest,
+    )
+
+
+def _prepare_complete_local_identity_files(
+    root: Path,
+    *,
+    trust_remote_code: bool,
+) -> tuple[Path, ...] | ResolvedModelArtifactIdentity:
+    source = str(root)
+    if not root.is_dir():
+        return _incomplete_identity(
+            kind="local_hf",
+            source=source,
+            reason="missing_local_hf_directory",
+        )
+    config_path = root / "config.json"
+    if not config_path.is_file():
+        return _incomplete_identity(
+            kind="local_hf",
+            source=source,
+            reason="missing_local_hf_config",
+        )
+    weight_files = _resolve_weight_files(root)
+    if not weight_files:
+        return _incomplete_identity(
+            kind="local_hf",
+            source=source,
+            reason="missing_local_hf_weight_files",
+        )
+    return _local_identity_files(
+        root,
+        trust_remote_code=trust_remote_code,
+        weight_files=weight_files,
+    )
+
+
+def _artifact_identity_process_group():
+    return dist.new_group(
+        backend="gloo",
+        timeout=timedelta(hours=2),
+    )
+
+
+def _artifact_identity_all_gather(value: Any, *, group: Any) -> list[Any]:
+    gathered: list[Any] = [None] * int(dist.get_world_size(group=group))
+    dist.all_gather_object(gathered, value, group=group)
+    return gathered
+
+
+def _distributed_complete_local_identity(
+    root: Path,
+    *,
+    trust_remote_code: bool,
+) -> ResolvedModelArtifactIdentity:
+    """Hash once per shared node artifact and retain a rank-local stat guard.
+
+    Torchrun ranks on one host share the same model files, so reading every byte on
+    every rank multiplies startup I/O without adding evidence. Each node leader
+    hashes its local artifact, all node fingerprints must agree globally, and ranks
+    with a distinct mount/file identity fall back to their own complete hash.
+    """
+
+    if get_world_size() <= 1:
+        prepared = _prepare_complete_local_identity_files(
+            root,
+            trust_remote_code=trust_remote_code,
+        )
+        if isinstance(prepared, ResolvedModelArtifactIdentity):
+            return prepared
+        return _complete_local_identity(root, prepared, trust_remote_code=trust_remote_code)
+    if not dist.is_available() or not dist.is_initialized():
+        raise RuntimeError(
+            "Distributed model artifact identity requires an initialized process "
+            "group before hashing local checkpoint bytes."
+        )
+
+    group = _artifact_identity_process_group()
+    try:
+        prepared: tuple[Path, ...] | ResolvedModelArtifactIdentity | None = None
+        local_status: dict[str, Any]
+        try:
+            local_rank = int(os.environ["LOCAL_RANK"])
+            local_world_size = int(os.environ["LOCAL_WORLD_SIZE"])
+            group_rank = int(os.environ["GROUP_RANK"])
+            if local_world_size <= 0 or not 0 <= local_rank < local_world_size:
+                raise ValueError(
+                    "Invalid torchrun local topology: "
+                    f"LOCAL_RANK={local_rank}, LOCAL_WORLD_SIZE={local_world_size}."
+                )
+            prepared = _prepare_complete_local_identity_files(
+                root,
+                trust_remote_code=trust_remote_code,
+            )
+            if isinstance(prepared, ResolvedModelArtifactIdentity):
+                identity = prepared
+                stat_manifest: tuple[tuple[str, int, int, int, int, int], ...] = ()
+            else:
+                relative_files = tuple(path.relative_to(root).as_posix() for path in prepared)
+                stat_manifest = tuple(
+                    _manifest_stat_entry(relative, _stat_signature(path))
+                    for relative, path in zip(relative_files, prepared, strict=True)
+                )
+                identity = (
+                    _complete_local_identity(
+                        root,
+                        prepared,
+                        trust_remote_code=trust_remote_code,
+                    )
+                    if local_rank == 0
+                    else None
+                )
+                if identity is not None:
+                    stat_manifest = identity.file_stat_manifest
+            local_status = {
+                "ok": True,
+                "rank": get_rank(),
+                "group_rank": group_rank,
+                "local_rank": local_rank,
+                "local_world_size": local_world_size,
+                "identity": identity,
+                "stat_manifest": stat_manifest,
+            }
+        except Exception as exc:  # noqa: BLE001 - peers must converge on failure
+            local_status = {
+                "ok": False,
+                "rank": get_rank(),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+
+        gathered = _artifact_identity_all_gather(local_status, group=group)
+        failures = [status for status in gathered if not bool(status.get("ok"))]
+        if failures:
+            raise RuntimeError(
+                "Distributed immutable model artifact preflight failed: "
+                f"{failures}."
+            )
+        by_node: dict[int, list[dict[str, Any]]] = {}
+        for status in gathered:
+            by_node.setdefault(int(status["group_rank"]), []).append(status)
+        for node_rank, statuses in by_node.items():
+            local_world_sizes = {int(status["local_world_size"]) for status in statuses}
+            local_ranks = {int(status["local_rank"]) for status in statuses}
+            if (
+                len(local_world_sizes) != 1
+                or len(statuses) != next(iter(local_world_sizes))
+                or local_ranks != set(range(len(statuses)))
+            ):
+                raise RuntimeError(
+                    "Distributed model artifact identity requires complete torchrun "
+                    f"node topology; node={node_rank}, statuses={statuses}."
+                )
+
+        incomplete = [
+            status["identity"]
+            for status in gathered
+            if isinstance(status.get("identity"), ResolvedModelArtifactIdentity)
+            and not status["identity"].complete
+        ]
+        if incomplete:
+            if len(incomplete) != len(gathered) or len(
+                {identity.fingerprint for identity in incomplete}
+            ) != 1:
+                raise ValueError(
+                    "Local model artifact availability differs across distributed ranks."
+                )
+            return incomplete[get_rank()]
+
+        leaders = {
+            int(status["group_rank"]): status
+            for status in gathered
+            if int(status["local_rank"]) == 0
+        }
+        identities = [status["identity"] for status in leaders.values()]
+        if len(identities) != len(by_node) or any(
+            not isinstance(identity, ResolvedModelArtifactIdentity)
+            for identity in identities
+        ):
+            raise RuntimeError(
+                "Distributed model artifact identity did not receive exactly one "
+                "content manifest per node."
+            )
+        canonical = identities[0]
+        if any(
+            identity.fingerprint != canonical.fingerprint
+            or identity.file_manifest != canonical.file_manifest
+            for identity in identities[1:]
+        ):
+            raise ValueError(
+                "Local model artifact bytes differ across distributed nodes."
+            )
+
+        fallback_ranks = {
+            int(status["rank"])
+            for status in gathered
+            if status["stat_manifest"]
+            != leaders[int(status["group_rank"])]["stat_manifest"]
+        }
+        if fallback_ranks:
+            fallback_status: dict[str, Any]
+            try:
+                fallback_identity = None
+                if get_rank() in fallback_ranks:
+                    if not isinstance(prepared, tuple):
+                        raise RuntimeError(
+                            "Fallback artifact hashing requires a complete local file inventory."
+                        )
+                    fallback_identity = _complete_local_identity(
+                        root,
+                        prepared,
+                        trust_remote_code=trust_remote_code,
+                    )
+                fallback_status = {
+                    "ok": True,
+                    "rank": get_rank(),
+                    "identity": fallback_identity,
+                }
+            except Exception as exc:  # noqa: BLE001 - peers must converge on failure
+                fallback_status = {
+                    "ok": False,
+                    "rank": get_rank(),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            fallback_results = _artifact_identity_all_gather(
+                fallback_status,
+                group=group,
+            )
+            fallback_failures = [
+                status for status in fallback_results if not bool(status.get("ok"))
+            ]
+            if fallback_failures:
+                raise RuntimeError(
+                    "Distributed fallback model artifact hashing failed: "
+                    f"{fallback_failures}."
+                )
+            for status in fallback_results:
+                identity = status.get("identity")
+                if identity is None:
+                    continue
+                if (
+                    identity.fingerprint != canonical.fingerprint
+                    or identity.file_manifest != canonical.file_manifest
+                ):
+                    raise ValueError(
+                        "A rank-local model artifact differs from its node-leader manifest."
+                    )
+                gathered[int(status["rank"])]["stat_manifest"] = (
+                    identity.file_stat_manifest
+                )
+
+        local_stat_manifest = gathered[get_rank()]["stat_manifest"]
+        final_status: dict[str, Any]
+        try:
+            if not isinstance(prepared, tuple):
+                raise RuntimeError(
+                    "Complete distributed artifact identity lost its local file inventory."
+                )
+            relative_files = tuple(path.relative_to(root).as_posix() for path in prepared)
+            final_stats = tuple(
+                _manifest_stat_entry(relative, _stat_signature(path))
+                for relative, path in zip(relative_files, prepared, strict=True)
+            )
+            if final_stats != local_stat_manifest:
+                raise RuntimeError(
+                    "Local model artifact changed while distributed content identity "
+                    "was converging."
+                )
+            final_status = {"ok": True, "rank": get_rank()}
+        except Exception as exc:  # noqa: BLE001 - peers must converge on failure
+            final_status = {
+                "ok": False,
+                "rank": get_rank(),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+        final_results = _artifact_identity_all_gather(final_status, group=group)
+        final_failures = [
+            status for status in final_results if not bool(status.get("ok"))
+        ]
+        if final_failures:
+            raise RuntimeError(
+                "Distributed model artifact identity closure failed: "
+                f"{final_failures}."
+            )
+        return ResolvedModelArtifactIdentity(
+            kind=canonical.kind,
+            fingerprint=canonical.fingerprint,
+            complete=canonical.complete,
+            incomplete_reasons=canonical.incomplete_reasons,
+            file_manifest=canonical.file_manifest,
+            file_stat_manifest=local_stat_manifest,
+            resolved_revision=canonical.resolved_revision,
+        )
+    finally:
+        dist.destroy_process_group(group)
 
 
 def _local_identity_files(
@@ -446,6 +798,7 @@ def resolve_model_artifact_identity(
     is_hub_repo: bool,
     require_immutable_local: bool = False,
     external_remote_code_repositories: tuple[str, ...] = (),
+    distributed_consensus: bool = False,
 ) -> ResolvedModelArtifactIdentity:
     source = str(model_name_or_path).strip()
     if not uses_hf_artifacts:
@@ -461,6 +814,34 @@ def resolve_model_artifact_identity(
         )
 
     root = Path(source)
+    external_repositories = tuple(
+        sorted(
+            {
+                str(repository).strip()
+                for repository in external_remote_code_repositories
+                if str(repository).strip()
+            }
+        )
+    )
+    if (
+        bool(distributed_consensus)
+        and bool(require_immutable_local)
+        and not bool(is_hub_repo)
+    ):
+        if bool(trust_remote_code) and external_repositories:
+            return _incomplete_identity(
+                kind="local_hf",
+                source=source,
+                reason=(
+                    "unresolved_external_remote_code_revision:"
+                    + ",".join(external_repositories)
+                ),
+            )
+        return _distributed_complete_local_identity(
+            root,
+            trust_remote_code=trust_remote_code,
+        )
+
     if root.is_dir():
         if not require_immutable_local:
             return _incomplete_identity(
@@ -475,15 +856,6 @@ def resolve_model_artifact_identity(
                 source=source,
                 reason="missing_local_hf_config",
             )
-        external_repositories = tuple(
-            sorted(
-                {
-                    str(repository).strip()
-                    for repository in external_remote_code_repositories
-                    if str(repository).strip()
-                }
-            )
-        )
         if bool(trust_remote_code) and external_repositories:
             return _incomplete_identity(
                 kind="local_hf",
@@ -493,40 +865,13 @@ def resolve_model_artifact_identity(
                     + ",".join(external_repositories)
                 ),
             )
-        weight_files = _resolve_weight_files(root)
-        if not weight_files:
-            return _incomplete_identity(
-                kind="local_hf",
-                source=source,
-                reason="missing_local_hf_weight_files",
-            )
-        files = _local_identity_files(
+        prepared = _prepare_complete_local_identity_files(
             root,
             trust_remote_code=trust_remote_code,
-            weight_files=weight_files,
         )
-        manifest, stat_manifest, total_bytes, elapsed = _local_file_manifest(root, files)
-        payload = {
-            "version": _MODEL_ARTIFACT_IDENTITY_VERSION,
-            "kind": "local_hf",
-            "file_manifest": manifest,
-            "trust_remote_code": bool(trust_remote_code),
-        }
-        logger.info(
-            "[model-artifact] kind=local_hf files=%s artifact_bytes=%s "
-            "full_hash_read_bytes=%s cache=disabled elapsed_seconds=%.3f",
-            len(manifest),
-            total_bytes,
-            total_bytes,
-            elapsed,
-        )
-        return ResolvedModelArtifactIdentity(
-            kind="local_hf",
-            fingerprint=_fingerprint(payload),
-            complete=True,
-            file_manifest=manifest,
-            file_stat_manifest=stat_manifest,
-        )
+        if isinstance(prepared, ResolvedModelArtifactIdentity):
+            return prepared
+        return _complete_local_identity(root, prepared, trust_remote_code=trust_remote_code)
 
     if is_hub_repo:
         resolved_candidate = str(resolved_commit_hash or "").strip()
@@ -560,15 +905,6 @@ def resolve_model_artifact_identity(
                 source=source,
                 reason="resolved_hub_revision_mismatch",
             )
-        external_repositories = tuple(
-            sorted(
-                {
-                    str(repository).strip()
-                    for repository in external_remote_code_repositories
-                    if str(repository).strip()
-                }
-            )
-        )
         if bool(trust_remote_code) and external_repositories:
             return _incomplete_identity(
                 kind="hf_hub",

@@ -6,12 +6,12 @@ from dataclasses import dataclass, field
 import hashlib
 import importlib.util
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from packaging.version import InvalidVersion, Version
 import torch
 
-from .inference import ShaftInferencePolicy
+from .inference import ShaftInferenceContract, ShaftInferencePolicy
 from .sharding import ModelShardingPolicy
 
 if TYPE_CHECKING:
@@ -767,17 +767,317 @@ class PeftPolicy(ABC):
 
     def resolve_target_modules(self, target_modules: list[str]) -> list[str]:
         normalized = [str(item).strip() for item in target_modules if str(item).strip()]
-        if not normalized or normalized == ["auto"]:
-            return self.default_target_modules()
-        return normalized
+        resolved: list[str] = []
+        for value in normalized:
+            if value == "auto":
+                resolved.extend(self.default_target_modules())
+            else:
+                resolved.append(value)
+        return list(dict.fromkeys(resolved))
+
+    def default_target_parameters(self) -> list[str]:
+        return []
+
+    def resolve_target_parameters(self, target_parameters: list[str]) -> list[str]:
+        normalized = [str(item).strip() for item in target_parameters if str(item).strip()]
+        resolved: list[str] = []
+        for value in normalized:
+            if value == "auto":
+                defaults = self.default_target_parameters()
+                if not defaults:
+                    raise ValueError(
+                        "model.finetune.target_parameters=['auto'] is not available "
+                        "for this model profile; configure explicit parameter suffixes "
+                        "or leave target_parameters empty."
+                    )
+                resolved.extend(defaults)
+            else:
+                resolved.append(value)
+        return list(dict.fromkeys(resolved))
+
+    def validate_finetune_config(
+        self,
+        finetune: Any,
+        *,
+        model_descriptor: Any | None = None,
+        model_name_or_path: str | None = None,
+    ) -> None:
+        _ = model_descriptor, model_name_or_path
+        requested_parameters = [
+            str(value).strip()
+            for value in getattr(finetune, "target_parameters", ())
+            if str(value).strip()
+        ]
+        if not requested_parameters:
+            return
+        mode = str(finetune.mode).strip().lower()
+        if mode == "full":
+            raise ValueError(
+                "model.finetune.target_parameters applies only to adapter finetuning; "
+                "remove it when mode='full'."
+            )
+        resolved_parameters = self.resolve_target_parameters(requested_parameters)
+        if not resolved_parameters:
+            raise ValueError(
+                "model.finetune.target_parameters resolved to no trainable parameters."
+            )
+        if mode == "dora":
+            raise ValueError("PEFT target_parameters do not support DoRA.")
+        if float(finetune.lora_dropout) != 0.0:
+            raise ValueError("PEFT target_parameters require lora_dropout=0.")
+
+    def validate_training_finetune_config(
+        self,
+        finetune: Any,
+        *,
+        model_descriptor: Any | None = None,
+        model_name_or_path: str | None = None,
+    ) -> None:
+        self.validate_finetune_config(
+            finetune,
+            model_descriptor=model_descriptor,
+            model_name_or_path=model_name_or_path,
+        )
 
 
 @dataclass(frozen=True)
 class DefaultPeftPolicy(PeftPolicy):
     target_modules: list[str]
+    target_parameters: list[str] = field(default_factory=list)
 
     def default_target_modules(self) -> list[str]:
         return list(self.target_modules)
+
+    def default_target_parameters(self) -> list[str]:
+        return list(self.target_parameters)
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftAuxiliaryLossTerm:
+    """One model-owned objective term added beside Shaft's normalized SFT CE."""
+
+    name: str
+    value: torch.Tensor
+    coefficient: float
+    reduction: str = "optimizer_frame_mean"
+
+    def __post_init__(self) -> None:
+        import math
+
+        normalized_name = str(self.name).strip()
+        normalized_reduction = str(self.reduction).strip().lower()
+        coefficient = float(self.coefficient)
+        if not normalized_name:
+            raise ValueError("Auxiliary loss term name must not be empty.")
+        if (
+            not isinstance(self.name, str)
+            or self.name != normalized_name
+            or self.name != self.name.lower()
+        ):
+            raise ValueError(
+                "Auxiliary loss term name must be a canonical lowercase string."
+            )
+        if not torch.is_tensor(self.value) or self.value.numel() != 1:
+            raise ValueError("Auxiliary loss term value must be a scalar tensor.")
+        if not math.isfinite(coefficient) or coefficient < 0.0:
+            raise ValueError("Auxiliary loss term coefficient must be finite and >= 0.")
+        if normalized_reduction != "optimizer_frame_mean":
+            raise ValueError(
+                "Unsupported auxiliary loss reduction; expected "
+                "'optimizer_frame_mean'."
+            )
+        object.__setattr__(self, "name", normalized_name)
+        object.__setattr__(self, "coefficient", coefficient)
+        object.__setattr__(self, "reduction", normalized_reduction)
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftEvalAuxiliaryStatistic:
+    """Additive, batch-first statistics for a model-owned eval metric."""
+
+    name: str
+    coefficient_key: str
+    coefficient: float
+    components: Mapping[str, torch.Tensor]
+
+    def __post_init__(self) -> None:
+        import math
+
+        normalized_name = str(self.name).strip()
+        normalized_coefficient_key = str(self.coefficient_key).strip()
+        coefficient = float(self.coefficient)
+        if not normalized_name:
+            raise ValueError("Eval auxiliary statistic name must not be empty.")
+        if not normalized_coefficient_key:
+            raise ValueError(
+                "Eval auxiliary statistic coefficient_key must not be empty."
+            )
+        if (
+            not isinstance(self.coefficient_key, str)
+            or self.coefficient_key != normalized_coefficient_key
+            or self.coefficient_key != self.coefficient_key.lower()
+        ):
+            raise ValueError(
+                "Eval auxiliary statistic coefficient_key must be a canonical "
+                "lowercase string."
+            )
+        if not math.isfinite(coefficient) or coefficient < 0.0:
+            raise ValueError(
+                "Eval auxiliary statistic coefficient must be finite and >= 0."
+            )
+        normalized_components: dict[str, torch.Tensor] = {}
+        batch_size: int | None = None
+        for component_name, value in self.components.items():
+            normalized_component_name = str(component_name).strip()
+            if not normalized_component_name:
+                raise ValueError(
+                    "Eval auxiliary statistic component names must not be empty."
+                )
+            if not torch.is_tensor(value) or value.ndim < 1:
+                raise ValueError(
+                    "Eval auxiliary statistic components must be batch-first tensors."
+                )
+            current_batch_size = int(value.shape[0])
+            if batch_size is None:
+                batch_size = current_batch_size
+            elif current_batch_size != batch_size:
+                raise ValueError(
+                    "Eval auxiliary statistic components must share one batch size."
+                )
+            normalized_components[normalized_component_name] = value
+        if not normalized_components:
+            raise ValueError(
+                "Eval auxiliary statistic must contain at least one component."
+            )
+        object.__setattr__(self, "name", normalized_name)
+        object.__setattr__(self, "coefficient_key", normalized_coefficient_key)
+        object.__setattr__(self, "coefficient", coefficient)
+        object.__setattr__(self, "components", normalized_components)
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftEvalAuxiliaryMetric:
+    """A dataset-global auxiliary metric finalized from additive statistics."""
+
+    name: str
+    value: torch.Tensor
+    coefficient_key: str
+    coefficient: float
+
+    def __post_init__(self) -> None:
+        import math
+
+        normalized_name = str(self.name).strip()
+        normalized_coefficient_key = str(self.coefficient_key).strip()
+        coefficient = float(self.coefficient)
+        if not normalized_name:
+            raise ValueError("Eval auxiliary metric name must not be empty.")
+        if not normalized_coefficient_key:
+            raise ValueError("Eval auxiliary metric coefficient_key must not be empty.")
+        if (
+            not isinstance(self.coefficient_key, str)
+            or self.coefficient_key != normalized_coefficient_key
+            or self.coefficient_key != self.coefficient_key.lower()
+        ):
+            raise ValueError(
+                "Eval auxiliary metric coefficient_key must be a canonical "
+                "lowercase string."
+            )
+        if not torch.is_tensor(self.value) or self.value.numel() != 1:
+            raise ValueError("Eval auxiliary metric value must be a scalar tensor.")
+        if not math.isfinite(coefficient) or coefficient < 0.0:
+            raise ValueError("Eval auxiliary metric coefficient must be finite and >= 0.")
+        object.__setattr__(self, "name", normalized_name)
+        object.__setattr__(self, "coefficient_key", normalized_coefficient_key)
+        object.__setattr__(self, "coefficient", coefficient)
+
+
+class TrainingObjectivePolicy:
+    """Model-owned additions to the shared SFT next-token objective."""
+
+    def auxiliary_loss_names(self) -> tuple[str, ...]:
+        """Return stable names that may be overridden by algorithm config."""
+
+        return ()
+
+    def prepare_sft_forward_inputs(
+        self,
+        *,
+        model: Any,
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        _ = model
+        return dict(inputs)
+
+    def resolve_sft_auxiliary_loss_terms(
+        self,
+        *,
+        model: Any,
+        outputs: Any,
+        inputs: dict[str, Any],
+    ) -> tuple[ShaftAuxiliaryLossTerm, ...]:
+        _ = model, outputs, inputs
+        return ()
+
+    def resolve_sft_eval_auxiliary_statistics(
+        self,
+        *,
+        model: Any,
+        outputs: Any,
+        inputs: dict[str, Any],
+    ) -> tuple[ShaftEvalAuxiliaryStatistic, ...]:
+        _ = model, outputs, inputs
+        return ()
+
+    def finalize_sft_eval_auxiliary_statistics(
+        self,
+        statistics: tuple[ShaftEvalAuxiliaryStatistic, ...],
+    ) -> tuple[ShaftEvalAuxiliaryMetric, ...]:
+        if statistics:
+            raise ValueError(
+                f"{type(self).__name__} does not implement eval auxiliary statistic "
+                "finalization."
+            )
+        return ()
+
+
+def validate_auxiliary_weight_names(
+    model_adapter: Any,
+    weights: Mapping[str, float],
+) -> tuple[str, ...]:
+    """Validate run overrides against one model policy's declared term names."""
+
+    if model_adapter is None:
+        if weights:
+            raise ValueError(
+                "SFT auxiliary loss weights require a resolved model adapter."
+            )
+        return ()
+    names_resolver = getattr(model_adapter, "auxiliary_loss_names", None)
+    if not callable(names_resolver):
+        if weights:
+            raise TypeError(
+                "The resolved model adapter does not declare auxiliary_loss_names()."
+            )
+        return ()
+    raw_names = tuple(names_resolver())
+    if any(
+        not isinstance(name, str)
+        or not name
+        or name != name.strip()
+        or name != name.lower()
+        for name in raw_names
+    ) or len(set(raw_names)) != len(raw_names):
+        raise ValueError(
+            "The resolved model adapter returned invalid canonical auxiliary loss names."
+        )
+    unknown = sorted(set(weights) - set(raw_names))
+    if unknown:
+        raise ValueError(
+            "Unknown SFT auxiliary loss weight names for the resolved model "
+            f"profile: {unknown}. Supported names: {sorted(raw_names)}."
+        )
+    return raw_names
 
 
 class ModelLoader(ABC):
@@ -804,8 +1104,10 @@ class ModelGroup:
     processor_policy: ProcessorPolicy | None = None
     inference_policy: ShaftInferencePolicy | None = None
     sequence_execution_policy: SequenceExecutionPolicy | None = None
+    training_objective_policy: TrainingObjectivePolicy | None = None
     peft_policy: PeftPolicy | None = None
     sharding_policy: ModelShardingPolicy | None = None
+    default_experts_implementation: str | None = None
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
     descriptor_matcher: Callable[[ResolvedModelDescriptor], bool] | None = None
@@ -848,6 +1150,9 @@ class ModelMeta:
     sequence_execution_policy: SequenceExecutionPolicy = field(
         default_factory=SequenceExecutionPolicy
     )
+    training_objective_policy: TrainingObjectivePolicy = field(
+        default_factory=TrainingObjectivePolicy
+    )
     peft_policy: PeftPolicy = field(default_factory=lambda: DefaultPeftPolicy(target_modules=["all-linear"]))
     sharding_policy: ModelShardingPolicy = field(default_factory=ModelShardingPolicy)
     requires: tuple[str, ...] = ()
@@ -867,6 +1172,7 @@ class ModelMeta:
             processor_policy=self.processor_policy,
             inference_policy=self.inference_policy,
             sequence_execution_policy=self.sequence_execution_policy,
+            training_objective_policy=self.training_objective_policy,
             peft_policy=self.peft_policy,
             sharding_policy=self.sharding_policy,
             requires=self.requires,
@@ -948,6 +1254,11 @@ class ModelMeta:
             if matched is not None and matched.sequence_execution_policy is not None
             else self.sequence_execution_policy
         )
+        training_objective_policy = (
+            matched.training_objective_policy
+            if matched is not None and matched.training_objective_policy is not None
+            else self.training_objective_policy
+        )
         peft_policy = (
             matched.peft_policy if matched is not None and matched.peft_policy is not None else self.peft_policy
         )
@@ -972,8 +1283,14 @@ class ModelMeta:
             processor_policy=processor_policy,
             inference_policy=inference_policy,
             sequence_execution_policy=sequence_execution_policy,
+            training_objective_policy=training_objective_policy,
             peft_policy=peft_policy,
             sharding_policy=sharding_policy,
+            default_experts_implementation=(
+                None
+                if matched is None
+                else matched.default_experts_implementation
+            ),
             requires=_dedupe_non_empty(tuple(requires)),
             additional_saved_files=_dedupe_non_empty(tuple(additional_saved_files)),
             group_name=matched.name if matched is not None else None,
@@ -981,11 +1298,83 @@ class ModelMeta:
             model_descriptor=descriptor,
         )
 
+    def resolve_inference_contract(
+        self,
+        *,
+        model_name_or_path: str,
+        template_type: str | None = None,
+        descriptor: ResolvedModelDescriptor | None = None,
+    ) -> ShaftInferenceContract:
+        """Resolve the template and policy required by a remote backend.
+
+        Remote served-model aliases need not expose the underlying HF artifact.
+        An unresolved variant is safe only when every registered variant has the
+        same effective inference contract. Full model adapters remain strict.
+        """
+
+        matched = self.get_matched_model_group(
+            model_name_or_path,
+            descriptor=descriptor,
+        )
+        if matched is not None or descriptor is not None:
+            adapter = self.resolve_adapter(
+                model_name_or_path=model_name_or_path,
+                template_type=template_type,
+                descriptor=descriptor,
+            )
+            return ShaftInferenceContract(
+                template_type=adapter.template_type,
+                policy=adapter.inference_policy,
+            )
+
+        requested_template = (
+            str(template_type).strip().lower() if template_type else None
+        )
+        candidate_groups: tuple[ModelGroup | None, ...] = (
+            tuple(self.model_groups) if self.model_groups else (None,)
+        )
+        contracts = tuple(
+            ShaftInferenceContract(
+                template_type=(
+                    requested_template
+                    or (group.template if group is not None else None)
+                    or self.default_template
+                ),
+                policy=(
+                    group.inference_policy
+                    if group is not None and group.inference_policy is not None
+                    else self.inference_policy
+                ),
+            )
+            for group in candidate_groups
+        )
+        resolved = contracts[0]
+        incompatible_groups = tuple(
+            group.name
+            for group, contract in zip(candidate_groups, contracts, strict=True)
+            if group is not None and contract != resolved
+        )
+        if incompatible_groups:
+            raise ValueError(
+                f"Remote model {model_name_or_path!r} does not identify a variant "
+                f"of model family {self.model_type!r}, whose registered variants "
+                "have different inference contracts. Use a registered model name "
+                "or provide a resolvable HF descriptor. Incompatible groups: "
+                f"{incompatible_groups}."
+            )
+        return resolved
+
     def default_target_modules(self) -> list[str]:
         return self.peft_policy.default_target_modules()
 
     def resolve_target_modules(self, target_modules: list[str]) -> list[str]:
         return self.peft_policy.resolve_target_modules(target_modules)
+
+    def resolve_target_parameters(self, target_parameters: list[str]) -> list[str]:
+        return self.peft_policy.resolve_target_parameters(target_parameters)
+
+    def default_target_parameters(self) -> list[str]:
+        return self.peft_policy.default_target_parameters()
 
     @property
     def candidate_templates(self) -> tuple[str, ...]:
@@ -1063,7 +1452,11 @@ class ShaftModelAdapter:
     sequence_execution_policy: SequenceExecutionPolicy = field(
         default_factory=SequenceExecutionPolicy
     )
+    training_objective_policy: TrainingObjectivePolicy = field(
+        default_factory=TrainingObjectivePolicy
+    )
     sharding_policy: ModelShardingPolicy = field(default_factory=ModelShardingPolicy)
+    default_experts_implementation: str | None = None
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
     group_name: str | None = None
@@ -1076,6 +1469,52 @@ class ShaftModelAdapter:
     def resolve_target_modules(self, target_modules: list[str]) -> list[str]:
         return self.peft_policy.resolve_target_modules(target_modules)
 
+    def resolve_target_parameters(self, target_parameters: list[str]) -> list[str]:
+        return self.peft_policy.resolve_target_parameters(target_parameters)
+
+    def default_target_parameters(self) -> list[str]:
+        return self.peft_policy.default_target_parameters()
+
+    def resolve_experts_implementation(self, requested: str | None) -> str | None:
+        normalized = str(requested).strip().lower() if requested is not None else ""
+        requested_value = normalized or None
+        default_value = (
+            str(self.default_experts_implementation).strip().lower()
+            if self.default_experts_implementation is not None
+            else ""
+        ) or None
+        if requested_value is not None and default_value is None:
+            raise ValueError(
+                "model.experts_implementation is only valid for a model profile "
+                "that declares an expert execution backend."
+            )
+        return requested_value or default_value
+
+    def validate_finetune_config(self, finetune: Any) -> None:
+        self.peft_policy.validate_finetune_config(
+            finetune,
+            model_descriptor=self.model_descriptor,
+            model_name_or_path=self.model_name_or_path,
+        )
+
+    def validate_training_finetune_config(self, finetune: Any) -> None:
+        self.peft_policy.validate_training_finetune_config(
+            finetune,
+            model_descriptor=self.model_descriptor,
+            model_name_or_path=self.model_name_or_path,
+        )
+
+    def validate_distributed_config(
+        self,
+        train: Any,
+        *,
+        finetune: Any | None = None,
+    ) -> None:
+        self.sharding_policy.validate_distributed_config(
+            train,
+            finetune=finetune,
+        )
+
     def resolve_fsdp_transformer_layer_cls_to_wrap(self, values: list[str]) -> list[str]:
         try:
             return self.sharding_policy.resolve_fsdp_transformer_layer_cls_to_wrap(values)
@@ -1084,6 +1523,54 @@ class ShaftModelAdapter:
                 "train.distributed.fsdp.transformer_layer_cls_to_wrap=['auto'] is not available "
                 f"for model.model_type={self.model_type!r}. Configure explicit transformer layer class names."
             ) from exc
+
+    def prepare_sft_forward_inputs(
+        self,
+        *,
+        model: Any,
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.training_objective_policy.prepare_sft_forward_inputs(
+            model=model,
+            inputs=inputs,
+        )
+
+    def auxiliary_loss_names(self) -> tuple[str, ...]:
+        return self.training_objective_policy.auxiliary_loss_names()
+
+    def resolve_sft_auxiliary_loss_terms(
+        self,
+        *,
+        model: Any,
+        outputs: Any,
+        inputs: dict[str, Any],
+    ) -> tuple[ShaftAuxiliaryLossTerm, ...]:
+        return self.training_objective_policy.resolve_sft_auxiliary_loss_terms(
+            model=model,
+            outputs=outputs,
+            inputs=inputs,
+        )
+
+    def resolve_sft_eval_auxiliary_statistics(
+        self,
+        *,
+        model: Any,
+        outputs: Any,
+        inputs: dict[str, Any],
+    ) -> tuple[ShaftEvalAuxiliaryStatistic, ...]:
+        return self.training_objective_policy.resolve_sft_eval_auxiliary_statistics(
+            model=model,
+            outputs=outputs,
+            inputs=inputs,
+        )
+
+    def finalize_sft_eval_auxiliary_statistics(
+        self,
+        statistics: tuple[ShaftEvalAuxiliaryStatistic, ...],
+    ) -> tuple[ShaftEvalAuxiliaryMetric, ...]:
+        return self.training_objective_policy.finalize_sft_eval_auxiliary_statistics(
+            statistics
+        )
 
     def build_processor_batch(
         self,

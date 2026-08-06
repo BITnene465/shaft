@@ -403,6 +403,30 @@ class SmokeVLMProcessorPolicy(ProcessorPolicy):
             processed_boundaries=tuple(range(len(rendered_token_ids) + 1))
         )
 
+
+@dataclass(frozen=True)
+class QwenVLMoePeftPolicy(DefaultPeftPolicy):
+    """PEFT defaults for Qwen VL checkpoints with fused routed experts."""
+
+    def validate_training_finetune_config(
+        self,
+        finetune: Any,
+        *,
+        model_descriptor: Any | None = None,
+        model_name_or_path: str | None = None,
+    ) -> None:
+        super().validate_training_finetune_config(
+            finetune,
+            model_descriptor=model_descriptor,
+            model_name_or_path=model_name_or_path,
+        )
+        if str(finetune.mode).strip().lower() == "qlora":
+            raise ValueError(
+                "Qwen VL MoE QLoRA is not supported: bitsandbytes does not "
+                "quantize fused 3-D routed-expert parameters. Use full "
+                "finetuning from an unquantized base or LoRA."
+            )
+
 PROCESSOR_POLICY_REGISTRY: Registry[ProcessorPolicy] = Registry("model_processor_policy")
 PEFT_POLICY_REGISTRY: Registry[PeftPolicy] = Registry("model_peft_policy")
 
@@ -454,3 +478,14 @@ register_processor_policy(
 )
 
 register_peft_policy("all_linear", DefaultPeftPolicy(target_modules=["all-linear"]))
+register_peft_policy(
+    "qwen_vl_moe",
+    QwenVLMoePeftPolicy(
+        target_modules=["all-linear"],
+        target_parameters=[
+            "mlp.experts.gate_up_proj",
+            "mlp.experts.down_proj",
+            "mlp.gate.weight",
+        ],
+    ),
+)

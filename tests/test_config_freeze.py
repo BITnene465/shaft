@@ -36,6 +36,26 @@ model:
     assert freeze.trainable_regex == ".*lm_head.*"
 
 
+def test_normalization_preserves_explicit_peft_parameter_targets(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+model:
+  finetune:
+    mode: lora
+    target_modules: []
+    target_parameters: [auto, " mlp.gate.weight ", auto]
+"""
+
+    cfg = load_config_from_yaml(tmp_path, payload)
+
+    assert cfg.model.finetune.target_modules == []
+    assert cfg.model.finetune.target_parameters == ["auto", "mlp.gate.weight"]
+
+
 def test_invalid_freeze_group_raises(tmp_path: Path) -> None:
     payload = """
 data:

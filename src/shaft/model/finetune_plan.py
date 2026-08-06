@@ -13,8 +13,10 @@ from .freeze import (
     ShaftFreezePlan,
     build_freeze_plan,
     resolve_adapter_modules_to_save,
+    resolve_adapter_target_parameters,
     resolve_adapter_target_modules,
 )
+from .parameters import parameter_numel
 from .types import ShaftModelAdapter
 
 
@@ -37,6 +39,7 @@ class ShaftParameterSelectionPlan:
 @dataclass(frozen=True)
 class ShaftPeftSignature:
     target_modules: tuple[str, ...] = ()
+    target_parameters: tuple[str, ...] = ()
     modules_to_save: tuple[str, ...] = ()
     r: int = 0
     lora_alpha: int = 0
@@ -50,6 +53,10 @@ class ShaftAdapterFinetunePlan:
     resolved_target_modules: tuple[str, ...] = ()
     modules_to_save: tuple[str, ...] = ()
     peft_signature: ShaftPeftSignature = field(default_factory=ShaftPeftSignature)
+
+    @property
+    def resolved_target_parameters(self) -> tuple[str, ...]:
+        return self.peft_signature.target_parameters
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,8 @@ class ShaftFreezePreview:
     target_modules_input: tuple[str, ...] = ()
     explicit_target_modules: bool = False
     policy_target_modules: tuple[str, ...] = ()
+    target_parameters_input: tuple[str, ...] = ()
+    policy_target_parameters: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -101,7 +110,10 @@ class ShaftResolvedFreezeSummary:
     target_modules_input: tuple[str, ...] = ()
     explicit_target_modules: bool = False
     policy_target_modules: tuple[str, ...] = ()
+    target_parameters_input: tuple[str, ...] = ()
+    policy_target_parameters: tuple[str, ...] = ()
     resolved_target_modules: tuple[str, ...] = ()
+    resolved_target_parameters: tuple[str, ...] = ()
     modules_to_save: tuple[str, ...] = ()
     sample_trainable_parameters: tuple[str, ...] = ()
     sample_frozen_parameters: tuple[str, ...] = ()
@@ -113,8 +125,11 @@ class ShaftResolvedFreezeSummary:
         payload = self.to_dict()
         payload["trainable_ratio"] = round(self.trainable_ratio, 4)
         resolved_targets = tuple(payload.pop("resolved_target_modules"))
+        resolved_target_parameters = tuple(payload.pop("resolved_target_parameters"))
         payload["resolved_target_module_count"] = len(resolved_targets)
         payload["sample_resolved_target_modules"] = resolved_targets[:8]
+        payload["resolved_target_parameter_count"] = len(resolved_target_parameters)
+        payload["sample_resolved_target_parameters"] = resolved_target_parameters[:8]
         return payload
 
 
@@ -125,24 +140,11 @@ def _count_parameters(model: torch.nn.Module) -> tuple[int, int]:
     total = 0
     trainable = 0
     for parameter in model.parameters():
-        count = _parameter_numel(parameter)
+        count = parameter_numel(parameter)
         total += count
         if parameter.requires_grad:
             trainable += count
     return total, trainable
-
-
-def _parameter_numel(parameter: torch.nn.Parameter) -> int:
-    deepspeed_numel = getattr(parameter, "ds_numel", None)
-    if deepspeed_numel is not None:
-        return int(deepspeed_numel)
-    deepspeed_shape = getattr(parameter, "ds_shape", None)
-    if deepspeed_shape is not None:
-        total = 1
-        for dim in deepspeed_shape:
-            total *= int(dim)
-        return int(total)
-    return int(parameter.numel())
 
 
 def build_freeze_preview(
@@ -150,10 +152,15 @@ def build_freeze_preview(
     *,
     model_adapter: ShaftModelAdapter,
 ) -> ShaftFreezePreview:
+    model_adapter.validate_finetune_config(finetune)
     freeze_plan = build_freeze_plan(model_adapter=model_adapter, finetune=finetune)
     target_modules_input = _tuple_from_names(list(finetune.target_modules))
     policy_target_modules = _tuple_from_names(
         model_adapter.resolve_target_modules(list(finetune.target_modules))
+    )
+    target_parameters_input = _tuple_from_names(list(finetune.target_parameters))
+    policy_target_parameters = _tuple_from_names(
+        model_adapter.resolve_target_parameters(list(finetune.target_parameters))
     )
     return ShaftFreezePreview(
         mode=str(finetune.mode).strip().lower(),
@@ -165,6 +172,8 @@ def build_freeze_preview(
         target_modules_input=target_modules_input,
         explicit_target_modules=_is_explicit_target_modules(target_modules_input),
         policy_target_modules=policy_target_modules,
+        target_parameters_input=target_parameters_input,
+        policy_target_parameters=policy_target_parameters,
     )
 
 
@@ -181,6 +190,10 @@ def summarize_resolved_finetune_plan(
     target_modules_input = _tuple_from_names(list(finetune.target_modules))
     policy_target_modules = _tuple_from_names(
         model_adapter.resolve_target_modules(list(finetune.target_modules))
+    )
+    target_parameters_input = _tuple_from_names(list(finetune.target_parameters))
+    policy_target_parameters = _tuple_from_names(
+        model_adapter.resolve_target_parameters(list(finetune.target_parameters))
     )
     actual_trainable_names: list[str] = []
     actual_frozen_names: list[str] = []
@@ -203,8 +216,15 @@ def summarize_resolved_finetune_plan(
         target_modules_input=target_modules_input,
         explicit_target_modules=_is_explicit_target_modules(target_modules_input),
         policy_target_modules=policy_target_modules,
+        target_parameters_input=target_parameters_input,
+        policy_target_parameters=policy_target_parameters,
         resolved_target_modules=(
             plan.adapter_plan.resolved_target_modules if plan.adapter_plan is not None else ()
+        ),
+        resolved_target_parameters=(
+            plan.adapter_plan.resolved_target_parameters
+            if plan.adapter_plan is not None
+            else ()
         ),
         modules_to_save=(
             plan.adapter_plan.modules_to_save if plan.adapter_plan is not None else ()
@@ -258,23 +278,37 @@ def _build_adapter_plan(
     freeze_plan: ShaftFreezePlan,
 ) -> ShaftAdapterFinetunePlan:
     resolved_target_modules = model_adapter.resolve_target_modules(list(finetune.target_modules))
+    resolved_target_parameter_patterns = model_adapter.resolve_target_parameters(
+        list(finetune.target_parameters)
+    )
     filtered_target_modules = resolve_adapter_target_modules(
         model,
         resolved_target_modules,
         plan=freeze_plan,
     )
+    filtered_target_parameters = resolve_adapter_target_parameters(
+        model,
+        resolved_target_parameter_patterns,
+        plan=freeze_plan,
+    )
+    if not filtered_target_modules and not filtered_target_parameters:
+        raise ValueError(
+            "No adapter target modules or parameters remain after applying freeze filters."
+        )
     modules_to_save = resolve_adapter_modules_to_save(
         model,
         plan=freeze_plan,
         target_modules=filtered_target_modules,
     )
     target_tuple = _tuple_from_names(filtered_target_modules)
+    target_parameter_tuple = _tuple_from_names(filtered_target_parameters)
     modules_to_save_tuple = _tuple_from_names(modules_to_save)
     return ShaftAdapterFinetunePlan(
         resolved_target_modules=target_tuple,
         modules_to_save=modules_to_save_tuple,
         peft_signature=ShaftPeftSignature(
             target_modules=target_tuple,
+            target_parameters=target_parameter_tuple,
             modules_to_save=modules_to_save_tuple,
             r=int(finetune.lora_r),
             lora_alpha=int(finetune.lora_alpha),
@@ -291,6 +325,7 @@ def build_resolved_finetune_plan(
     *,
     model_adapter: ShaftModelAdapter,
 ) -> ShaftResolvedFinetunePlan:
+    model_adapter.validate_finetune_config(finetune)
     mode = str(finetune.mode).strip().lower()
     freeze_plan = build_freeze_plan(model_adapter=model_adapter, finetune=finetune)
     parameter_plan = _build_parameter_selection_plan(model, freeze_plan=freeze_plan)

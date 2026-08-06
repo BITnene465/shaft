@@ -102,6 +102,22 @@ class ShaftInferencePolicy:
 
 
 @dataclass(frozen=True)
+class ShaftInferenceContract:
+    """The model-owned subset needed by a remote inference backend."""
+
+    template_type: str
+    policy: ShaftInferencePolicy
+
+    def __post_init__(self) -> None:
+        normalized_template = str(self.template_type).strip().lower()
+        if not normalized_template:
+            raise ValueError("Inference contract template_type must not be empty.")
+        if not isinstance(self.policy, ShaftInferencePolicy):
+            raise TypeError("Inference contract policy must be a ShaftInferencePolicy.")
+        object.__setattr__(self, "template_type", normalized_template)
+
+
+@dataclass(frozen=True)
 class ShaftImageTextInferencePolicy(ShaftInferencePolicy):
     """Explicit local image-text policy used by simple HF-compatible models."""
 

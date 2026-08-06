@@ -2,22 +2,15 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-import hashlib
-import io
 import json
 from pathlib import Path
 from typing import Any, Callable
 
-import torch
 from peft import (
     PeftModel,
     get_peft_config,
     get_peft_model,
-    get_peft_model_state_dict,
-    set_peft_model_state_dict,
 )
-from safetensors.torch import load as load_safetensors
-
 from shaft.config import RuntimeConfig
 
 from . import qwen35vl as _qwen35vl  # noqa: F401
@@ -27,11 +20,12 @@ from .artifact_identity import (
     LocalModelArtifactLoadGuard,
     validate_loaded_remote_code_identity,
 )
+from .finetune import load_peft_checkpoint
 from .resolution import (
-    ResolvedAdapterInit,
     ResolvedModelPlan,
     prepare_resolved_model_artifact_load,
     resolve_model_plan,
+    validate_resolved_adapter_artifact,
     validate_resolved_model_artifact,
 )
 from .types import (
@@ -102,7 +96,7 @@ def _normalize_name_list(value) -> list[str]:
 
 def _expected_adapter_names_from_artifacts(
     artifacts: ModelArtifacts,
-) -> tuple[list[str] | None, list[str] | None]:
+) -> tuple[list[str] | None, list[str] | None, list[str] | None]:
     peft_config = getattr(artifacts.model, "peft_config", None)
     if isinstance(peft_config, dict):
         peft_config = peft_config.get("default") or (
@@ -115,14 +109,16 @@ def _expected_adapter_names_from_artifacts(
         # selects precisely the same concrete modules.
         return (
             _normalize_name_list(getattr(peft_config, "target_modules", None)),
+            _normalize_name_list(getattr(peft_config, "target_parameters", None)),
             _normalize_name_list(getattr(peft_config, "modules_to_save", None)),
         )
     finetune_plan = getattr(artifacts, "finetune_plan", None)
     if finetune_plan is None or getattr(finetune_plan, "adapter_plan", None) is None:
-        return None, None
+        return None, None, None
     adapter_plan = finetune_plan.adapter_plan
     return (
         list(getattr(adapter_plan, "resolved_target_modules", ()) or ()),
+        list(getattr(adapter_plan, "resolved_target_parameters", ()) or ()),
         list(getattr(adapter_plan, "modules_to_save", ()) or ()),
     )
 
@@ -138,136 +134,13 @@ def _resolve_default_peft_config(model: PeftModel):
     return peft_config
 
 
-def _validate_adapter_artifact(adapter_init: ResolvedAdapterInit) -> None:
-    init_path = Path(adapter_init.path)
-    config_path = init_path / "adapter_config.json"
-    try:
-        current_config = json.loads(config_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid adapter config JSON: {config_path}") from exc
-    if not isinstance(current_config, dict):
-        raise TypeError(f"Adapter config must be a JSON object: {config_path}")
-    current_config_json = json.dumps(
-        current_config,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    if current_config_json != adapter_init.config_json:
-        raise ValueError(
-            "PEFT adapter config changed after ResolvedModelPlan construction."
-        )
-    current_weight_manifest = tuple(
-        (
-            candidate.name,
-            int(candidate.stat().st_size),
-            _file_sha256(candidate),
-        )
-        for candidate in (
-            init_path / "adapter_model.safetensors",
-            init_path / "adapter_model.bin",
-        )
-        if candidate.is_file()
-    )
-    if current_weight_manifest != adapter_init.weight_manifest:
-        raise ValueError(
-            "PEFT adapter weights changed after ResolvedModelPlan construction."
-        )
-
-
-def _load_exact_adapter_state(
-    model: PeftModel,
-    *,
-    adapter_init: ResolvedAdapterInit,
-) -> None:
-    # Revalidate after the potentially long base-model build, then deserialize
-    # the same verified byte snapshot. A path-based loader would reopen the file
-    # after validation and leave a TOCTOU window.
-    _validate_adapter_artifact(adapter_init)
-    peft_state = _load_verified_adapter_weights(adapter_init)
-    expected_state = get_peft_model_state_dict(
-        model,
-        adapter_name="default",
-    )
-    missing_keys = sorted(set(expected_state).difference(peft_state))
-    unexpected_keys = sorted(set(peft_state).difference(expected_state))
-    shape_mismatches = sorted(
-        key
-        for key in set(expected_state).intersection(peft_state)
-        if tuple(expected_state[key].shape) != tuple(peft_state[key].shape)
-    )
-    if missing_keys or unexpected_keys or shape_mismatches:
-        raise ValueError(
-            "PEFT adapter state does not exactly match the resolved finetune plan: "
-            f"missing={missing_keys[:8]}, unexpected={unexpected_keys[:8]}, "
-            f"shape_mismatches={shape_mismatches[:8]}."
-        )
-    load_result = set_peft_model_state_dict(
-        model,
-        peft_state,
-        adapter_name="default",
-    )
-    unexpected_after_load = tuple(
-        getattr(load_result, "unexpected_keys", ()) or ()
-    )
-    if unexpected_after_load:
-        raise ValueError(
-            "PEFT adapter loader left unexpected state keys: "
-            f"{unexpected_after_load[:8]}."
-        )
-
-
-def _load_verified_adapter_weights(
-    adapter_init: ResolvedAdapterInit,
-) -> dict[str, torch.Tensor]:
-    directory = Path(adapter_init.path)
-    weight_path = next(
-        (
-            candidate
-            for candidate in (
-                directory / "adapter_model.safetensors",
-                directory / "adapter_model.bin",
-            )
-            if candidate.is_file()
-        ),
-        None,
-    )
-    if weight_path is None:
-        raise FileNotFoundError(f"PEFT adapter weights are missing: {directory}.")
-    expected_by_name = {
-        name: (size, sha256)
-        for name, size, sha256 in adapter_init.weight_manifest
-    }
-    expected = expected_by_name.get(weight_path.name)
-    if expected is None:
-        raise ValueError(
-            "PEFT adapter weight file differs from ResolvedModelPlan manifest."
-        )
-    payload = weight_path.read_bytes()
-    actual = (len(payload), hashlib.sha256(payload).hexdigest())
-    if actual != expected:
-        raise ValueError(
-            "PEFT adapter weights changed after ResolvedModelPlan construction."
-        )
-    if weight_path.suffix == ".safetensors":
-        state = load_safetensors(payload)
-    else:
-        state = torch.load(
-            io.BytesIO(payload),
-            map_location=torch.device("cpu"),
-            weights_only=True,
-        )
-    if not isinstance(state, dict):
-        raise TypeError("PEFT adapter weights must deserialize to a state dictionary.")
-    return state
-
-
 def _validate_adapter_compatibility(
     config: RuntimeConfig,
     adapter_config: dict[str, object],
     path: Path,
     *,
     expected_target_modules: list[str] | None = None,
+    expected_target_parameters: list[str] | None = None,
     expected_modules_to_save: list[str] | None = None,
 ) -> None:
     mode = str(config.model.finetune.mode).strip().lower()
@@ -301,6 +174,15 @@ def _validate_adapter_compatibility(
     if expected_target_modules is not None and adapter_target_modules:
         if sorted(expected_target_modules) != sorted(adapter_target_modules):
             raise ValueError("LoRA target_modules mismatch between adapter and current config.")
+
+    adapter_target_parameters = _normalize_name_list(
+        adapter_config.get("target_parameters")
+    )
+    if expected_target_parameters is not None:
+        if sorted(expected_target_parameters) != sorted(adapter_target_parameters):
+            raise ValueError(
+                "LoRA target_parameters mismatch between adapter and current config."
+            )
 
     if expected_modules_to_save is not None:
         adapter_modules_to_save = _normalize_name_list(adapter_config.get("modules_to_save"))
@@ -383,7 +265,7 @@ def _prepare_resolved_model_build(
         assert model_plan.adapter_init is not None
         init_path = Path(model_plan.adapter_init.path)
         adapter_config = model_plan.adapter_init.config_dict()
-        _validate_adapter_artifact(model_plan.adapter_init)
+        validate_resolved_adapter_artifact(model_plan.adapter_init)
         _validate_adapter_compatibility(
             config,
             adapter_config,
@@ -419,7 +301,7 @@ def finalize_model_build(
     prepared: ShaftPreparedModelBuild,
     artifacts: ModelArtifacts,
 ) -> ModelArtifacts:
-    """Run pure-local post-loader identity and adapter validation."""
+    """Run post-loader identity consensus and rank-local adapter validation."""
 
     model_plan = prepared.model_plan
     validate_resolved_model_artifact(
@@ -451,7 +333,11 @@ def finalize_model_build(
             raise TypeError(
                 "Adapter init requires a PEFT model, but current mode did not create one."
             )
-        expected_target_modules, expected_modules_to_save = (
+        (
+            expected_target_modules,
+            expected_target_parameters,
+            expected_modules_to_save,
+        ) = (
             _expected_adapter_names_from_artifacts(artifacts)
         )
         if expected_target_modules is None:
@@ -466,16 +352,25 @@ def finalize_model_build(
             expected_modules_to_save = _normalize_name_list(
                 getattr(peft_config, "modules_to_save", None)
             )
+            expected_target_parameters = _normalize_name_list(
+                getattr(
+                    peft_config,
+                    "target_parameters",
+                    prepared.config.model.finetune.target_parameters,
+                )
+            )
         _validate_adapter_compatibility(
             prepared.config,
             prepared.adapter_config,
             init_path,
             expected_target_modules=expected_target_modules,
+            expected_target_parameters=expected_target_parameters,
             expected_modules_to_save=expected_modules_to_save,
         )
-        _load_exact_adapter_state(
+        load_peft_checkpoint(
             artifacts.model,
-            adapter_init=model_plan.adapter_init,
+            model_plan.adapter_init.path,
+            resolved_artifact=model_plan.adapter_init,
         )
     return artifacts
 
@@ -556,7 +451,7 @@ def load_adapter_artifacts(
         raise ValueError(f"Expected a PEFT adapter checkpoint: {adapter_path}.")
 
     adapter_init = model_plan.adapter_init
-    _validate_adapter_artifact(adapter_init)
+    validate_resolved_adapter_artifact(adapter_init)
     adapter_config = get_peft_config(adapter_init.config_dict())
     peft_type = getattr(adapter_config, "peft_type", None)
     peft_type_value = getattr(peft_type, "value", peft_type)
@@ -581,20 +476,14 @@ def load_adapter_artifacts(
     adapter_model = get_peft_model(artifacts.model, adapter_config)
     if not isinstance(adapter_model, PeftModel):
         raise TypeError("Resolved adapter config did not produce a PEFT model.")
-    _load_exact_adapter_state(adapter_model, adapter_init=adapter_init)
+    load_peft_checkpoint(
+        adapter_model,
+        adapter_init.path,
+        resolved_artifact=adapter_init,
+    )
     return LoadedAdapterArtifacts(
         model=adapter_model,
         tokenizer=artifacts.tokenizer,
         processor=artifacts.processor,
         model_adapter=artifacts.model_adapter,
     )
-
-
-def _file_sha256(path: Path) -> str:
-    import hashlib
-
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
+import io
 import json
 from pathlib import Path
 from typing import Any
+
+import torch
+from safetensors.torch import load as load_safetensors
 
 from shaft.config import RuntimeConfig
 
@@ -28,11 +32,13 @@ from .types import (
 
 @dataclass(frozen=True, slots=True)
 class ResolvedAdapterInit:
-    """Immutable PEFT-init identity resolved before model construction."""
+    """Immutable PEFT adapter identity resolved before model construction."""
 
     path: str
     config_json: str
     config_fingerprint: str
+    config_size: int
+    config_sha256: str
     base_model_name_or_path: str
     weight_manifest: tuple[tuple[str, int, str], ...]
     artifact_fingerprint: str
@@ -63,6 +69,7 @@ class ResolvedModelPlan:
     require_immutable_artifact: bool
     artifact_identity: ResolvedModelArtifactIdentity
     model_training_semantic_fingerprint: str
+    distributed_artifact_identity: bool = False
     adapter_init: ResolvedAdapterInit | None = None
 
     def __post_init__(self) -> None:
@@ -148,17 +155,21 @@ def _is_adapter_checkpoint(path: Path) -> bool:
     )
 
 
-def _resolve_adapter_init(path: Path) -> ResolvedAdapterInit:
+def resolve_adapter_artifact(path: str | Path) -> ResolvedAdapterInit:
+    path = Path(path).resolve()
+    if not path.is_dir():
+        raise FileNotFoundError(f"PEFT adapter directory is missing: {path}.")
     config_path = path / "adapter_config.json"
+    if not config_path.is_file() or config_path.stat().st_size <= 0:
+        raise FileNotFoundError(f"PEFT adapter config is missing or empty: {config_path}.")
+    config_bytes = config_path.read_bytes()
     try:
-        payload = json.loads(config_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        payload = json.loads(config_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"Invalid adapter config JSON: {config_path}") from exc
     if not isinstance(payload, dict):
         raise TypeError(f"Adapter config must be a JSON object: {config_path}")
     base_model = str(payload.get("base_model_name_or_path") or "").strip()
-    if not base_model:
-        raise ValueError(f"Adapter config has no base_model_name_or_path: {config_path}.")
     config_json = json.dumps(
         payload,
         ensure_ascii=False,
@@ -166,20 +177,32 @@ def _resolve_adapter_init(path: Path) -> ResolvedAdapterInit:
         separators=(",", ":"),
     )
     config_fingerprint = hashlib.sha256(config_json.encode("utf-8")).hexdigest()
-    weight_manifest = tuple(
+    weight_path = next(
         (
-            candidate.name,
-            int(candidate.stat().st_size),
-            _file_sha256(candidate),
-        )
-        for candidate in (
-            path / "adapter_model.safetensors",
-            path / "adapter_model.bin",
-        )
-        if candidate.is_file()
+            candidate
+            for candidate in (
+                path / "adapter_model.safetensors",
+                path / "adapter_model.bin",
+            )
+            if candidate.is_file()
+        ),
+        None,
     )
+    if weight_path is None or weight_path.stat().st_size <= 0:
+        raise FileNotFoundError(f"PEFT adapter weights are missing or empty: {path}.")
+    weight_manifest = (
+        (
+            weight_path.name,
+            int(weight_path.stat().st_size),
+            _file_sha256(weight_path),
+        ),
+    )
+    config_size = len(config_bytes)
+    config_sha256 = hashlib.sha256(config_bytes).hexdigest()
     artifact_payload = {
         "config_fingerprint": config_fingerprint,
+        "config_size": config_size,
+        "config_sha256": config_sha256,
         "weight_manifest": weight_manifest,
     }
     artifact_fingerprint = hashlib.sha256(
@@ -189,10 +212,68 @@ def _resolve_adapter_init(path: Path) -> ResolvedAdapterInit:
         path=str(path),
         config_json=config_json,
         config_fingerprint=config_fingerprint,
+        config_size=config_size,
+        config_sha256=config_sha256,
         base_model_name_or_path=base_model,
         weight_manifest=weight_manifest,
         artifact_fingerprint=artifact_fingerprint,
     )
+
+
+def validate_resolved_adapter_artifact(adapter: ResolvedAdapterInit) -> None:
+    """Reject adapter bytes that changed after immutable resolution."""
+
+    directory = Path(adapter.path)
+    config_path = directory / "adapter_config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(f"PEFT adapter config is missing: {config_path}.")
+    config_bytes = config_path.read_bytes()
+    config_identity = (len(config_bytes), hashlib.sha256(config_bytes).hexdigest())
+    if config_identity != (adapter.config_size, adapter.config_sha256):
+        raise ValueError("PEFT adapter config changed after artifact resolution.")
+
+    if len(adapter.weight_manifest) != 1:
+        raise ValueError("Resolved PEFT adapter must select exactly one weight file.")
+    weight_name, expected_size, expected_sha256 = adapter.weight_manifest[0]
+    weight_path = directory / weight_name
+    if not weight_path.is_file():
+        raise FileNotFoundError(f"PEFT adapter weights are missing: {weight_path}.")
+    actual = (int(weight_path.stat().st_size), _file_sha256(weight_path))
+    if actual != (expected_size, expected_sha256):
+        raise ValueError("PEFT adapter weights changed after artifact resolution.")
+
+
+def load_resolved_adapter_weights(
+    adapter: ResolvedAdapterInit,
+) -> dict[str, torch.Tensor]:
+    """Deserialize the exact adapter bytes bound by ``adapter``."""
+
+    config_path = Path(adapter.path) / "adapter_config.json"
+    config_bytes = config_path.read_bytes()
+    if (len(config_bytes), hashlib.sha256(config_bytes).hexdigest()) != (
+        adapter.config_size,
+        adapter.config_sha256,
+    ):
+        raise ValueError("PEFT adapter config changed after artifact resolution.")
+    if len(adapter.weight_manifest) != 1:
+        raise ValueError("Resolved PEFT adapter must select exactly one weight file.")
+    weight_name, expected_size, expected_sha256 = adapter.weight_manifest[0]
+    weight_path = Path(adapter.path) / weight_name
+    payload = weight_path.read_bytes()
+    actual = (len(payload), hashlib.sha256(payload).hexdigest())
+    if actual != (expected_size, expected_sha256):
+        raise ValueError("PEFT adapter weights changed while being loaded.")
+    if weight_path.suffix == ".safetensors":
+        state = load_safetensors(payload)
+    else:
+        state = torch.load(
+            io.BytesIO(payload),
+            map_location=torch.device("cpu"),
+            weights_only=True,
+        )
+    if not isinstance(state, dict) or not state:
+        raise TypeError("PEFT adapter weights must deserialize to a non-empty state dictionary.")
+    return state
 
 
 def _file_sha256(path: Path) -> str:
@@ -224,6 +305,10 @@ def _validate_adapter_base(
     local_files_only: bool,
 ) -> None:
     declared_base = adapter_init.base_model_name_or_path
+    if not declared_base:
+        raise ValueError(
+            "Adapter init requires adapter_config.json.base_model_name_or_path."
+        )
     if _same_artifact(declared_base, model_adapter.model_name_or_path):
         return
     declared_descriptor = resolve_model_descriptor(
@@ -294,7 +379,7 @@ def resolve_model_plan(
             raise FileNotFoundError(f"init_from checkpoint path not found: {init_path}")
         if _is_adapter_checkpoint(init_path):
             init_kind = "adapter"
-            adapter_init = _resolve_adapter_init(init_path)
+            adapter_init = resolve_adapter_artifact(init_path)
         else:
             init_kind = "full_checkpoint"
             effective_path = str(init_path)
@@ -358,33 +443,14 @@ def resolve_model_plan(
                 model_repo_id=effective_path,
             )
         ),
+        distributed_consensus=False,
     )
-    if (
-        bool(require_immutable_artifact)
-        and artifact_identity.kind == "local_hf"
-        and artifact_identity.complete
-    ):
-        stable_descriptor = resolve_model_descriptor(
-            effective_path,
-            revision=config.model.revision,
-            cache_dir=config.model.cache_dir,
-            local_files_only=bool(config.model.local_files_only),
-            allow_remote=False,
-        )
-        if descriptor is None or stable_descriptor is None:
-            raise ValueError(
-                "Exact checkpoint save/resume requires a valid local HF config descriptor."
-            )
-        if stable_descriptor.config_fingerprint != descriptor.config_fingerprint:
-            raise RuntimeError(
-                "Local HF config changed while the resolved model plan was being constructed."
-            )
     resolved_revision = (
         artifact_identity.resolved_revision
         if artifact_identity.resolved_revision is not None
         else config.model.revision
     )
-    return ResolvedModelPlan(
+    plan = ResolvedModelPlan(
         configured_model_name_or_path=configured_path,
         effective_model_name_or_path=effective_path,
         init_from_checkpoint=None if init_path is None else str(init_path),
@@ -400,8 +466,67 @@ def resolve_model_plan(
         require_immutable_artifact=bool(require_immutable_artifact),
         artifact_identity=artifact_identity,
         model_training_semantic_fingerprint=(model_training_semantic_fingerprint(model_adapter)),
+        distributed_artifact_identity=False,
         adapter_init=adapter_init,
     )
+    if bool(require_immutable_artifact):
+        validate_resolved_model_descriptor(plan)
+    return plan
+
+
+def materialize_resolved_model_artifact_identity(
+    plan: ResolvedModelPlan,
+) -> ResolvedModelPlan:
+    """Materialize immutable local bytes after rank-local plan consensus."""
+
+    if plan.artifact_identity.kind != "local_hf":
+        return replace(plan, require_immutable_artifact=True)
+    descriptor = plan.descriptor
+    identity = resolve_model_artifact_identity(
+        plan.effective_model_name_or_path,
+        model_type=plan.model_meta.model_type,
+        uses_hf_artifacts=plan.model_meta.uses_hf_artifacts,
+        trust_remote_code=plan.trust_remote_code,
+        requested_revision=plan.revision,
+        resolved_commit_hash=None if descriptor is None else descriptor.commit_hash,
+        is_hub_repo=False,
+        require_immutable_local=True,
+        external_remote_code_repositories=(
+            ()
+            if descriptor is None
+            else external_auto_map_repositories(
+                json.loads(descriptor.config_json),
+                model_repo_id=plan.effective_model_name_or_path,
+            )
+        ),
+        distributed_consensus=True,
+    )
+    return replace(
+        plan,
+        require_immutable_artifact=True,
+        artifact_identity=identity,
+        distributed_artifact_identity=True,
+    )
+
+
+def validate_resolved_model_descriptor(plan: ResolvedModelPlan) -> None:
+    if plan.artifact_identity.kind != "local_hf" or not plan.artifact_identity.complete:
+        return
+    stable_descriptor = resolve_model_descriptor(
+        plan.effective_model_name_or_path,
+        revision=plan.revision,
+        cache_dir=plan.cache_dir,
+        local_files_only=plan.local_files_only,
+        allow_remote=False,
+    )
+    if plan.descriptor is None or stable_descriptor is None:
+        raise ValueError(
+            "Exact checkpoint save/resume requires a valid local HF config descriptor."
+        )
+    if stable_descriptor.config_fingerprint != plan.descriptor.config_fingerprint:
+        raise RuntimeError(
+            "Local HF config changed while the resolved model plan was being constructed."
+        )
 
 
 def validate_model_artifact_checkpointability(
@@ -448,13 +573,6 @@ def validate_resolved_model_artifact(
         if load_guard is not None:
             raise ValueError("A local artifact load guard cannot validate a non-local plan.")
         return
-    if load_guard is not None:
-        validate_local_model_artifact_load_guard(
-            plan.artifact_identity,
-            load_guard,
-            root=Path(plan.effective_model_name_or_path),
-            trust_remote_code=plan.trust_remote_code,
-        )
     current = resolve_model_artifact_identity(
         plan.effective_model_name_or_path,
         model_type=plan.model_meta.model_type,
@@ -465,8 +583,16 @@ def validate_resolved_model_artifact(
         is_hub_repo=False,
         require_immutable_local=True,
         external_remote_code_repositories=(),
+        distributed_consensus=plan.distributed_artifact_identity,
     )
     if current.fingerprint != plan.artifact_identity.fingerprint:
         raise ValueError(
             "Base-model weights or local model code changed after ResolvedModelPlan construction."
+        )
+    if load_guard is not None:
+        validate_local_model_artifact_load_guard(
+            plan.artifact_identity,
+            load_guard,
+            root=Path(plan.effective_model_name_or_path),
+            trust_remote_code=plan.trust_remote_code,
         )

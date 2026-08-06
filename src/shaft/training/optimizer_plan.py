@@ -11,6 +11,7 @@ import torch
 from transformers import TrainingArguments
 
 from shaft.model.finetune_plan import ShaftResolvedFinetunePlan
+from shaft.model.parameters import parameter_numel
 from shaft.model.types import ShaftModelAdapter
 
 _ADAPTER_MODES = {"lora", "dora", "qlora"}
@@ -231,7 +232,7 @@ def summarize_resolved_optimizer_plan(
     group_summaries: list[ShaftResolvedOptimizerGroupSummary] = []
     total_trainable_params = 0
     for group in plan.groups:
-        num_parameters = sum(_parameter_numel(parameter) for parameter in group.parameters)
+        num_parameters = sum(parameter_numel(parameter) for parameter in group.parameters)
         total_trainable_params += num_parameters
         group_summaries.append(
             ShaftResolvedOptimizerGroupSummary(
@@ -249,19 +250,6 @@ def summarize_resolved_optimizer_plan(
         group_count=len(group_summaries),
         groups=tuple(group_summaries),
     )
-
-
-def _parameter_numel(parameter: torch.nn.Parameter) -> int:
-    deepspeed_numel = getattr(parameter, "ds_numel", None)
-    if deepspeed_numel is not None:
-        return int(deepspeed_numel)
-    deepspeed_shape = getattr(parameter, "ds_shape", None)
-    if deepspeed_shape is not None:
-        total = 1
-        for dim in deepspeed_shape:
-            total *= int(dim)
-        return int(total)
-    return int(parameter.numel())
 
 
 def _parameter_ndim(parameter: torch.nn.Parameter) -> int:

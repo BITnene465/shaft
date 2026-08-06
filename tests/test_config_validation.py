@@ -334,6 +334,38 @@ train:
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("torch_dtype", "bfloat17"),
+        ("finetune.qlora_compute_dtype", "fp8"),
+    ],
+)
+def test_unknown_torch_dtype_fails_during_config_load(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    model_block = (
+        f"  torch_dtype: {value}\n"
+        if field == "torch_dtype"
+        else "  finetune:\n" f"    qlora_compute_dtype: {value}\n"
+    )
+    with pytest.raises(ValueError, match=field.split(".")[-1]):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                "model:\n"
+                + model_block
+                + "data:\n"
+                + "  datasets:\n"
+                + "    - dataset_name: ds1\n"
+                + "      train_path: train.jsonl\n"
+                + "      val_path: val.jsonl\n",
+            )
+        )
+
+
+@pytest.mark.parametrize(
     ("train_block", "message"),
     [
         (

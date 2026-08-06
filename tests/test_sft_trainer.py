@@ -8,11 +8,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
+from peft import LoraConfig, get_peft_model
 import pytest
 import torch
 from accelerate.data_loader import BatchSamplerShard, DataLoaderShard, skip_first_batches
 from torch.utils.data import BatchSampler
-from transformers import PreTrainedConfig, PreTrainedModel
+from transformers import PretrainedConfig, PreTrainedModel, Trainer
 from transformers.trainer_callback import PrinterCallback, TrainerCallback
 from transformers.trainer_callback import TrainerControl, TrainerState
 from transformers.trainer_utils import IntervalStrategy, SaveStrategy
@@ -38,6 +39,14 @@ from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.optimizer_plan import build_resolved_optimizer_plan
 from shaft.training.sft_trainer import ShaftSFTTrainer
 from shaft.training.train_sampler_mixin import ShaftTrainSamplerMixin
+from shaft.model.types import (
+    ModelModuleGroups,
+    ShaftAuxiliaryLossTerm,
+    ShaftEvalAuxiliaryMetric,
+    ShaftEvalAuxiliaryStatistic,
+    TrainingObjectivePolicy,
+)
+from shaft.model import build_model_meta
 from tests.support.training import StaticOnlineEvalRunner
 from tests.support.training import TinyModel as _TinyModel
 from tests.support.training import build_training_args
@@ -45,6 +54,111 @@ from tests.support.training import capture_trainer_logs, eval_loop_output
 
 
 pytestmark = pytest.mark.component
+
+
+def test_fsdp_peft_best_model_load_fails_closed() -> None:
+    trainer = object.__new__(ShaftSFTTrainer)
+    trainer.is_fsdp_enabled = True
+    trainer._shaft_uses_peft = True
+
+    with pytest.raises(RuntimeError, match="load_best_model_at_end"):
+        trainer._load_best_model()
+
+
+def test_fsdp_peft_resume_preloads_before_wrap_and_only_skips_native_model(
+    tmp_path: Path,
+) -> None:
+    checkpoint = (tmp_path / "checkpoint-1").resolve()
+    other_checkpoint = (tmp_path / "checkpoint-2").resolve()
+    artifact = SimpleNamespace(path=str(checkpoint))
+    trainer = object.__new__(ShaftSFTTrainer)
+    trainer.model = get_peft_model(
+        _TinyCheckpointModel(_TinyCheckpointConfig()),
+        LoraConfig(target_modules=["fc"], r=2, lora_alpha=4),
+    )
+    trainer.is_fsdp_enabled = True
+    trainer.model_init = None
+    trainer.args = SimpleNamespace(output_dir=str(tmp_path), world_size=1)
+    trainer._shaft_preloaded_fsdp_peft_checkpoint = None
+    trainer._shaft_resume_peft_artifact = artifact
+    events: list[tuple[str, object]] = []
+    result = object()
+
+    def fake_preload(model, checkpoint_dir, *, resolved_artifact=None):
+        assert model is trainer.model
+        events.append(
+            (
+                "preload",
+                (Path(checkpoint_dir).resolve(), resolved_artifact),
+            )
+        )
+        return (7, 11)
+
+    def fake_parent_model_load(self, resume_from_checkpoint, model=None):
+        _ = self, model
+        events.append(("parent-model-load", Path(resume_from_checkpoint).resolve()))
+
+    def fake_parent_optimizer_load(self, resume_from_checkpoint):
+        _ = self
+        events.append(("parent-optimizer-load", Path(resume_from_checkpoint).resolve()))
+
+    def fake_parent_train(
+        self,
+        resume_from_checkpoint=None,
+        trial=None,
+        ignore_keys_for_eval=None,
+    ):
+        _ = trial, ignore_keys_for_eval
+        events.append(("parent-train", resume_from_checkpoint))
+        self._load_from_checkpoint(str(checkpoint))
+        self._load_from_checkpoint(str(other_checkpoint))
+        self._load_optimizer_and_scheduler(str(checkpoint))
+        return result
+
+    with (
+        patch(
+            "shaft.training.sft_trainer.get_last_checkpoint",
+            return_value=str(checkpoint),
+        ),
+        patch("shaft.training.sft_trainer.load_peft_checkpoint", fake_preload),
+        patch.object(Trainer, "_load_from_checkpoint", fake_parent_model_load),
+        patch.object(
+            Trainer,
+            "_load_optimizer_and_scheduler",
+            fake_parent_optimizer_load,
+        ),
+        patch.object(Trainer, "train", fake_parent_train),
+    ):
+        actual = trainer.train(resume_from_checkpoint=True)
+
+    assert actual is result
+    assert events == [
+        ("preload", (checkpoint, artifact)),
+        ("parent-train", str(checkpoint)),
+        ("parent-model-load", other_checkpoint),
+        ("parent-optimizer-load", checkpoint),
+    ]
+
+
+def test_fsdp_peft_resume_rejects_model_init_before_preload(tmp_path: Path) -> None:
+    checkpoint = (tmp_path / "checkpoint-1").resolve()
+    trainer = object.__new__(ShaftSFTTrainer)
+    trainer.model = get_peft_model(
+        _TinyCheckpointModel(_TinyCheckpointConfig()),
+        LoraConfig(target_modules=["fc"], r=2, lora_alpha=4),
+    )
+    trainer.is_fsdp_enabled = True
+    trainer.model_init = lambda: trainer.model
+    trainer.args = SimpleNamespace(output_dir=str(tmp_path))
+    trainer._shaft_preloaded_fsdp_peft_checkpoint = None
+    trainer._shaft_resume_peft_artifact = SimpleNamespace(path=str(checkpoint))
+
+    with (
+        patch("shaft.training.sft_trainer.load_peft_checkpoint") as preload,
+        pytest.raises(ValueError, match="model_init"),
+    ):
+        trainer.train(resume_from_checkpoint=str(checkpoint))
+    preload.assert_not_called()
 
 
 def test_sampler_resume_step_reader_rejects_duplicate_json_keys(tmp_path: Path) -> None:
@@ -78,7 +192,7 @@ class _TaggedEvalCollator:
         }
 
 
-class _TinyCheckpointConfig(PreTrainedConfig):
+class _TinyCheckpointConfig(PretrainedConfig):
     model_type = "shaft_tiny_checkpoint"
 
     def __init__(self, vocab_size: int = 16, **kwargs) -> None:
@@ -99,6 +213,229 @@ class _TinyCheckpointModel(PreTrainedModel):
         _ = labels, kwargs
         hidden = self.emb(input_ids)
         return SimpleNamespace(logits=self.fc(hidden))
+
+
+class _DeepSpeedPlaceholderModel(torch.nn.Module):
+    main_input_name = "input_ids"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.emb = torch.nn.Embedding(2, 2)
+        self.emb.weight = torch.nn.Parameter(torch.empty(0))
+        self.emb.weight.ds_numel = 19
+        self.weight = torch.nn.Parameter(torch.empty(0))
+        self.weight.ds_numel = 23
+        self.bias = torch.nn.Parameter(torch.empty(0))
+        self.bias.ds_shape = (5,)
+
+    def forward(self, input_ids=None, **kwargs):
+        _ = input_ids, kwargs
+        raise AssertionError("The parameter-count test must not execute forward.")
+
+
+class _AuxiliaryOutput:
+    def __init__(self, logits: torch.Tensor, auxiliary_loss: torch.Tensor) -> None:
+        self.logits = logits
+        self.auxiliary_loss = auxiliary_loss
+
+
+class _AuxiliaryModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.logit_scale = torch.nn.Parameter(torch.tensor(1.0))
+        self.router_scale = torch.nn.Parameter(torch.tensor(2.0))
+        self.last_forward_kwargs: dict[str, object] = {}
+        self.last_forward_labels = None
+
+    def forward(self, input_ids=None, labels=None, **kwargs):
+        self.last_forward_kwargs = dict(kwargs)
+        self.last_forward_labels = labels
+        batch, sequence = input_ids.shape
+        logits = torch.zeros(
+            (batch, sequence, 4),
+            dtype=self.logit_scale.dtype,
+            device=self.logit_scale.device,
+        ) + self.logit_scale * 0.0
+        return _AuxiliaryOutput(logits, self.router_scale)
+
+
+class _AuxiliaryCheckpointModel(_TinyCheckpointModel):
+    def __init__(self, config: _TinyCheckpointConfig) -> None:
+        super().__init__(config)
+        self.router_scale = torch.nn.Parameter(torch.tensor(1.0))
+
+    def forward(self, input_ids=None, labels=None, **kwargs):
+        _ = labels, kwargs
+        hidden = self.emb(input_ids)
+        auxiliary_loss = self.router_scale * input_ids[:, 0].to(
+            dtype=self.router_scale.dtype
+        ).mean()
+        return _AuxiliaryOutput(self.fc(hidden), auxiliary_loss)
+
+
+class _AuxiliaryPolicy(TrainingObjectivePolicy):
+    def auxiliary_loss_names(self):
+        return ("router_aux_loss",)
+
+    def prepare_sft_forward_inputs(self, *, model, inputs):
+        _ = model
+        prepared = dict(inputs)
+        prepared["output_router_logits"] = True
+        return prepared
+
+    def resolve_sft_auxiliary_loss_terms(self, *, model, outputs, inputs):
+        _ = model, inputs
+        return (
+            ShaftAuxiliaryLossTerm(
+                name="router_aux_loss",
+                value=outputs.auxiliary_loss,
+                coefficient=0.25,
+            ),
+        )
+
+    def resolve_sft_eval_auxiliary_statistics(self, *, model, outputs, inputs):
+        _ = model
+        batch_size = int(inputs["input_ids"].shape[0])
+        values = outputs.auxiliary_loss.detach().reshape(1, 1).expand(
+            batch_size,
+            1,
+        )
+        return (
+            ShaftEvalAuxiliaryStatistic(
+                name="router_aux_mean",
+                coefficient=0.25,
+                coefficient_key="router_aux_loss",
+                components={
+                    "sum": values,
+                    "count": torch.ones_like(values),
+                },
+            ),
+        )
+
+    def finalize_sft_eval_auxiliary_statistics(self, statistics):
+        assert len(statistics) == 1
+        statistic = statistics[0]
+        self.last_finalized_coefficient = float(statistic.coefficient)
+        value = statistic.components["sum"].sum() / statistic.components[
+            "count"
+        ].sum()
+        return (
+            ShaftEvalAuxiliaryMetric(
+                name=statistic.name,
+                value=value,
+                coefficient_key=statistic.coefficient_key,
+                coefficient=statistic.coefficient,
+            ),
+        )
+
+
+class _AuxiliaryAdapter:
+    def __init__(self) -> None:
+        self.policy = _AuxiliaryPolicy()
+        self.module_groups = ModelModuleGroups()
+
+    def prepare_sft_forward_inputs(self, *, model, inputs):
+        return self.policy.prepare_sft_forward_inputs(model=model, inputs=inputs)
+
+    def auxiliary_loss_names(self):
+        return self.policy.auxiliary_loss_names()
+
+    def resolve_sft_auxiliary_loss_terms(self, *, model, outputs, inputs):
+        return self.policy.resolve_sft_auxiliary_loss_terms(
+            model=model,
+            outputs=outputs,
+            inputs=inputs,
+        )
+
+    def resolve_sft_eval_auxiliary_statistics(self, *, model, outputs, inputs):
+        return self.policy.resolve_sft_eval_auxiliary_statistics(
+            model=model,
+            outputs=outputs,
+            inputs=inputs,
+        )
+
+    def finalize_sft_eval_auxiliary_statistics(self, statistics):
+        return self.policy.finalize_sft_eval_auxiliary_statistics(statistics)
+
+
+class _UndeclaredAuxiliaryPolicy(_AuxiliaryPolicy):
+    def auxiliary_loss_names(self):
+        return ()
+
+
+class _DuplicateAuxiliaryPolicy(_AuxiliaryPolicy):
+    def resolve_sft_auxiliary_loss_terms(self, *, model, outputs, inputs):
+        terms = super().resolve_sft_auxiliary_loss_terms(
+            model=model,
+            outputs=outputs,
+            inputs=inputs,
+        )
+        return (*terms, *terms)
+
+
+class _UndeclaredEvalCoefficientPolicy(_AuxiliaryPolicy):
+    def resolve_sft_eval_auxiliary_statistics(self, *, model, outputs, inputs):
+        statistics = super().resolve_sft_eval_auxiliary_statistics(
+            model=model,
+            outputs=outputs,
+            inputs=inputs,
+        )
+        statistic = statistics[0]
+        return (
+            ShaftEvalAuxiliaryStatistic(
+                name=statistic.name,
+                coefficient_key="other_auxiliary_loss",
+                coefficient=statistic.coefficient,
+                components=statistic.components,
+            ),
+        )
+
+
+class _FixedPreferenceModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.anchor = torch.nn.Parameter(torch.zeros(()))
+
+    def forward(self, input_ids=None, labels=None, **kwargs):
+        _ = labels, kwargs
+        batch, sequence = input_ids.shape
+        logits = torch.zeros(
+            (batch, sequence, 3),
+            dtype=self.anchor.dtype,
+            device=self.anchor.device,
+        )
+        logits[..., 0] = 5.0 + self.anchor * 0.0
+        return {"logits": logits}
+
+
+def test_sft_floating_point_ops_uses_pre_wrap_parameter_count(tmp_path: Path) -> None:
+    model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=build_training_args(tmp_path),
+    )
+    inputs = {"input_ids": torch.ones((2, 3), dtype=torch.long)}
+
+    expected = 6 * inputs["input_ids"].numel() * (16 * 8 + 16)
+    assert trainer.floating_point_ops(inputs) == expected
+
+    # ZeRO-3 may temporarily change the live logical parameter view after a
+    # gathered checkpoint save. FLOP telemetry must retain its construction-time
+    # model-size denominator across save/resume boundaries.
+    model.fc.weight.ds_numel = 29
+    assert trainer.floating_point_ops(inputs) == expected
+
+
+def test_sft_floating_point_ops_counts_deepspeed_placeholders(tmp_path: Path) -> None:
+    trainer = ShaftSFTTrainer(
+        model=_DeepSpeedPlaceholderModel(),
+        args=build_training_args(tmp_path),
+    )
+    inputs = {"input_ids": torch.ones((2, 3), dtype=torch.long)}
+
+    # The embedding placeholder is excluded exactly like HF; ds_numel and
+    # ds_shape retain the two non-embedding parameters' full shapes.
+    assert trainer.floating_point_ops(inputs) == 6 * 6 * (23 + 5)
 
 
 def test_fixed_sft_commits_after_efficiency_on_save_and_is_resolvable(
@@ -189,13 +526,26 @@ def _assert_nested_state_equal(expected, actual) -> None:
     assert expected == actual
 
 
-def test_fixed_sft_checkpoint_actual_resume_matches_uninterrupted_step_two(
+def test_fixed_sft_checkpoint_actual_resume_matches_uninterrupted_step_four(
     tmp_path: Path,
 ) -> None:
+    class _RecordingTrainer(ShaftSFTTrainer):
+        def __init__(self, *args, **kwargs) -> None:
+            self.step_losses: list[float] = []
+            super().__init__(*args, **kwargs)
+
+        def training_step(self, model, inputs, num_items_in_batch=None):
+            loss = super().training_step(model, inputs, num_items_in_batch)
+            self.step_losses.append(float(loss.detach()))
+            return loss
+
     torch.manual_seed(31)
     initial_model = _TinyCheckpointModel(_TinyCheckpointConfig())
     initial_state = deepcopy(initial_model.state_dict())
-    rows = [{"input_ids": [1, 2, 3], "labels": [1, 2, 3]}]
+    rows = [
+        {"input_ids": [1, 2, 3], "labels": [1, 2, 3]},
+        {"input_ids": [3, 2, 1], "labels": [3, 2, 1]},
+    ]
 
     def collate(batch):
         return {
@@ -205,14 +555,15 @@ def test_fixed_sft_checkpoint_actual_resume_matches_uninterrupted_step_two(
 
     uninterrupted_model = _TinyCheckpointModel(_TinyCheckpointConfig())
     uninterrupted_model.load_state_dict(initial_state)
-    uninterrupted = ShaftSFTTrainer(
+    uninterrupted = _RecordingTrainer(
         model=uninterrupted_model,
         args=build_training_args(
             output_dir=tmp_path / "uninterrupted",
-            max_steps=2,
+            max_steps=4,
             save_strategy="steps",
-            save_steps=1,
+            save_steps=2,
             save_total_limit=2,
+            gradient_accumulation_steps=2,
             logging_strategy="no",
             disable_tqdm=True,
             remove_unused_columns=False,
@@ -222,9 +573,9 @@ def test_fixed_sft_checkpoint_actual_resume_matches_uninterrupted_step_two(
     )
     uninterrupted.train()
 
-    checkpoint_one = tmp_path / "uninterrupted" / "checkpoint-1"
+    checkpoint_two = tmp_path / "uninterrupted" / "checkpoint-2"
     resolved_checkpoint = resolve_resume_checkpoint(
-        checkpoint_one,
+        checkpoint_two,
         protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
     )
     expected_model_state = deepcopy(uninterrupted.model.state_dict())
@@ -236,7 +587,8 @@ def test_fixed_sft_checkpoint_actual_resume_matches_uninterrupted_step_two(
         model=resumed_model,
         args=build_training_args(
             output_dir=tmp_path / "resumed",
-            max_steps=2,
+            max_steps=4,
+            gradient_accumulation_steps=2,
             save_strategy="no",
             logging_strategy="no",
             disable_tqdm=True,
@@ -245,12 +597,243 @@ def test_fixed_sft_checkpoint_actual_resume_matches_uninterrupted_step_two(
         train_dataset=rows,
         data_collator=collate,
     )
-    resumed.train(resume_from_checkpoint=resolved_checkpoint)
+    resumed_result = resumed.train(resume_from_checkpoint=resolved_checkpoint)
 
-    assert resumed.state.global_step == 2
+    assert resumed.state.global_step == 4
+    expected_resume_window_loss = sum(uninterrupted.step_losses[-4:]) / 2.0
+    assert resumed_result.metrics["train_loss"] == pytest.approx(
+        expected_resume_window_loss
+    )
+    assert resumed_result.training_loss == pytest.approx(
+        resumed_result.metrics["train_loss"]
+    )
+    runtime = float(resumed_result.metrics["train_runtime"])
+    assert resumed_result.metrics["train_steps_per_second"] == pytest.approx(
+        round(2.0 / runtime, 3)
+    )
+    assert resumed_result.metrics["train_samples_per_second"] == pytest.approx(
+        round(4.0 / runtime, 3)
+    )
     _assert_nested_state_equal(expected_model_state, resumed.model.state_dict())
     _assert_nested_state_equal(expected_optimizer_state, resumed.optimizer.state_dict())
     _assert_nested_state_equal(expected_scheduler_state, resumed.lr_scheduler.state_dict())
+
+
+def test_sft_exact_resume_preserves_unflushed_loss_and_auxiliary_log_window(
+    tmp_path: Path,
+) -> None:
+    class _LogCapture(TrainerCallback):
+        def __init__(self) -> None:
+            self.events: list[tuple[int, dict[str, float]]] = []
+
+        def on_log(self, args, state, control, logs=None, **kwargs):
+            _ = args, kwargs
+            self.events.append((int(state.global_step), dict(logs or {})))
+            return control
+
+    torch.manual_seed(37)
+    initial_model = _AuxiliaryCheckpointModel(_TinyCheckpointConfig())
+    initial_state = deepcopy(initial_model.state_dict())
+    rows = [
+        {"input_ids": [token, 2, 3], "labels": [token, 2, 3]}
+        for token in (1, 2, 3, 4)
+    ]
+
+    def collate(batch):
+        return {
+            "input_ids": torch.tensor([row["input_ids"] for row in batch]),
+            "labels": torch.tensor([row["labels"] for row in batch]),
+        }
+
+    def build_trainer(output_dir: Path, *, save_steps: int):
+        model = _AuxiliaryCheckpointModel(_TinyCheckpointConfig())
+        model.load_state_dict(initial_state)
+        capture = _LogCapture()
+        trainer = ShaftSFTTrainer(
+            model=model,
+            args=build_training_args(
+                output_dir=output_dir,
+                max_steps=4,
+                per_device_train_batch_size=1,
+                save_strategy="steps",
+                save_steps=save_steps,
+                save_total_limit=2,
+                logging_strategy="steps",
+                logging_steps=4,
+                disable_tqdm=True,
+                remove_unused_columns=False,
+                full_determinism=True,
+            ),
+            train_dataset=rows,
+            data_collator=collate,
+            model_adapter=_AuxiliaryAdapter(),
+            callbacks=[capture],
+        )
+        return trainer, capture
+
+    uninterrupted, fresh_capture = build_trainer(
+        tmp_path / "uninterrupted-reporting",
+        save_steps=2,
+    )
+    uninterrupted.train()
+    checkpoint_two = tmp_path / "uninterrupted-reporting" / "checkpoint-2"
+
+    resumed, resumed_capture = build_trainer(
+        tmp_path / "resumed-reporting",
+        save_steps=4,
+    )
+    resumed.train(resume_from_checkpoint=checkpoint_two)
+
+    _assert_nested_state_equal(
+        uninterrupted.model.state_dict(),
+        resumed.model.state_dict(),
+    )
+    fresh_step = next(
+        entry
+        for entry in uninterrupted.state.log_history
+        if entry.get("step") == 4 and "loss" in entry
+    )
+    resumed_step = next(
+        entry
+        for entry in resumed.state.log_history
+        if entry.get("step") == 4 and "loss" in entry
+    )
+    assert resumed_step["loss"] == fresh_step["loss"]
+    assert resumed_step["aux/router_aux_loss"] == fresh_step[
+        "aux/router_aux_loss"
+    ]
+    assert resumed_step["aux/router_aux_loss_weighted"] == fresh_step[
+        "aux/router_aux_loss_weighted"
+    ]
+    event_keys = (
+        "loss",
+        "aux/router_aux_loss",
+        "aux/router_aux_loss_weighted",
+    )
+    fresh_event = next(
+        payload
+        for step, payload in fresh_capture.events
+        if step == 4 and "loss" in payload
+    )
+    resumed_event = next(
+        payload
+        for step, payload in resumed_capture.events
+        if step == 4 and "loss" in payload
+    )
+    assert {key: resumed_event[key] for key in event_keys} == {
+        key: fresh_event[key] for key in event_keys
+    }
+
+
+def test_sft_reporting_state_rejects_hf_callback_replacement(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="restore_callback_states_from_checkpoint=True",
+    ):
+        ShaftSFTTrainer(
+            model=_TinyCheckpointModel(_TinyCheckpointConfig()),
+            args=build_training_args(
+                output_dir=tmp_path / "callback-replacement",
+                restore_callback_states_from_checkpoint=True,
+            ),
+        )
+
+
+def test_sft_reporting_snapshot_rejects_incomplete_rank_state() -> None:
+    snapshot = {
+        "version": "shaft-sft-reporting-state-v1",
+        "global_step": 2,
+        "world_size": 2,
+        "ranks": [
+            {
+                "rank": 0,
+                "global_step": 2,
+                "tr_loss": 1.0,
+                "total_loss_scalar": 0.0,
+                "globalstep_last_logged": 0,
+                "auxiliary": {},
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="does not contain every rank"):
+        ShaftSFTTrainer._normalize_reporting_snapshot(
+            snapshot,
+            expected_global_step=2,
+            expected_world_size=2,
+        )
+
+
+def test_sft_noop_resume_preserves_pending_final_train_loss(tmp_path: Path) -> None:
+    rows = [
+        {"input_ids": [token, 2, 3], "labels": [token, 2, 3]}
+        for token in (1, 2)
+    ]
+
+    def collate(batch):
+        return {
+            "input_ids": torch.tensor([row["input_ids"] for row in batch]),
+            "labels": torch.tensor([row["labels"] for row in batch]),
+        }
+
+    torch.manual_seed(41)
+    initial = _TinyCheckpointModel(_TinyCheckpointConfig()).state_dict()
+
+    def build(output_dir: Path, *, save_strategy: str):
+        model = _TinyCheckpointModel(_TinyCheckpointConfig())
+        model.load_state_dict(initial)
+        return ShaftSFTTrainer(
+            model=model,
+            args=build_training_args(
+                output_dir=output_dir,
+                max_steps=2,
+                save_strategy=save_strategy,
+                save_steps=2,
+                logging_strategy="steps",
+                logging_steps=4,
+                disable_tqdm=True,
+                remove_unused_columns=False,
+                full_determinism=True,
+            ),
+            train_dataset=rows,
+            data_collator=collate,
+        )
+
+    fresh = build(tmp_path / "noop-fresh", save_strategy="steps")
+    fresh_result = fresh.train()
+    resumed = build(tmp_path / "noop-resumed", save_strategy="no")
+    resumed_result = resumed.train(
+        resume_from_checkpoint=tmp_path / "noop-fresh" / "checkpoint-2"
+    )
+
+    assert resumed.state.global_step == 2
+    assert resumed_result.metrics["train_loss"] == fresh_result.metrics["train_loss"]
+
+
+def test_sft_pending_reporting_loss_preserves_hf_nonfinite_filter_state(
+    tmp_path: Path,
+) -> None:
+    trainer = ShaftSFTTrainer(
+        model=_TinyCheckpointModel(_TinyCheckpointConfig()),
+        args=build_training_args(output_dir=tmp_path / "nonfinite-reporting"),
+    )
+    trainer.state.global_step = 2
+    trainer._globalstep_last_logged = 0
+    trainer._total_loss_scalar = 4.0
+    trainer._shaft_pending_reporting_loss = 4.0
+    trainer._shaft_pending_total_provisional = 4.0
+
+    with patch.object(
+        Trainer,
+        "training_step",
+        return_value=torch.tensor(float("nan")),
+    ):
+        filtered = trainer.training_step(trainer.model, {})
+
+    assert float(filtered) == pytest.approx(4.0 + 4.0 / 3.0)
+    assert trainer._shaft_pending_reporting_loss is None
+    assert trainer._shaft_pending_total_provisional is None
+    assert trainer._total_loss_scalar == 0.0
 
 
 def test_fixed_sft_epoch_checkpoint_actual_resume_preserves_cycle_and_state(
@@ -488,6 +1071,484 @@ def test_shaft_trainer_uses_custom_components() -> None:
     assert isinstance(loss, torch.Tensor)
     assert "loss_scale" not in (model.last_forward_kwargs or {})
     assert model.last_forward_labels is None
+
+
+def test_sft_trainer_combines_model_owned_auxiliary_objective_once() -> None:
+    model = _AuxiliaryModel()
+    adapter = _AuxiliaryAdapter()
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=build_training_args(
+            output_dir="/tmp/shaft_trainer_auxiliary_objective",
+            gradient_accumulation_steps=2,
+        ),
+        train_dataset=[],
+        data_collator=lambda rows: rows,
+        model_adapter=adapter,
+        loss_name="auto",
+    )
+    trainer.current_gradient_accumulation_steps = 2
+    inputs = {
+        "input_ids": torch.tensor([[0, 1, 2]], dtype=torch.long),
+        "labels": torch.tensor([[0, 1, 2]], dtype=torch.long),
+    }
+
+    loss = trainer.compute_loss(model, inputs, num_items_in_batch=2)
+    expected_causal_ce = torch.log(torch.tensor(4.0))
+    expected_auxiliary = model.router_scale * 0.25 / 2.0
+
+    torch.testing.assert_close(loss, expected_causal_ce + expected_auxiliary)
+    loss.backward()
+    assert model.router_scale.grad == pytest.approx(0.125)
+    assert model.last_forward_kwargs["output_router_logits"] is True
+    assert model.last_forward_labels is None
+    trainer.log({"loss": float(loss.detach())})
+    assert trainer.state.log_history[-1]["aux/router_aux_loss"] == pytest.approx(2.0)
+    assert trainer.state.log_history[-1]["aux/router_aux_loss_weighted"] == pytest.approx(
+        0.5
+    )
+
+
+def test_sft_trainer_overrides_declared_auxiliary_loss_weight_consistently() -> None:
+    model = _AuxiliaryModel()
+    adapter = _AuxiliaryAdapter()
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=build_training_args(
+            output_dir="/tmp/shaft_trainer_auxiliary_weight_override",
+            gradient_accumulation_steps=2,
+        ),
+        train_dataset=[],
+        data_collator=lambda rows: rows,
+        model_adapter=adapter,
+        loss_name="auto",
+        auxiliary_loss_weights={"router_aux_loss": 0.5},
+    )
+    trainer.current_gradient_accumulation_steps = 2
+    inputs = {
+        "input_ids": torch.tensor([[0, 1, 2]], dtype=torch.long),
+        "labels": torch.tensor([[0, 1, 2]], dtype=torch.long),
+    }
+
+    model.train()
+    train_loss = trainer.compute_loss(model, inputs, num_items_in_batch=2)
+    expected_causal_ce = torch.log(torch.tensor(4.0))
+    torch.testing.assert_close(
+        train_loss,
+        expected_causal_ce + model.router_scale * 0.5 / 2.0,
+    )
+    trainer.log({"loss": float(train_loss.detach())})
+    assert trainer.state.log_history[-1]["aux/router_aux_loss"] == pytest.approx(2.0)
+    assert trainer.state.log_history[-1]["aux/router_aux_loss_weighted"] == pytest.approx(
+        1.0
+    )
+
+    trainer._begin_eval_objective_collection()
+    model.eval()
+    eval_loss = trainer.compute_loss(model, inputs, num_items_in_batch=2)
+    eval_metrics = trainer._finish_eval_objective_collection(metric_key_prefix="eval")
+    torch.testing.assert_close(eval_loss, expected_causal_ce)
+    assert eval_metrics["eval_aux/router_aux_mean"] == pytest.approx(2.0)
+    assert eval_metrics["eval_aux/router_aux_mean_weighted"] == pytest.approx(1.0)
+    assert adapter.policy.last_finalized_coefficient == pytest.approx(0.25)
+
+
+def test_sft_trainer_rejects_unknown_auxiliary_loss_weight() -> None:
+    with pytest.raises(ValueError, match="Unknown SFT auxiliary loss weight.*typo"):
+        ShaftSFTTrainer(
+            model=_AuxiliaryModel(),
+            args=build_training_args(
+                output_dir="/tmp/shaft_trainer_unknown_auxiliary_weight",
+            ),
+            train_dataset=[],
+            data_collator=lambda rows: rows,
+            model_adapter=_AuxiliaryAdapter(),
+            auxiliary_loss_weights={"typo": 0.5},
+        )
+
+
+@pytest.mark.parametrize("value", [[], "", False])
+def test_sft_trainer_rejects_falsey_non_mapping_auxiliary_weights(value) -> None:
+    with pytest.raises(TypeError, match="must be a mapping"):
+        ShaftSFTTrainer(
+            model=_AuxiliaryModel(),
+            args=build_training_args(
+                output_dir="/tmp/shaft_trainer_invalid_auxiliary_weight_shape",
+            ),
+            train_dataset=[],
+            data_collator=lambda rows: rows,
+            model_adapter=_AuxiliaryAdapter(),
+            auxiliary_loss_weights=value,
+        )
+
+
+@pytest.mark.parametrize(
+    ("policy", "message"),
+    [
+        (_UndeclaredAuxiliaryPolicy(), "undeclared auxiliary loss term"),
+        (_DuplicateAuxiliaryPolicy(), "duplicate auxiliary loss term"),
+    ],
+)
+def test_sft_trainer_rejects_invalid_model_auxiliary_term_contract(
+    policy,
+    message: str,
+) -> None:
+    model = _AuxiliaryModel()
+    adapter = _AuxiliaryAdapter()
+    adapter.policy = policy
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=build_training_args(
+            output_dir="/tmp/shaft_trainer_invalid_auxiliary_term_contract",
+        ),
+        train_dataset=[],
+        data_collator=lambda rows: rows,
+        model_adapter=adapter,
+    )
+    inputs = {
+        "input_ids": torch.tensor([[0, 1, 2]], dtype=torch.long),
+        "labels": torch.tensor([[0, 1, 2]], dtype=torch.long),
+    }
+
+    with pytest.raises(ValueError, match=message):
+        trainer.compute_loss(model, inputs, num_items_in_batch=2)
+
+
+def test_eval_auxiliary_coefficient_key_must_be_explicitly_canonical() -> None:
+    with pytest.raises(ValueError, match="coefficient_key must be a canonical"):
+        ShaftEvalAuxiliaryStatistic(
+            name="router_balance",
+            coefficient_key=" Router_Aux_Loss ",
+            coefficient=0.1,
+            components={"count": torch.ones((1, 1))},
+        )
+
+
+def test_sft_trainer_rejects_undeclared_eval_auxiliary_coefficient_key() -> None:
+    model = _AuxiliaryModel()
+    adapter = _AuxiliaryAdapter()
+    adapter.policy = _UndeclaredEvalCoefficientPolicy()
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=build_training_args(
+            output_dir="/tmp/shaft_trainer_undeclared_eval_auxiliary_key",
+        ),
+        train_dataset=[],
+        data_collator=lambda rows: rows,
+        model_adapter=adapter,
+    )
+    model.eval()
+
+    with pytest.raises(ValueError, match="undeclared coefficient_key"):
+        trainer.compute_loss(
+            model,
+            {
+                "input_ids": torch.tensor([[0, 1, 2]], dtype=torch.long),
+                "labels": torch.tensor([[0, 1, 2]], dtype=torch.long),
+            },
+            num_items_in_batch=2,
+        )
+
+
+def test_fp16_overflow_log_never_persists_non_finite_trainer_state() -> None:
+    args = build_training_args(output_dir="/tmp/shaft_trainer_fp16_overflow_log")
+    args.fp16 = True
+    trainer = ShaftSFTTrainer(
+        model=_TinyModel(),
+        args=args,
+        train_dataset=[],
+        data_collator=lambda rows: rows,
+        loss_name="auto",
+    )
+
+    trainer.log({"loss": 1.25, "grad_norm": float("nan")})
+    overflow_entry = trainer.state.log_history[-1]
+    assert overflow_entry["loss"] == pytest.approx(1.25)
+    assert overflow_entry["grad_norm_overflow"] == pytest.approx(1.0)
+    assert "grad_norm" not in overflow_entry
+
+    trainer.log({"loss": 1.0, "grad_norm": 3.5})
+    finite_entry = trainer.state.log_history[-1]
+    assert finite_entry["grad_norm"] == pytest.approx(3.5)
+    assert "grad_norm_overflow" not in finite_entry
+
+
+def test_sft_eval_auxiliary_objective_is_not_scaled_by_training_ga_or_mixed_with_train() -> None:
+    model = _AuxiliaryModel()
+    adapter = _AuxiliaryAdapter()
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=build_training_args(
+            output_dir="/tmp/shaft_trainer_eval_auxiliary_objective",
+            gradient_accumulation_steps=5,
+        ),
+        train_dataset=[],
+        data_collator=lambda rows: rows,
+        model_adapter=adapter,
+        loss_name="auto",
+    )
+    trainer.current_gradient_accumulation_steps = 5
+    inputs = {
+        "input_ids": torch.tensor([[0, 1, 2]], dtype=torch.long),
+        "labels": torch.tensor([[0, 1, 2]], dtype=torch.long),
+    }
+
+    model.train()
+    train_loss = trainer.compute_loss(model, inputs, num_items_in_batch=2)
+    expected_causal_ce = torch.log(torch.tensor(4.0))
+    torch.testing.assert_close(
+        train_loss,
+        expected_causal_ce + model.router_scale * 0.25 / 5.0,
+    )
+
+    trainer._begin_eval_objective_collection()
+    model.eval()
+    eval_loss = trainer.compute_loss(model, inputs, num_items_in_batch=2)
+    torch.testing.assert_close(
+        eval_loss,
+        expected_causal_ce,
+    )
+    eval_metrics = trainer._finish_eval_objective_collection(
+        metric_key_prefix="eval",
+    )
+    assert eval_metrics["eval_loss"] == pytest.approx(float(expected_causal_ce))
+    assert eval_metrics["eval_aux/router_aux_mean"] == pytest.approx(2.0)
+    assert eval_metrics["eval_aux/router_aux_mean_weighted"] == pytest.approx(0.5)
+
+    trainer.log(eval_metrics)
+    assert "aux/router_aux_loss" not in trainer.state.log_history[-1]
+    trainer.log({"loss": float(train_loss.detach())})
+    assert trainer.state.log_history[-1]["aux/router_aux_loss"] == pytest.approx(2.0)
+
+
+def test_sft_eval_loss_is_invariant_to_batch_partition_and_token_normalized(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {"input_ids": [2, 0, 0, 0, 0], "labels": [2, 0, 0, 0, 0]},
+        {"input_ids": [2, 1], "labels": [2, 1]},
+    ]
+
+    def collate(batch):
+        width = max(len(row["input_ids"]) for row in batch)
+        input_ids = []
+        labels = []
+        for row in batch:
+            padding = width - len(row["input_ids"])
+            input_ids.append(row["input_ids"] + [0] * padding)
+            labels.append(row["labels"] + [-100] * padding)
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long),
+        }
+
+    losses = []
+    for batch_size in (1, 2):
+        trainer = ShaftSFTTrainer(
+            model=_FixedPreferenceModel(),
+            args=build_training_args(
+                output_dir=tmp_path / f"eval-batch-{batch_size}",
+                per_device_eval_batch_size=batch_size,
+                disable_tqdm=True,
+            ),
+            train_dataset=[],
+            eval_dataset=rows,
+            data_collator=collate,
+            loss_name="auto",
+        )
+        losses.append(float(trainer.evaluate()["eval_loss"]))
+
+    log_partition = torch.logsumexp(torch.tensor([5.0, 0.0, 0.0]), dim=0)
+    low_loss = log_partition - 5.0
+    high_loss = log_partition
+    expected = float((4.0 * low_loss + high_loss) / 5.0)
+    assert losses[0] == pytest.approx(expected)
+    assert losses[1] == pytest.approx(expected)
+
+
+def test_qwen35_moe_sft_train_objective_and_eval_metric_match_upstream() -> None:
+    from transformers import Qwen3_5MoeForCausalLM, Qwen3_5MoeTextConfig
+
+    torch.manual_seed(73)
+    model = Qwen3_5MoeForCausalLM(
+        Qwen3_5MoeTextConfig(
+            vocab_size=64,
+            hidden_size=32,
+            intermediate_size=64,
+            moe_intermediate_size=16,
+            shared_expert_intermediate_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            head_dim=8,
+            layer_types=["full_attention"],
+            num_experts=4,
+            num_experts_per_tok=2,
+            max_position_embeddings=64,
+            router_aux_loss_coef=0.01,
+            use_cache=False,
+        )
+    )
+    adapter = build_model_meta("qwen35vl").resolve_adapter(
+        model_name_or_path="Qwen3.5-35B-A3B"
+    )
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=build_training_args(output_dir="/tmp/shaft_qwen35_moe_objective"),
+        train_dataset=[],
+        data_collator=lambda rows: rows,
+        model_adapter=adapter,
+        loss_name="auto",
+    )
+    input_ids = torch.randint(0, 64, (2, 8))
+    attention_mask = torch.ones_like(input_ids)
+    labels = input_ids.clone()
+
+    model.train()
+    train_loss, train_outputs = trainer.compute_loss(
+        model,
+        {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+        },
+        return_outputs=True,
+        num_items_in_batch=labels[:, 1:].numel(),
+    )
+    with torch.no_grad():
+        upstream_train_outputs = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=labels,
+            output_router_logits=True,
+            use_cache=False,
+        )
+    torch.testing.assert_close(train_loss, upstream_train_outputs.loss)
+    assert train_outputs.aux_loss is not None
+    assert train_outputs.aux_loss.requires_grad is True
+    train_loss.backward()
+    router_gradients = [
+        parameter.grad
+        for name, parameter in model.named_parameters()
+        if name.endswith(".mlp.gate.weight")
+    ]
+    assert router_gradients
+    assert all(gradient is not None for gradient in router_gradients)
+    assert any(bool(torch.count_nonzero(gradient).item()) for gradient in router_gradients)
+
+    model.zero_grad(set_to_none=True)
+    model.eval()
+    with torch.no_grad():
+        shaft_loss, shaft_outputs = trainer.compute_loss(
+            model,
+            {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "labels": labels,
+            },
+            return_outputs=True,
+            num_items_in_batch=labels[:, 1:].numel(),
+        )
+        upstream_eval_outputs = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=labels,
+            output_router_logits=True,
+            use_cache=False,
+        )
+
+    assert shaft_outputs.aux_loss is not None
+    assert float(shaft_outputs.aux_loss) > 0.0
+    expected_ce = upstream_eval_outputs.loss - 0.01 * upstream_eval_outputs.aux_loss
+    torch.testing.assert_close(shaft_loss, expected_ce)
+    eval_metrics = trainer._finish_eval_objective_collection(
+        metric_key_prefix="eval",
+    )
+    assert eval_metrics["eval_loss"] == pytest.approx(float(expected_ce))
+    assert eval_metrics["eval_aux/router_global_balance"] == pytest.approx(
+        float(upstream_eval_outputs.aux_loss)
+    )
+    assert eval_metrics[
+        "eval_aux/router_global_balance_weighted"
+    ] == pytest.approx(float(upstream_eval_outputs.aux_loss) * 0.01)
+
+
+def test_qwen35_moe_eval_metrics_are_batch_partition_invariant(tmp_path: Path) -> None:
+    from transformers import Qwen3_5MoeForCausalLM, Qwen3_5MoeTextConfig
+
+    torch.manual_seed(79)
+    base_model = Qwen3_5MoeForCausalLM(
+        Qwen3_5MoeTextConfig(
+            vocab_size=64,
+            hidden_size=32,
+            intermediate_size=64,
+            moe_intermediate_size=16,
+            shared_expert_intermediate_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            head_dim=8,
+            layer_types=["full_attention"],
+            num_experts=4,
+            num_experts_per_tok=2,
+            max_position_embeddings=64,
+            router_aux_loss_coef=0.01,
+            use_cache=False,
+        )
+    )
+    initial_state = deepcopy(base_model.state_dict())
+    rows = [
+        {"input_ids": [2, 7, 11, 5, 3, 13, 17]},
+        {"input_ids": [2, 19, 23, 29]},
+        {"input_ids": [2, 31, 37]},
+    ]
+
+    def collate(batch):
+        width = max(len(row["input_ids"]) for row in batch)
+        input_ids = []
+        attention_mask = []
+        labels = []
+        for row in batch:
+            padding = width - len(row["input_ids"])
+            input_ids.append(row["input_ids"] + [0] * padding)
+            attention_mask.append([1] * len(row["input_ids"]) + [0] * padding)
+            labels.append(row["input_ids"] + [-100] * padding)
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long),
+        }
+
+    metric_sets = []
+    for batch_size in (1, 2, 3):
+        model = Qwen3_5MoeForCausalLM(base_model.config)
+        model.load_state_dict(initial_state)
+        trainer = ShaftSFTTrainer(
+            model=model,
+            args=build_training_args(
+                output_dir=tmp_path / f"moe-eval-batch-{batch_size}",
+                per_device_eval_batch_size=batch_size,
+                disable_tqdm=True,
+            ),
+            train_dataset=[],
+            eval_dataset=rows,
+            data_collator=collate,
+            model_adapter=build_model_meta("qwen35vl").resolve_adapter(
+                model_name_or_path="Qwen3.5-35B-A3B"
+            ),
+            loss_name="auto",
+        )
+        metrics = trainer.evaluate()
+        metric_sets.append(
+            (
+                float(metrics["eval_loss"]),
+                float(metrics["eval_aux/router_global_balance"]),
+            )
+        )
+
+    for actual in metric_sets[1:]:
+        assert actual[0] == pytest.approx(metric_sets[0][0], abs=1e-6)
+        assert actual[1] == pytest.approx(metric_sets[0][1], abs=1e-6)
 
 
 def test_shaft_trainer_delegates_private_varlen_inputs_before_device_transfer() -> None:

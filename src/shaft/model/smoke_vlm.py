@@ -34,7 +34,13 @@ from .types import (
 class SmokeVLMConfig(PretrainedConfig):
     model_type = "smoke_vlm"
 
-    def __init__(self, vocab_size: int = 128, hidden_size: int = 32, **kwargs: Any):
+    def __init__(
+        self,
+        vocab_size: int = 128,
+        hidden_size: int = 32,
+        use_cache: bool = True,
+        **kwargs: Any,
+    ):
         super().__init__(**kwargs)
         self.vocab_size = int(vocab_size)
         self.hidden_size = int(hidden_size)
@@ -42,6 +48,7 @@ class SmokeVLMConfig(PretrainedConfig):
         self.bos_token_id = 1
         self.eos_token_id = 2
         self.tie_word_embeddings = False
+        self.use_cache = bool(use_cache)
         # Required by generation cache helpers in newer transformers.
         self.num_hidden_layers = 1
 

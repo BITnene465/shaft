@@ -70,6 +70,34 @@ class ShaftTrainSamplerMixin:
             return self.train_sampler
         return super()._get_train_sampler(train_dataset)
 
+    def get_batch_samples(
+        self,
+        epoch_iterator: Any,
+        num_batches: int,
+        device: torch.device,
+    ) -> tuple[list[Any], torch.Tensor | int | None]:
+        batch_samples, num_items = super().get_batch_samples(
+            epoch_iterator,
+            num_batches,
+            device,
+        )
+        self._record_executed_local_samples(batch_samples)
+        return batch_samples, num_items
+
+    def _record_executed_local_samples(self, batch_samples: list[Any]) -> None:
+        count = 0
+        for batch in batch_samples:
+            if not isinstance(batch, dict):
+                continue
+            tensor = batch.get("labels")
+            if not torch.is_tensor(tensor):
+                tensor = batch.get("input_ids")
+            if torch.is_tensor(tensor) and tensor.ndim >= 1:
+                count += int(tensor.shape[0])
+        self._shaft_executed_local_sample_count = int(
+            getattr(self, "_shaft_executed_local_sample_count", 0)
+        ) + count
+
     def get_train_dataloader(self) -> DataLoader:
         if self.train_batch_sampler is None:
             train_sampler = self.train_sampler
@@ -227,6 +255,7 @@ class ShaftTrainSamplerMixin:
                 self._shaft_initial_global_step,
                 int(self.args.max_steps),
             )
+        self._shaft_executed_local_sample_count = 0
         self._shaft_final_metrics_corrected = False
         log_filter: _BatchSummaryFilter | None = None
         if isinstance(self.train_batch_sampler, ShaftPlannedBatchSampler):
@@ -264,33 +293,59 @@ class ShaftTrainSamplerMixin:
         efficiency_monitor = getattr(self, "efficiency_monitor", None)
         if efficiency_monitor is not None:
             logs.update(efficiency_monitor.report_pending(device=self.args.device))
-        if self._is_planned_final_metrics(logs):
-            self._correct_planned_final_metrics(logs)
+        if self._is_correctable_final_metrics(logs):
+            self._correct_final_metrics(logs)
             self._shaft_final_metrics_corrected = True
         return super().log(logs, *args, **kwargs)
 
-    def _is_planned_final_metrics(self, logs: dict[str, float]) -> bool:
+    def _is_correctable_final_metrics(self, logs: dict[str, float]) -> bool:
         return bool(
             not getattr(self, "_shaft_final_metrics_corrected", False)
-            and isinstance(self.train_batch_sampler, ShaftPlannedBatchSampler)
             and "train_runtime" in logs
             and "train_loss" in logs
+            and (
+                isinstance(self.train_batch_sampler, ShaftPlannedBatchSampler)
+                or int(getattr(self, "_shaft_initial_global_step", 0)) > 0
+            )
         )
 
-    def _correct_planned_final_metrics(
+    def _correct_final_metrics(
         self,
         logs: dict[str, float],
     ) -> None:
-        start_step = int(self._shaft_initial_global_step)
+        start_step = int(getattr(self, "_shaft_initial_global_step", 0))
         executed_steps = int(self.state.global_step) - start_step
         runtime = float(logs.get("train_runtime", 0.0))
         if executed_steps <= 0 or runtime <= 0:
             return
-        executed_samples = int(self.train_batch_sampler.executed_sample_count)
-        logs["train_steps_per_second"] = round(executed_steps / runtime, 3)
-        logs["train_samples_per_second"] = round(executed_samples / runtime, 3)
+        if isinstance(self.train_batch_sampler, ShaftPlannedBatchSampler):
+            executed_samples = int(self.train_batch_sampler.executed_sample_count)
+            logs["train_steps_per_second"] = round(executed_steps / runtime, 3)
+            logs["train_samples_per_second"] = round(executed_samples / runtime, 3)
+        elif start_step > 0:
+            executed_samples = int(
+                getattr(self, "_shaft_executed_local_sample_count", 0)
+            ) * int(self.args.world_size)
+            logs["train_steps_per_second"] = round(executed_steps / runtime, 3)
+            if executed_samples > 0:
+                logs["train_samples_per_second"] = round(
+                    executed_samples / runtime,
+                    3,
+                )
         if start_step > 0:
-            logs["train_loss"] = float(self._total_loss_scalar) / executed_steps
+            numerator_resolver = getattr(
+                self,
+                "_shaft_resume_train_loss_numerator",
+                None,
+            )
+            if callable(numerator_resolver):
+                numerator = float(numerator_resolver())
+            else:
+                resume_loss_baseline = float(
+                    getattr(self, "_shaft_resume_loss_baseline", 0.0)
+                )
+                numerator = float(self._total_loss_scalar) - resume_loss_baseline
+            logs["train_loss"] = numerator / executed_steps
 
     @staticmethod
     def _checkpoint_global_step(resume_from_checkpoint: Any) -> int:

@@ -1371,7 +1371,81 @@ def test_torchrun_global_weighted_loss_matches_single_process_reference(
     assert result["rank_batch_sizes"] == [[1, 1], [2, 1]]
     assert result["global_denominator"] == pytest.approx(12.0)
     assert result["reference_loss"] > 0
+    assert result["reference_auxiliary_loss"] > 0
+    assert result["eval_auxiliary"] == pytest.approx(
+        result["expected_eval_auxiliary"]
+    )
+    assert result["eval_auxiliary_by_rank"] == pytest.approx(
+        [result["expected_eval_auxiliary"]] * 2
+    )
+    assert sorted(
+        sorted(float(value) for value in rank_values)
+        for rank_values in result["eval_local_values_by_rank"]
+    ) == [[1.0, 10.0], [1.0, 23.0]]
+    assert all(
+        sum(rank_values) / len(rank_values)
+        != pytest.approx(result["expected_eval_auxiliary"])
+        for rank_values in result["eval_local_values_by_rank"]
+    )
     assert result["max_parameter_error"] < 1e-7
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_hash_counts"),
+    [
+        ("shared", [4, 0]),
+        ("distinct-stat", [4, 4]),
+    ],
+)
+def test_torchrun_local_model_artifact_hashes_once_per_shared_node_phase(
+    tmp_path: Path,
+    repo_root: Path,
+    mode: str,
+    expected_hash_counts: list[int],
+) -> None:
+    model_dir = tmp_path / "local-model"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text(
+        json.dumps({"model_type": "qwen3_vl"}),
+        encoding="utf-8",
+    )
+    (model_dir / "model.safetensors").write_bytes(b"weights")
+    result_path = tmp_path / "artifact-identity-result.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nnodes=1",
+            "--nproc_per_node=2",
+            "tests/support/distributed_model_artifact_identity_probe.py",
+            str(model_dir),
+            str(result_path),
+            mode,
+        ],
+        cwd=repo_root,
+        env=_torchrun_env(repo_root),
+        text=True,
+        capture_output=True,
+        timeout=180,
+        check=False,
+    )
+    _assert_torchrun_succeeded(completed)
+
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert [entry["rank"] for entry in result] == [0, 1]
+    assert [len(entry["hashed_files"]) for entry in result] == expected_hash_counts
+    for entry in result:
+        if entry["hashed_files"]:
+            assert entry["hashed_files"] == [
+                "model.safetensors",
+                "config.json",
+                "model.safetensors",
+                "config.json",
+            ]
+    assert len({entry["fingerprint"] for entry in result}) == 1
+    assert result[0]["manifest"] == result[1]["manifest"]
 
 
 def _assert_exact_checkpoint(expected: Path, actual: Path) -> None:

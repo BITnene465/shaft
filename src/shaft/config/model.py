@@ -17,6 +17,7 @@ class FinetuneConfig:
     mode: str = "full"  # full | lora | dora | qlora
     freeze: FreezeConfig = field(default_factory=FreezeConfig)
     target_modules: list[str] = field(default_factory=lambda: ["auto"])
+    target_parameters: list[str] = field(default_factory=list)
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.0
@@ -38,6 +39,7 @@ class ModelConfig:
     template: str | None = None
     trust_remote_code: bool = True
     attn_implementation: str | None = None
+    experts_implementation: str | None = None
     torch_dtype: str = "bfloat16"
     device_map: str | dict[str, str] | None = None
     finetune: FinetuneConfig = field(default_factory=FinetuneConfig)

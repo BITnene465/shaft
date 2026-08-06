@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -20,8 +21,14 @@ from shaft.data import (
     ShaftSampleCost,
     ShaftSampleSampler,
 )
-from shaft.model import SequenceExecutionPolicy
+from shaft.model import (
+    ResolvedModelArtifactIdentity,
+    ResolvedModelPlan,
+    SequenceExecutionPolicy,
+    TrainingObjectivePolicy,
+)
 from shaft.model.finetune_plan import resolved_finetune_summary_path
+from shaft.model.training_identity import model_training_semantic_fingerprint
 from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
 from shaft.pipeline import run_sft
 from shaft.plugins.hooks import hook
@@ -52,11 +59,26 @@ pytestmark = pytest.mark.component
 
 
 def _resolved_plan_for_adapter(adapter):
-    return SimpleNamespace(
+    return ResolvedModelPlan(
+        configured_model_name_or_path=adapter.model_name_or_path,
+        effective_model_name_or_path=adapter.model_name_or_path,
+        init_from_checkpoint=None,
+        init_kind="base",
+        model_meta=adapter.model_meta,
+        descriptor=None,
         model_adapter=adapter,
-        fingerprint="test-model-plan-v1",
-        artifact_identity=SimpleNamespace(complete=True),
-        build_sequence_execution_contract=adapter.build_sequence_execution_contract,
+        revision=None,
+        resolved_revision=None,
+        cache_dir=None,
+        local_files_only=False,
+        trust_remote_code=False,
+        require_immutable_artifact=True,
+        artifact_identity=ResolvedModelArtifactIdentity(
+            kind="built_in",
+            fingerprint="test-built-in-artifact-v1",
+            complete=True,
+        ),
+        model_training_semantic_fingerprint=model_training_semantic_fingerprint(adapter),
     )
 
 
@@ -165,6 +187,72 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
     assert progress["tasks"]["startup.model"]["state"] == "succeeded"
 
 
+def test_sft_pipeline_routes_auxiliary_loss_weight_override(tmp_path: Path) -> None:
+    class _DeclaredAuxiliaryPolicy(TrainingObjectivePolicy):
+        def auxiliary_loss_names(self) -> tuple[str, ...]:
+            return ("router_aux_loss",)
+
+    config = _write_config(tmp_path)
+    config.algorithm.params = {
+        "auxiliary_loss_weights": {" Router_Aux_Loss ": 0.007}
+    }
+    artifacts = _build_fake_model_artifacts(include_finetune_plan=True)
+    adapter = replace(
+        artifacts.model_adapter,
+        training_objective_policy=_DeclaredAuxiliaryPolicy(),
+    )
+    artifacts.model_adapter = adapter
+    observed_stage_fingerprints: dict[str, dict[str, str]] = {}
+
+    @contextmanager
+    def _capture_stage(*, stage, fingerprints):
+        yield
+        observed_stage_fingerprints[stage] = dict(fingerprints())
+
+    with patch(
+        "shaft.pipeline.sft.resolve_model_plan",
+        return_value=_resolved_plan_for_adapter(adapter),
+    ):
+        with patch(
+            "shaft.pipeline.sft.distributed_training_contract_stage",
+            _capture_stage,
+        ):
+            with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+                builder.return_value = artifacts
+                with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                    run_sft(config)
+
+    assert _FakeTrainer.last_kwargs["auxiliary_loss_weights"] == {
+        "router_aux_loss": pytest.approx(0.007)
+    }
+    assert observed_stage_fingerprints["config-preflight"][
+        "auxiliary_loss_weights"
+    ] == "(('router_aux_loss', 0.007),)"
+
+
+def test_sft_pipeline_rejects_unsupported_auxiliary_weight_before_model_load(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.algorithm.params = {
+        "auxiliary_loss_weights": {"router_aux_loss": 0.007}
+    }
+    config.train.save_strategy = "steps"
+
+    with patch(
+        "shaft.pipeline.sft.materialize_resolved_model_artifact_identity"
+    ) as materialize:
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+            with pytest.raises(
+                ValueError,
+                match="Unknown SFT auxiliary loss weight.*router_aux_loss",
+            ):
+                run_sft(config)
+
+    materialize.assert_not_called()
+    builder.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("save_strategy", "expected_immutable"),
     [("steps", True), ("no", False)],
@@ -177,17 +265,35 @@ def test_sft_pipeline_materializes_model_identity_only_when_checkpointable(
     config = _write_config(tmp_path)
     config.train.save_strategy = save_strategy
     from shaft.pipeline import sft as sft_pipeline
+    observed_stage_fingerprints: dict[str, dict[str, str]] = {}
+
+    @contextmanager
+    def _capture_stage(*, stage, fingerprints):
+        yield
+        observed_stage_fingerprints[stage] = dict(fingerprints())
 
     with patch(
         "shaft.pipeline.sft.resolve_model_plan",
         wraps=sft_pipeline.resolve_model_plan,
     ) as resolver:
-        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
-            builder.return_value = _build_fake_model_artifacts()
-            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-                run_sft(config)
+        with patch(
+            "shaft.pipeline.sft.materialize_resolved_model_artifact_identity",
+            wraps=sft_pipeline.materialize_resolved_model_artifact_identity,
+        ) as materialize:
+            with patch(
+                "shaft.pipeline.sft.distributed_training_contract_stage",
+                _capture_stage,
+            ):
+                with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+                    builder.return_value = _build_fake_model_artifacts()
+                    with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                        run_sft(config)
 
-    assert resolver.call_args.kwargs["require_immutable_artifact"] is expected_immutable
+    assert resolver.call_args.kwargs["require_immutable_artifact"] is False
+    assert materialize.call_count == int(expected_immutable)
+    assert observed_stage_fingerprints["model-plan-local"]["checkpointing"] == (
+        "required" if expected_immutable else "disabled"
+    )
 
 
 def test_run_sft_initializes_seed_before_model_build(tmp_path: Path) -> None:

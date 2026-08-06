@@ -38,16 +38,20 @@ def model_training_semantic_identity(model_adapter: Any) -> dict[str, Any]:
             "module_groups",
             "processor_policy",
             "sequence_execution_policy",
+            "training_objective_policy",
             "peft_policy",
             "sharding_policy",
         )
     }
     return {
-        "version": "shaft-model-training-semantic-identity-v2",
+        "version": "shaft-model-training-semantic-identity-v3",
         "model_type": str(model_adapter.model_type),
         "family": str(model_adapter.family),
         "group_name": model_adapter.group_name,
         "template_type": str(model_adapter.template_type),
+        "default_experts_implementation": (
+            model_adapter.default_experts_implementation
+        ),
         "loader": _component_fingerprint(loader, role="loader"),
         "policies": policies,
     }

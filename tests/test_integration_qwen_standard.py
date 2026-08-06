@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -12,10 +13,11 @@ import tempfile
 import numpy as np
 import pytest
 import torch
+from torch.distributed.tensor import DTensor
 from PIL import Image
 from safetensors import safe_open
-from transformers import AutoModelForImageTextToText, AutoProcessor
-from peft import PeftModel
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor, GenerationConfig
+from peft import PeftModel, get_peft_model_state_dict
 
 from shaft.export import validate_hf_artifact
 from shaft.infer import (
@@ -43,6 +45,7 @@ from shaft.training import (
 )
 from tests.support.qwen_training_gate import (
     prepare_qwen_training_dataset,
+    prepare_tiny_qwen3vl_moe_training_assets,
     prepare_tiny_qwen35_training_assets,
     write_qwen_training_gate_config,
 )
@@ -62,16 +65,33 @@ class _CountingProcessor:
         return self.wrapped(*args, **kwargs)
 
 
+def _terminate_qwen_training_gate(process: subprocess.Popen[str]) -> tuple[str, str]:
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    try:
+        return process.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        return process.communicate(timeout=30)
+
+
 def _run_qwen_training_gate(
     repo_root: Path,
     config_path: Path,
     *,
     cpu_only: bool = False,
+    timeout_seconds: int = 600,
 ) -> None:
     env = {**os.environ, "OMP_NUM_THREADS": "1"}
     if cpu_only:
         env["CUDA_VISIBLE_DEVICES"] = ""
-    completed = subprocess.run(
+    process = subprocess.Popen(
         [
             sys.executable,
             "-m",
@@ -87,18 +107,43 @@ def _run_qwen_training_gate(
         cwd=repo_root,
         env=env,
         text=True,
-        capture_output=True,
-        timeout=600,
-        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
     )
-    if completed.returncode != 0:
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        stdout, stderr = _terminate_qwen_training_gate(process)
+        raise AssertionError(
+            "Qwen training release gate timed out and its process group was terminated.\n"
+            f"stdout:\n{stdout}\nstderr:\n{stderr}"
+        ) from exc
+    except BaseException:
+        _terminate_qwen_training_gate(process)
+        raise
+    if process.returncode != 0:
         raise AssertionError(
             "Qwen training release gate failed.\n"
-            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+            f"stdout:\n{stdout}\nstderr:\n{stderr}"
         )
 
 
 def _assert_nested_state_equal(left, right, *, path: str = "root") -> None:
+    if isinstance(left, DTensor) or isinstance(right, DTensor):
+        assert isinstance(left, DTensor) and isinstance(right, DTensor), path
+        assert left.dtype == right.dtype, path
+        assert tuple(left.shape) == tuple(right.shape), path
+        assert tuple(left.stride()) == tuple(right.stride()), path
+        assert left.placements == right.placements, path
+        assert left.device_mesh.device_type == right.device_mesh.device_type, path
+        assert torch.equal(left.device_mesh.mesh, right.device_mesh.mesh), path
+        _assert_nested_state_equal(
+            left.to_local(),
+            right.to_local(),
+            path=f"{path}.local",
+        )
+        return
     if torch.is_tensor(left) or torch.is_tensor(right):
         assert torch.is_tensor(left) and torch.is_tensor(right), path
         assert left.dtype == right.dtype, path
@@ -116,7 +161,10 @@ def _assert_nested_state_equal(left, right, *, path: str = "root") -> None:
             _assert_nested_state_equal(left[key], right[key], path=f"{path}.{key}")
         return
     if isinstance(left, (list, tuple)) or isinstance(right, (list, tuple)):
-        assert isinstance(left, type(right)) or isinstance(right, type(left)), path
+        assert isinstance(left, (list, tuple)) and isinstance(
+            right,
+            (list, tuple),
+        ), path
         assert len(left) == len(right), path
         for index, (left_value, right_value) in enumerate(zip(left, right, strict=True)):
             _assert_nested_state_equal(
@@ -124,6 +172,19 @@ def _assert_nested_state_equal(left, right, *, path: str = "root") -> None:
                 right_value,
                 path=f"{path}[{index}]",
             )
+        return
+    if isinstance(getattr(left, "__dict__", None), dict) or isinstance(
+        getattr(right, "__dict__", None),
+        dict,
+    ):
+        assert type(left) is type(right), path
+        assert isinstance(getattr(left, "__dict__", None), dict), path
+        assert isinstance(getattr(right, "__dict__", None), dict), path
+        _assert_nested_state_equal(
+            left.__dict__,
+            right.__dict__,
+            path=f"{path}.__dict__",
+        )
         return
     assert left == right, path
 
@@ -151,6 +212,14 @@ def _normalized_trainer_state(checkpoint_dir: Path) -> dict:
     return payload
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _assert_checkpoint_state_equivalent(
     fresh_checkpoint: Path,
     resumed_checkpoint: Path,
@@ -169,17 +238,24 @@ def _assert_checkpoint_state_equivalent(
     else:
         assert not checkpoint_has_batch_planning_state(fresh_checkpoint)
         assert not checkpoint_has_batch_planning_state(resumed_checkpoint)
-    fresh_weights = (fresh_checkpoint / weight_filename).read_bytes()
-    resumed_weights = (resumed_checkpoint / weight_filename).read_bytes()
-    assert hashlib.sha256(fresh_weights).digest() == hashlib.sha256(
-        resumed_weights
-    ).digest()
+    assert _file_sha256(fresh_checkpoint / weight_filename) == _file_sha256(
+        resumed_checkpoint / weight_filename
+    )
 
     for filename in ("optimizer.pt", "scheduler.pt"):
         _assert_nested_state_equal(
             torch.load(fresh_checkpoint / filename, map_location="cpu", weights_only=True),
             torch.load(resumed_checkpoint / filename, map_location="cpu", weights_only=True),
             path=filename,
+        )
+    fresh_scaler = fresh_checkpoint / "scaler.pt"
+    resumed_scaler = resumed_checkpoint / "scaler.pt"
+    assert fresh_scaler.is_file() == resumed_scaler.is_file()
+    if fresh_scaler.is_file():
+        _assert_nested_state_equal(
+            torch.load(fresh_scaler, map_location="cpu", weights_only=False),
+            torch.load(resumed_scaler, map_location="cpu", weights_only=False),
+            path="scaler.pt",
         )
     fresh_rng_files = tuple(sorted(path.name for path in fresh_checkpoint.glob("rng_state*.pth")))
     resumed_rng_files = tuple(
@@ -201,6 +277,156 @@ def _assert_checkpoint_state_equivalent(
     )
 
 
+def _assert_backend_native_checkpoint_state_equivalent(
+    fresh_checkpoint: Path,
+    resumed_checkpoint: Path,
+    *,
+    distributed_strategy: str,
+    weight_filename: str,
+) -> None:
+    strategy = str(distributed_strategy).strip().lower()
+    assert strategy in {"fsdp", "deepspeed"}
+    assert _file_sha256(fresh_checkpoint / weight_filename) == _file_sha256(
+        resumed_checkpoint / weight_filename
+    )
+    assert _normalized_trainer_state(fresh_checkpoint) == _normalized_trainer_state(
+        resumed_checkpoint
+    )
+
+    for filename in ("scheduler.pt", "rng_state_0.pth", "rng_state_1.pth"):
+        _assert_nested_state_equal(
+            torch.load(
+                fresh_checkpoint / filename,
+                map_location="cpu",
+                weights_only=False,
+            ),
+            torch.load(
+                resumed_checkpoint / filename,
+                map_location="cpu",
+                weights_only=False,
+            ),
+            path=filename,
+        )
+    fresh_scaler = fresh_checkpoint / "scaler.pt"
+    resumed_scaler = resumed_checkpoint / "scaler.pt"
+    assert fresh_scaler.is_file() == resumed_scaler.is_file()
+    if fresh_scaler.is_file():
+        _assert_nested_state_equal(
+            torch.load(fresh_scaler, map_location="cpu", weights_only=False),
+            torch.load(resumed_scaler, map_location="cpu", weights_only=False),
+            path="scaler.pt",
+        )
+    assert _restore_efficiency_snapshot_set(fresh_checkpoint) == (
+        _restore_efficiency_snapshot_set(resumed_checkpoint)
+    )
+
+    if strategy == "fsdp":
+        for checkpoint in (fresh_checkpoint, resumed_checkpoint):
+            assert (checkpoint / "pytorch_model_fsdp.bin").is_file()
+            assert (checkpoint / "optimizer.bin").is_file()
+        if weight_filename != "adapter_model.safetensors":
+            _assert_nested_state_equal(
+                torch.load(
+                    fresh_checkpoint / "pytorch_model_fsdp.bin",
+                    map_location="cpu",
+                    weights_only=False,
+                ),
+                torch.load(
+                    resumed_checkpoint / "pytorch_model_fsdp.bin",
+                    map_location="cpu",
+                    weights_only=False,
+                ),
+                path="pytorch_model_fsdp.bin",
+            )
+        _assert_nested_state_equal(
+            torch.load(
+                fresh_checkpoint / "optimizer.bin",
+                map_location="cpu",
+                weights_only=False,
+            ),
+            torch.load(
+                resumed_checkpoint / "optimizer.bin",
+                map_location="cpu",
+                weights_only=False,
+            ),
+            path="optimizer.bin",
+        )
+        return
+
+    fresh_generation = (fresh_checkpoint / "latest").read_text(encoding="utf-8").strip()
+    resumed_generation = (resumed_checkpoint / "latest").read_text(
+        encoding="utf-8"
+    ).strip()
+    assert fresh_generation == resumed_generation
+    fresh_shard_dir = fresh_checkpoint / fresh_generation
+    resumed_shard_dir = resumed_checkpoint / resumed_generation
+    fresh_model_shards = tuple(
+        sorted(path.name for path in fresh_shard_dir.glob("*_model_states.pt"))
+    )
+    fresh_optimizer_shards = tuple(
+        sorted(path.name for path in fresh_shard_dir.glob("*_optim_states.pt"))
+    )
+    resumed_model_shards = tuple(
+        sorted(path.name for path in resumed_shard_dir.glob("*_model_states.pt"))
+    )
+    resumed_optimizer_shards = tuple(
+        sorted(path.name for path in resumed_shard_dir.glob("*_optim_states.pt"))
+    )
+    assert len(fresh_model_shards) == 2
+    assert len(fresh_optimizer_shards) == 2
+    assert fresh_model_shards == resumed_model_shards
+    assert fresh_optimizer_shards == resumed_optimizer_shards
+
+    model_state_keys = (
+        "module",
+        "buffer_names",
+        "param_shapes",
+        "frozen_param_shapes",
+        "shared_params",
+        "frozen_param_fragments",
+        "lr_scheduler",
+        "skipped_steps",
+        "global_steps",
+        "global_samples",
+        "dp_world_size",
+        "mp_world_size",
+    )
+    for filename in fresh_model_shards:
+        fresh_state = torch.load(
+            fresh_shard_dir / filename,
+            map_location="cpu",
+            weights_only=False,
+        )
+        resumed_state = torch.load(
+            resumed_shard_dir / filename,
+            map_location="cpu",
+            weights_only=False,
+        )
+        for key in model_state_keys:
+            assert key in fresh_state and key in resumed_state, (filename, key)
+            _assert_nested_state_equal(
+                fresh_state[key],
+                resumed_state[key],
+                path=f"{filename}.{key}",
+            )
+    for filename in fresh_optimizer_shards:
+        fresh_state = torch.load(
+            fresh_shard_dir / filename,
+            map_location="cpu",
+            weights_only=False,
+        )
+        resumed_state = torch.load(
+            resumed_shard_dir / filename,
+            map_location="cpu",
+            weights_only=False,
+        )
+        _assert_nested_state_equal(
+            fresh_state["optimizer_state_dict"],
+            resumed_state["optimizer_state_dict"],
+            path=f"{filename}.optimizer_state_dict",
+        )
+
+
 def _assert_lora_adapter_has_learned_update(adapter_path: Path) -> None:
     with safe_open(adapter_path, framework="pt", device="cpu") as tensors:
         lora_b_names = [name for name in tensors.keys() if "lora_B" in name]
@@ -209,6 +435,240 @@ def _assert_lora_adapter_has_learned_update(adapter_path: Path) -> None:
             bool(torch.count_nonzero(tensors.get_tensor(name)))
             for name in lora_b_names
         )
+
+
+def _assert_full_moe_router_and_experts_updated(
+    base_weights: Path,
+    trained_weights: Path,
+) -> None:
+    roles = {
+        "router": (".mlp.gate.weight",),
+        "routed_gate": (".mlp.experts.", ".gate_proj.weight"),
+        "routed_up": (".mlp.experts.", ".up_proj.weight"),
+        "routed_down": (".mlp.experts.", ".down_proj.weight"),
+    }
+    with safe_open(base_weights, framework="pt", device="cpu") as base_handle:
+        base_keys = tuple(base_handle.keys())
+        with safe_open(trained_weights, framework="pt", device="cpu") as trained_handle:
+            trained_keys = set(trained_handle.keys())
+            for role, markers in roles.items():
+                matching = [
+                    key
+                    for key in base_keys
+                    if all(marker in key for marker in markers)
+                ]
+                assert matching, role
+                assert all(key in trained_keys for key in matching), role
+                assert any(
+                    not torch.equal(
+                        base_handle.get_tensor(key),
+                        trained_handle.get_tensor(key),
+                    )
+                    for key in matching
+                ), role
+
+
+def _assert_fused_moe_router_and_experts_updated(
+    base_weights: Path,
+    trained_weights: Path,
+) -> None:
+    roles = {
+        "router": (".mlp.gate.weight",),
+        "fused_gate_up": (".mlp.experts.gate_up_proj",),
+        "fused_down": (".mlp.experts.down_proj",),
+    }
+    with safe_open(base_weights, framework="pt", device="cpu") as base_handle:
+        base_keys = tuple(base_handle.keys())
+        with safe_open(trained_weights, framework="pt", device="cpu") as trained_handle:
+            trained_keys = set(trained_handle.keys())
+            for role, markers in roles.items():
+                matching = [
+                    key
+                    for key in base_keys
+                    if all(marker in key for marker in markers)
+                ]
+                assert matching, role
+                assert all(key in trained_keys for key in matching), role
+                assert any(
+                    not torch.equal(
+                        base_handle.get_tensor(key),
+                        trained_handle.get_tensor(key),
+                    )
+                    for key in matching
+                ), role
+
+
+def _assert_router_auxiliary_loss_was_logged(
+    checkpoint: Path,
+    *,
+    expected_coefficient: float | None = None,
+) -> None:
+    history = json.loads(
+        (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
+    )["log_history"]
+    values = [
+        float(entry["aux/router_aux_loss"])
+        for entry in history
+        if "aux/router_aux_loss" in entry
+    ]
+    weighted = [
+        float(entry["aux/router_aux_loss_weighted"])
+        for entry in history
+        if "aux/router_aux_loss_weighted" in entry
+    ]
+    assert values and weighted
+    assert all(np.isfinite(value) and value > 0.0 for value in values)
+    assert all(np.isfinite(value) and value > 0.0 for value in weighted)
+    if expected_coefficient is not None:
+        assert len(values) == len(weighted)
+        for raw_value, weighted_value in zip(values, weighted, strict=True):
+            assert weighted_value == pytest.approx(
+                raw_value * float(expected_coefficient),
+                rel=1e-5,
+                abs=1e-8,
+            )
+
+
+def _assert_finite_training_metrics(checkpoint: Path) -> None:
+    history = json.loads(
+        (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
+    )["log_history"]
+    for name in ("loss", "grad_norm"):
+        values = [float(entry[name]) for entry in history if name in entry]
+        assert values, name
+        assert all(np.isfinite(value) for value in values), name
+
+
+def _assert_resumed_root_train_loss_matches_global_checkpoint_window(
+    *,
+    start_checkpoint: Path,
+    end_checkpoint: Path,
+    resumed_output: Path,
+) -> None:
+    def cumulative_rank_losses(checkpoint: Path) -> list[float]:
+        state = json.loads(
+            (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
+        )
+        callback = state["stateful_callbacks"]["ShaftSFTReportingStateCallback"]
+        snapshot = callback["attributes"]["snapshot"]
+        return [
+            float(rank["total_loss_scalar"]) + float(rank["tr_loss"])
+            for rank in snapshot["ranks"]
+        ]
+
+    start = cumulative_rank_losses(start_checkpoint)
+    end = cumulative_rank_losses(end_checkpoint)
+    assert len(start) == len(end) == 2
+    assert start[0] != start[1], "The gate must expose rank-local pending loss skew."
+    start_step = int(start_checkpoint.name.removeprefix("checkpoint-"))
+    end_step = int(end_checkpoint.name.removeprefix("checkpoint-"))
+    expected = (float(np.mean(end)) - float(np.mean(start))) / (
+        end_step - start_step
+    )
+    root_state = json.loads(
+        (resumed_output / "trainer_state.json").read_text(encoding="utf-8")
+    )
+    final_entry = next(
+        entry
+        for entry in reversed(root_state["log_history"])
+        if "train_loss" in entry
+    )
+    assert float(final_entry["train_loss"]) == pytest.approx(expected)
+
+
+def _assert_moe_lora_router_and_experts_updated(adapter_path: Path) -> None:
+    markers = {
+        "router": ".mlp.gate.lora_B.",
+        "routed_expert_parameter": ".mlp.experts.lora_B.",
+        "nested_routed_expert_parameter": ".mlp.experts.base_layer.lora_B.",
+    }
+    with safe_open(adapter_path, framework="pt", device="cpu") as tensors:
+        keys = tuple(tensors.keys())
+        for role, marker in markers.items():
+            matching = [
+                name
+                for name in keys
+                if marker in name and "lora_B" in name
+            ]
+            assert matching, role
+            assert any(
+                bool(torch.count_nonzero(tensors.get_tensor(name)))
+                for name in matching
+            ), role
+        ordinary_modules = [
+            name
+            for name in keys
+            if "lora_B" in name
+            and ".mlp.gate.lora_B." not in name
+            and ".mlp.experts" not in name
+        ]
+        assert ordinary_modules
+        assert any(
+            bool(torch.count_nonzero(tensors.get_tensor(name)))
+            for name in ordinary_modules
+        )
+
+    adapter_config = json.loads(
+        (adapter_path.parent / "adapter_config.json").read_text(encoding="utf-8")
+    )
+    target_parameters = tuple(adapter_config.get("target_parameters") or ())
+    for suffix in (
+        "mlp.experts.gate_up_proj",
+        "mlp.experts.down_proj",
+        "mlp.gate.weight",
+    ):
+        assert any(name.endswith(suffix) for name in target_parameters), suffix
+
+
+def _assert_qwen3vl_moe_lora_roles_updated(
+    adapter_path: Path,
+    *,
+    language_layers: int,
+    vision_blocks: int,
+) -> None:
+    _assert_moe_lora_router_and_experts_updated(adapter_path)
+    with safe_open(adapter_path, framework="pt", device="cpu") as tensors:
+        keys = tuple(tensors.keys())
+        lora_b_keys = tuple(name for name in keys if "lora_B" in name)
+        assert lora_b_keys
+        assert all(
+            bool(torch.count_nonzero(tensors.get_tensor(name)))
+            for name in lora_b_keys
+        )
+        for layer_index in range(language_layers):
+            layer_marker = f".language_model.layers.{layer_index}."
+            for role, marker in {
+                "router": ".mlp.gate.lora_B.",
+                "fused_gate_up": ".mlp.experts.lora_B.",
+                "fused_down": ".mlp.experts.base_layer.lora_B.",
+                "language_attention": ".self_attn.",
+            }.items():
+                matching = [
+                    name
+                    for name in lora_b_keys
+                    if layer_marker in name and marker in name
+                ]
+                assert matching, (layer_index, role)
+        for block_index in range(vision_blocks):
+            assert any(
+                f".visual.blocks.{block_index}." in name
+                for name in lora_b_keys
+            ), (block_index, "vision_tower")
+
+
+def _assert_adapter_tensors_changed(before_path: Path, after_path: Path) -> None:
+    with (
+        safe_open(before_path, framework="pt", device="cpu") as before,
+        safe_open(after_path, framework="pt", device="cpu") as after,
+    ):
+        before_keys = tuple(before.keys())
+        assert tuple(after.keys()) == before_keys
+        unchanged = [
+            name
+            for name in before_keys
+            if torch.equal(before.get_tensor(name), after.get_tensor(name))
+        ]
+    assert not unchanged, unchanged[:8]
 
 
 def _restore_efficiency_snapshot_set(checkpoint_dir: Path) -> dict:
@@ -246,6 +706,7 @@ def _restore_efficiency_snapshot_set(checkpoint_dir: Path) -> dict:
 def _assert_full_hf_export_reloads(
     export_dir: Path,
     *,
+    source_model_dir: Path,
     expected_type: str,
     device: str | torch.device | None = None,
 ) -> None:
@@ -267,6 +728,19 @@ def _assert_full_hf_export_reloads(
         load_kwargs["device_map"] = {"": resolved_device.index or 0}
     model = AutoModelForImageTextToText.from_pretrained(export_dir, **load_kwargs)
     assert type(model).__name__ == expected_type
+    source_config = AutoConfig.from_pretrained(source_model_dir, local_files_only=True)
+    assert hasattr(model.config, "use_cache") == hasattr(source_config, "use_cache")
+    if hasattr(source_config, "use_cache"):
+        assert model.config.use_cache == source_config.use_cache
+    text_config = getattr(model.config, "text_config", None)
+    source_text_config = getattr(source_config, "text_config", None)
+    assert text_config is not None and source_text_config is not None
+    assert text_config.use_cache == source_text_config.use_cache
+    source_generation_config = GenerationConfig.from_pretrained(
+        source_model_dir,
+        local_files_only=True,
+    )
+    assert model.generation_config.use_cache == source_generation_config.use_cache
     assert next(model.parameters()).device.type == resolved_device.type
     inputs = {
         key: value.to(resolved_device) if torch.is_tensor(value) else value
@@ -284,6 +758,11 @@ def _assert_standard_qwen_peft_export_reloads(
     *,
     base_model_path: Path,
     export_dir: Path,
+    experts_implementation: str | None = None,
+    expected_router_layers: int | None = None,
+    expected_num_experts: int | None = None,
+    expected_dtype: torch.dtype | None = None,
+    image_path: Path | None = None,
 ) -> None:
     processor = AutoProcessor.from_pretrained(
         export_dir,
@@ -291,21 +770,100 @@ def _assert_standard_qwen_peft_export_reloads(
         trust_remote_code=True,
         fix_mistral_regex=False,
     )
+    load_kwargs = {
+        "local_files_only": True,
+        "dtype": torch.bfloat16,
+        "device_map": {"": 0},
+    }
+    if experts_implementation is not None:
+        load_kwargs["experts_implementation"] = experts_implementation
     base_model = AutoModelForImageTextToText.from_pretrained(
         base_model_path,
-        local_files_only=True,
-        dtype=torch.bfloat16,
-        device_map={"": 0},
+        **load_kwargs,
     )
     model = PeftModel.from_pretrained(base_model, export_dir, is_trainable=False)
+    loaded_adapter_state = get_peft_model_state_dict(
+        model,
+        adapter_name="default",
+    )
+    with safe_open(
+        export_dir / "adapter_model.safetensors",
+        framework="pt",
+        device="cpu",
+    ) as saved_adapter:
+        saved_keys = set(saved_adapter.keys())
+        assert set(loaded_adapter_state) == saved_keys
+        for name in sorted(saved_keys):
+            torch.testing.assert_close(
+                loaded_adapter_state[name].detach().cpu(),
+                saved_adapter.get_tensor(name),
+                rtol=0.0,
+                atol=0.0,
+            )
+    if image_path is None:
+        processed = processor(text=["hello"], return_tensors="pt")
+    else:
+        rendered = processor.apply_chat_template(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": "Describe the image briefly."},
+                    ],
+                }
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        with Image.open(image_path) as opened:
+            processed = processor(
+                text=[rendered],
+                images=[opened.convert("RGB")],
+                return_tensors="pt",
+            )
     inputs = {
         key: value.to("cuda:0") if torch.is_tensor(value) else value
-        for key, value in processor(text=["hello"], return_tensors="pt").items()
+        for key, value in processed.items()
     }
     with torch.no_grad():
-        logits = model(**inputs).logits
+        outputs = model(
+            **inputs,
+            output_router_logits=expected_router_layers is not None,
+            use_cache=False,
+        )
+        logits = outputs.logits
     assert torch.isfinite(logits).all()
-    del logits, inputs, model, base_model, processor
+    if expected_dtype is not None:
+        assert logits.dtype == expected_dtype
+    if expected_router_layers is not None:
+        assert expected_num_experts is not None
+        assert isinstance(outputs.router_logits, tuple)
+        assert len(outputs.router_logits) == expected_router_layers
+        assert all(
+            tensor.ndim == 2
+            and int(tensor.shape[-1]) == expected_num_experts
+            and torch.isfinite(tensor).all()
+            for tensor in outputs.router_logits
+        )
+        assert torch.is_tensor(outputs.aux_loss)
+        assert torch.isfinite(outputs.aux_loss)
+    if experts_implementation is not None:
+        assert model.base_model.model.config._experts_implementation == experts_implementation
+        assert (
+            model.base_model.model.config.text_config._experts_implementation
+            == experts_implementation
+        )
+    del (
+        logits,
+        outputs,
+        inputs,
+        processed,
+        loaded_adapter_state,
+        model,
+        base_model,
+        processor,
+    )
     torch.cuda.empty_cache()
 
 
@@ -794,6 +1352,7 @@ def test_qwen35_qwen36_moe_cpu_train_save_exact_resume_and_hf_reload(
         use_cpu=True,
         attention_implementation="eager",
         torch_dtype="float32",
+        logging_steps=2,
     )
     _run_qwen_training_gate(repo_root, fresh_config, cpu_only=True)
 
@@ -812,6 +1371,7 @@ def test_qwen35_qwen36_moe_cpu_train_save_exact_resume_and_hf_reload(
         use_cpu=True,
         attention_implementation="eager",
         torch_dtype="float32",
+        logging_steps=2,
     )
     _run_qwen_training_gate(repo_root, resumed_config, cpu_only=True)
 
@@ -820,19 +1380,123 @@ def test_qwen35_qwen36_moe_cpu_train_save_exact_resume_and_hf_reload(
         resumed_output / "checkpoint-2",
         weight_filename="model.safetensors",
     )
-    _assert_full_hf_export_reloads(
-        fresh_output / "best",
-        expected_type="Qwen3_5MoeForConditionalGeneration",
-        device="cpu",
+    _assert_full_moe_router_and_experts_updated(
+        model_dir / "model.safetensors",
+        fresh_output / "checkpoint-2" / "model.safetensors",
     )
-    layout = validate_hf_artifact(
-        fresh_output / "best",
-        finetune_mode="full",
-        model_type="qwen36vl",
-        model_name_or_path=str(fresh_output / "best"),
-        local_files_only=True,
+    _assert_router_auxiliary_loss_was_logged(fresh_output / "checkpoint-2")
+    _assert_router_auxiliary_loss_was_logged(resumed_output / "checkpoint-2")
+    _assert_resumed_root_train_loss_matches_global_checkpoint_window(
+        start_checkpoint=fresh_output / "checkpoint-1",
+        end_checkpoint=fresh_output / "checkpoint-2",
+        resumed_output=resumed_output,
     )
-    assert layout.kind == "full"
+    assert _file_sha256(fresh_output / "best" / "model.safetensors") == (
+        _file_sha256(resumed_output / "best" / "model.safetensors")
+    )
+    for run_dir in (fresh_output, resumed_output):
+        _assert_full_hf_export_reloads(
+            run_dir / "best",
+            source_model_dir=model_dir,
+            expected_type="Qwen3_5MoeForConditionalGeneration",
+            device="cpu",
+        )
+        layout = validate_hf_artifact(
+            run_dir / "best",
+            finetune_mode="full",
+            model_type="qwen36vl",
+            model_name_or_path=str(run_dir / "best"),
+            local_files_only=True,
+        )
+        assert layout.kind == "full"
+
+
+@pytest.mark.integration
+def test_qwen3vl_moe_cpu_train_save_exact_resume_and_hf_reload(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    processor_source = Path("models/Qwen3-VL-4B-Instruct")
+    if not (processor_source / "preprocessor_config.json").is_file():
+        pytest.skip(f"Qwen3VL processor assets not found: {processor_source}")
+
+    model_dir, dataset_path = prepare_tiny_qwen3vl_moe_training_assets(
+        tmp_path,
+        processor_source=processor_source,
+    )
+    fresh_output = tmp_path / "qwen3vl-moe-cpu-fresh"
+    fresh_config = write_qwen_training_gate_config(
+        tmp_path / "qwen3vl-moe-cpu-fresh.yaml",
+        model_type="qwen3vl",
+        model_dir=model_dir,
+        dataset_path=dataset_path,
+        output_dir=fresh_output,
+        layout="padded",
+        packing="none",
+        steps=2,
+        save_steps=1,
+        use_cpu=True,
+        attention_implementation="eager",
+        experts_implementation="grouped_mm",
+        torch_dtype="float32",
+        logging_steps=1,
+        router_aux_loss_weight=0.002,
+        warmup_ratio=0.0,
+    )
+    _run_qwen_training_gate(repo_root, fresh_config, cpu_only=True)
+
+    resumed_output = tmp_path / "qwen3vl-moe-cpu-resumed"
+    resumed_config = write_qwen_training_gate_config(
+        tmp_path / "qwen3vl-moe-cpu-resumed.yaml",
+        model_type="qwen3vl",
+        model_dir=model_dir,
+        dataset_path=dataset_path,
+        output_dir=resumed_output,
+        layout="padded",
+        packing="none",
+        steps=2,
+        save_steps=1,
+        resume_from_checkpoint=fresh_output / "checkpoint-1",
+        use_cpu=True,
+        attention_implementation="eager",
+        experts_implementation="grouped_mm",
+        torch_dtype="float32",
+        logging_steps=1,
+        router_aux_loss_weight=0.002,
+        warmup_ratio=0.0,
+    )
+    _run_qwen_training_gate(repo_root, resumed_config, cpu_only=True)
+
+    _assert_checkpoint_state_equivalent(
+        fresh_output / "checkpoint-2",
+        resumed_output / "checkpoint-2",
+        weight_filename="model.safetensors",
+    )
+    _assert_fused_moe_router_and_experts_updated(
+        model_dir / "model.safetensors",
+        fresh_output / "checkpoint-2" / "model.safetensors",
+    )
+    for run_dir in (fresh_output, resumed_output):
+        checkpoint = run_dir / "checkpoint-2"
+        _assert_router_auxiliary_loss_was_logged(
+            checkpoint,
+            expected_coefficient=0.002,
+        )
+        _assert_finite_training_metrics(checkpoint)
+        _assert_full_hf_export_reloads(
+            run_dir / "best",
+            source_model_dir=model_dir,
+            expected_type="Qwen3VLMoeForConditionalGeneration",
+            device="cpu",
+        )
+        layout = validate_hf_artifact(
+            run_dir / "best",
+            finetune_mode="full",
+            model_type="qwen3vl",
+            model_name_or_path=str(run_dir / "best"),
+            local_files_only=True,
+        )
+        assert layout.kind == "full"
 
 
 @pytest.mark.integration
@@ -920,14 +1584,23 @@ def test_qwen35_qwen36_two_rank_train_save_and_exact_resume_release_gate(
         resumed_output / "checkpoint-2",
         weight_filename="model.safetensors",
     )
-    _assert_full_hf_export_reloads(
-        qwen35_output / "best",
-        expected_type="Qwen3_5ForConditionalGeneration",
+    assert _file_sha256(qwen35_output / "best" / "model.safetensors") == (
+        _file_sha256(qwen35_resumed_output / "best" / "model.safetensors")
     )
-    _assert_full_hf_export_reloads(
-        fresh_output / "best",
-        expected_type="Qwen3_5ForConditionalGeneration",
+    assert _file_sha256(fresh_output / "best" / "model.safetensors") == (
+        _file_sha256(resumed_output / "best" / "model.safetensors")
     )
+    for run_dir in (
+        qwen35_output,
+        qwen35_resumed_output,
+        fresh_output,
+        resumed_output,
+    ):
+        _assert_full_hf_export_reloads(
+            run_dir / "best",
+            source_model_dir=model_dir,
+            expected_type="Qwen3_5ForConditionalGeneration",
+        )
 
     for output_dir, expected_steps in (
         (qwen35_output, 2),
@@ -991,6 +1664,9 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         packing="none",
         steps=2,
         save_steps=1,
+        finetune_mode="lora",
+        target_parameters=("auto",),
+        logging_steps=2,
     )
     _run_qwen_training_gate(repo_root, qwen35_config)
     qwen35_resumed_output = tmp_path / "qwen35-moe-fixed-resumed"
@@ -1005,6 +1681,9 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         steps=2,
         save_steps=1,
         resume_from_checkpoint=qwen35_output / "checkpoint-1",
+        finetune_mode="lora",
+        target_parameters=("auto",),
+        logging_steps=2,
     )
     _run_qwen_training_gate(repo_root, qwen35_resumed_config)
 
@@ -1019,6 +1698,7 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         packing="greedy",
         steps=2,
         save_steps=1,
+        logging_steps=2,
     )
     _run_qwen_training_gate(repo_root, fresh_config)
 
@@ -1034,27 +1714,50 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         steps=2,
         save_steps=1,
         resume_from_checkpoint=fresh_output / "checkpoint-1",
+        logging_steps=2,
     )
     _run_qwen_training_gate(repo_root, resumed_config)
 
     _assert_checkpoint_state_equivalent(
         qwen35_output / "checkpoint-2",
         qwen35_resumed_output / "checkpoint-2",
-        weight_filename="model.safetensors",
+        weight_filename="adapter_model.safetensors",
     )
     _assert_checkpoint_state_equivalent(
         fresh_output / "checkpoint-2",
         resumed_output / "checkpoint-2",
         weight_filename="model.safetensors",
     )
-    _assert_full_hf_export_reloads(
-        qwen35_output / "best",
-        expected_type="Qwen3_5MoeForConditionalGeneration",
+    assert _file_sha256(
+        qwen35_output / "best" / "adapter_model.safetensors"
+    ) == _file_sha256(
+        qwen35_resumed_output / "best" / "adapter_model.safetensors"
     )
-    _assert_full_hf_export_reloads(
-        fresh_output / "best",
-        expected_type="Qwen3_5MoeForConditionalGeneration",
+    for run_dir in (qwen35_output, qwen35_resumed_output):
+        _validate_qwen_peft_export(
+            repo_root,
+            export_path=run_dir / "best",
+            model_type="qwen35vl",
+            model_path=model_dir,
+        )
+        _assert_standard_qwen_peft_export_reloads(
+            base_model_path=model_dir,
+            export_dir=run_dir / "best",
+        )
+        _assert_moe_lora_router_and_experts_updated(
+            run_dir / "best" / "adapter_model.safetensors"
+        )
+    _assert_router_auxiliary_loss_was_logged(qwen35_output / "checkpoint-2")
+    _assert_router_auxiliary_loss_was_logged(qwen35_resumed_output / "checkpoint-2")
+    assert _file_sha256(fresh_output / "best" / "model.safetensors") == (
+        _file_sha256(resumed_output / "best" / "model.safetensors")
     )
+    for run_dir in (fresh_output, resumed_output):
+        _assert_full_hf_export_reloads(
+            run_dir / "best",
+            source_model_dir=model_dir,
+            expected_type="Qwen3_5MoeForConditionalGeneration",
+        )
 
     for output_dir, expected_steps in (
         (qwen35_output, 2),
@@ -1082,6 +1785,410 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         )
     )["contract"]
     assert fresh_contract == resumed_contract
+
+
+@pytest.mark.integration
+@pytest.mark.manual
+@pytest.mark.parametrize("distributed_strategy", ["fsdp", "deepspeed"])
+def test_qwen35_moe_two_rank_sharded_backend_release_gate(
+    tmp_path: Path,
+    repo_root: Path,
+    distributed_strategy: str,
+) -> None:
+    if os.environ.get("SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE") != "1":
+        pytest.skip("Set SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE=1 to run the CUDA release gate.")
+    if torch.cuda.device_count() < 2:
+        pytest.skip("The Qwen training release gate requires two visible CUDA devices.")
+    processor_source = Path("models/Qwen3.6-27B")
+    if not (processor_source / "preprocessor_config.json").is_file():
+        pytest.skip(f"Qwen3.6 processor assets not found: {processor_source}")
+
+    model_dir, dataset_path = prepare_tiny_qwen35_training_assets(
+        tmp_path,
+        processor_source=processor_source,
+        moe=True,
+    )
+    finetune_mode = "lora" if distributed_strategy == "fsdp" else "full"
+    target_parameters = ("auto",) if finetune_mode == "lora" else ()
+    output_dir = tmp_path / f"qwen35-moe-{distributed_strategy}"
+    config_path = write_qwen_training_gate_config(
+        tmp_path / f"qwen35-moe-{distributed_strategy}.yaml",
+        model_type="qwen35vl",
+        model_dir=model_dir,
+        dataset_path=dataset_path,
+        output_dir=output_dir,
+        layout="padded",
+        packing="none",
+        steps=2,
+        save_steps=1,
+        finetune_mode=finetune_mode,
+        target_parameters=target_parameters,
+        distributed_strategy=distributed_strategy,
+        gradient_accumulation_steps=2,
+        gradient_checkpointing=distributed_strategy == "fsdp",
+        logging_steps=2,
+        warmup_ratio=0.0,
+    )
+    _run_qwen_training_gate(repo_root, config_path)
+
+    resumed_output = tmp_path / f"qwen35-moe-{distributed_strategy}-resumed"
+    resumed_config = write_qwen_training_gate_config(
+        tmp_path / f"qwen35-moe-{distributed_strategy}-resumed.yaml",
+        model_type="qwen35vl",
+        model_dir=model_dir,
+        dataset_path=dataset_path,
+        output_dir=resumed_output,
+        layout="padded",
+        packing="none",
+        steps=2,
+        save_steps=1,
+        resume_from_checkpoint=output_dir / "checkpoint-1",
+        finetune_mode=finetune_mode,
+        target_parameters=target_parameters,
+        distributed_strategy=distributed_strategy,
+        gradient_accumulation_steps=2,
+        gradient_checkpointing=distributed_strategy == "fsdp",
+        logging_steps=2,
+        warmup_ratio=0.0,
+    )
+    _run_qwen_training_gate(repo_root, resumed_config)
+
+    weight_filename = (
+        "adapter_model.safetensors"
+        if finetune_mode == "lora"
+        else "model.safetensors"
+    )
+    _assert_backend_native_checkpoint_state_equivalent(
+        output_dir / "checkpoint-2",
+        resumed_output / "checkpoint-2",
+        distributed_strategy=distributed_strategy,
+        weight_filename=weight_filename,
+    )
+    if finetune_mode == "lora":
+        _assert_moe_lora_router_and_experts_updated(
+            output_dir / "checkpoint-1" / weight_filename
+        )
+        assert _file_sha256(output_dir / "checkpoint-1" / weight_filename) != (
+            _file_sha256(output_dir / "checkpoint-2" / weight_filename)
+        )
+    assert _file_sha256(output_dir / "best" / weight_filename) == _file_sha256(
+        resumed_output / "best" / weight_filename
+    )
+
+    for run_dir in (output_dir, resumed_output):
+        assert (run_dir / "checkpoint-2").is_dir()
+        trainer_state = json.loads(
+            (run_dir / "checkpoint-2" / "trainer_state.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        # Eight samples / (2 ranks * local batch 2) yield two microbatches per
+        # rank; GA=2 therefore reaches optimizer step 2 at exactly one epoch.
+        assert float(trainer_state["epoch"]) == pytest.approx(1.0)
+        assert float(trainer_state["total_flos"]) > 0.0
+        efficiency = json.loads(
+            (run_dir / "shaft_training_efficiency.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert efficiency["contract"]["gradient_accumulation_steps"] == 2
+        _assert_router_auxiliary_loss_was_logged(run_dir / "checkpoint-2")
+        if finetune_mode == "lora":
+            _validate_qwen_peft_export(
+                repo_root,
+                export_path=run_dir / "best",
+                model_type="qwen35vl",
+                model_path=model_dir,
+            )
+            _assert_moe_lora_router_and_experts_updated(
+                run_dir / "best" / "adapter_model.safetensors"
+            )
+        else:
+            _assert_full_moe_router_and_experts_updated(
+                model_dir / "model.safetensors",
+                run_dir / "best" / "model.safetensors",
+            )
+            _assert_full_hf_export_reloads(
+                run_dir / "best",
+                source_model_dir=model_dir,
+                expected_type="Qwen3_5MoeForConditionalGeneration",
+            )
+
+    if finetune_mode == "lora":
+        for run_dir in (output_dir, resumed_output):
+            _assert_standard_qwen_peft_export_reloads(
+                base_model_path=model_dir,
+                export_dir=run_dir / "best",
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.manual
+def test_qwen3vl_30b_moe_two_rank_fsdp_lora_release_gate(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    if os.environ.get("SHAFT_RUN_QWEN3VL_MOE_30B_GATE") != "1":
+        pytest.skip(
+            "Set SHAFT_RUN_QWEN3VL_MOE_30B_GATE=1 to run the real 30B MoE SFT gate."
+        )
+    if torch.cuda.device_count() < 2:
+        pytest.skip("The Qwen3VL 30B MoE gate requires two visible CUDA devices.")
+    model_path = Path("models/Qwen3-VL-30B-A3B-Instruct").resolve()
+    required_files = (
+        "config.json",
+        "model.safetensors.index.json",
+        "preprocessor_config.json",
+        "tokenizer.json",
+    )
+    missing = [name for name in required_files if not (model_path / name).is_file()]
+    if missing:
+        pytest.skip(f"Qwen3VL 30B MoE assets are incomplete: missing={missing}")
+    model_config = json.loads(
+        (model_path / "config.json").read_text(encoding="utf-8")
+    )
+    language_layers = int(model_config["text_config"]["num_hidden_layers"])
+    vision_blocks = int(model_config["vision_config"]["depth"])
+    num_experts = int(model_config["text_config"]["num_experts"])
+
+    dataset_path = prepare_qwen_training_dataset(tmp_path)
+    fresh_output = tmp_path / "qwen3vl-30b-moe-fsdp-fresh"
+    fresh_config = write_qwen_training_gate_config(
+        tmp_path / "qwen3vl-30b-moe-fsdp-fresh.yaml",
+        model_type="qwen3vl",
+        model_dir=model_path,
+        dataset_path=dataset_path,
+        output_dir=fresh_output,
+        layout="padded",
+        packing="none",
+        steps=2,
+        save_steps=1,
+        finetune_mode="lora",
+        target_parameters=("auto",),
+        attention_implementation="flash_attention_2",
+        experts_implementation="grouped_mm",
+        distributed_strategy="fsdp",
+        gradient_checkpointing=True,
+        per_device_train_batch_size=1,
+        num_workers=0,
+        router_aux_loss_weight=0.002,
+        warmup_ratio=0.0,
+    )
+    _run_qwen_training_gate(
+        repo_root,
+        fresh_config,
+        timeout_seconds=3600,
+    )
+
+    resumed_output = tmp_path / "qwen3vl-30b-moe-fsdp-resumed"
+    resumed_config = write_qwen_training_gate_config(
+        tmp_path / "qwen3vl-30b-moe-fsdp-resumed.yaml",
+        model_type="qwen3vl",
+        model_dir=model_path,
+        dataset_path=dataset_path,
+        output_dir=resumed_output,
+        layout="padded",
+        packing="none",
+        steps=2,
+        save_steps=1,
+        resume_from_checkpoint=fresh_output / "checkpoint-1",
+        finetune_mode="lora",
+        target_parameters=("auto",),
+        attention_implementation="flash_attention_2",
+        experts_implementation="grouped_mm",
+        distributed_strategy="fsdp",
+        gradient_checkpointing=True,
+        per_device_train_batch_size=1,
+        num_workers=0,
+        router_aux_loss_weight=0.002,
+        warmup_ratio=0.0,
+    )
+    _run_qwen_training_gate(
+        repo_root,
+        resumed_config,
+        timeout_seconds=3600,
+    )
+
+    weight_filename = "adapter_model.safetensors"
+    _assert_backend_native_checkpoint_state_equivalent(
+        fresh_output / "checkpoint-2",
+        resumed_output / "checkpoint-2",
+        distributed_strategy="fsdp",
+        weight_filename=weight_filename,
+    )
+    assert _file_sha256(fresh_output / "best" / weight_filename) == _file_sha256(
+        resumed_output / "best" / weight_filename
+    )
+    _assert_qwen3vl_moe_lora_roles_updated(
+        fresh_output / "checkpoint-1" / weight_filename,
+        language_layers=language_layers,
+        vision_blocks=vision_blocks,
+    )
+    assert _file_sha256(fresh_output / "checkpoint-1" / weight_filename) != (
+        _file_sha256(fresh_output / "checkpoint-2" / weight_filename)
+    )
+    _assert_adapter_tensors_changed(
+        fresh_output / "checkpoint-1" / weight_filename,
+        fresh_output / "checkpoint-2" / weight_filename,
+    )
+    for run_dir in (fresh_output, resumed_output):
+        checkpoint = run_dir / "checkpoint-2"
+        _assert_router_auxiliary_loss_was_logged(
+            checkpoint,
+            expected_coefficient=0.002,
+        )
+        _assert_finite_training_metrics(checkpoint)
+        _assert_qwen3vl_moe_lora_roles_updated(
+            run_dir / "best" / weight_filename,
+            language_layers=language_layers,
+            vision_blocks=vision_blocks,
+        )
+        efficiency = json.loads(
+            (run_dir / "shaft_training_efficiency.json").read_text(encoding="utf-8")
+        )
+        finetune_summary = json.loads(
+            (run_dir / "shaft_finetune_summary.json").read_text(encoding="utf-8")
+        )
+        optimizer_summary = json.loads(
+            (run_dir / "shaft_optimizer_summary.json").read_text(encoding="utf-8")
+        )
+        adapter_path = run_dir / "best" / weight_filename
+        with safe_open(adapter_path, framework="pt", device="cpu") as adapter_state:
+            adapter_keys = tuple(adapter_state.keys())
+            adapter_numel = sum(
+                int(np.prod(adapter_state.get_slice(name).get_shape()))
+                for name in adapter_keys
+            )
+        trainable_params = int(finetune_summary["trainable_params"])
+        assert adapter_numel == trainable_params
+        assert int(optimizer_summary["total_trainable_params"]) == trainable_params
+        assert sum(
+            int(group["num_tensors"])
+            for group in optimizer_summary["groups"]
+        ) == len(adapter_keys)
+        assert int(finetune_summary["total_params"]) == (
+            trainable_params + int(finetune_summary["frozen_params"])
+        )
+        assert int(finetune_summary["frozen_params"]) > int(
+            finetune_summary["trainable_params"]
+        )
+        assert all(
+            "lora_" in name
+            for name in finetune_summary["sample_trainable_parameters"]
+        )
+        assert all(
+            "lora_" not in name
+            for name in finetune_summary["sample_frozen_parameters"]
+        )
+        assert efficiency["aggregate"]["optimizer_steps"] == 2
+        assert efficiency["aggregate"]["update_applied_steps"] == 2
+        assert efficiency["contract"]["torch_dtype"] == "bfloat16"
+        assert int(efficiency["peak_device_memory_allocated_bytes"]) > 0
+        assert int(efficiency["peak_device_memory_reserved_bytes"]) > 0
+        training_args = torch.load(
+            checkpoint / "training_args.bin",
+            map_location="cpu",
+            weights_only=False,
+        )
+        assert training_args.bf16 is True
+        assert training_args.fp16 is False
+        assert training_args.warmup_steps == 0
+        _validate_qwen_peft_export(
+            repo_root,
+            export_path=run_dir / "best",
+            model_type="qwen3vl",
+            model_path=model_path,
+        )
+
+    _assert_standard_qwen_peft_export_reloads(
+        base_model_path=model_path,
+        export_dir=fresh_output / "best",
+        experts_implementation="grouped_mm",
+        expected_router_layers=language_layers,
+        expected_num_experts=num_experts,
+        expected_dtype=torch.bfloat16,
+        image_path=tmp_path / "image.png",
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.manual
+def test_qwen3vl_2b_two_rank_fp16_padded_lora_exact_resume_release_gate(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    if os.environ.get("SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE") != "1":
+        pytest.skip("Set SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE=1 to run the CUDA release gate.")
+    if torch.cuda.device_count() < 2:
+        pytest.skip("The Qwen training release gate requires two visible CUDA devices.")
+    model_path = Path("models/Qwen3-VL-2B-Instruct").resolve()
+    if not (model_path / "config.json").is_file():
+        pytest.skip(f"Qwen3VL model assets not found: {model_path}")
+
+    dataset_path = prepare_qwen_training_dataset(tmp_path)
+    fresh_output = tmp_path / "qwen3vl-2b-fp16-padded-fresh"
+    fresh_config = write_qwen_training_gate_config(
+        tmp_path / "qwen3vl-2b-fp16-padded-fresh.yaml",
+        model_type="qwen3vl",
+        model_dir=model_path,
+        dataset_path=dataset_path,
+        output_dir=fresh_output,
+        layout="padded",
+        packing="none",
+        steps=8,
+        save_steps=4,
+        finetune_mode="lora",
+        torch_dtype="float32",
+        training_precision="fp16",
+    )
+    _run_qwen_training_gate(repo_root, fresh_config)
+
+    resumed_output = tmp_path / "qwen3vl-2b-fp16-padded-resumed"
+    resumed_config = write_qwen_training_gate_config(
+        tmp_path / "qwen3vl-2b-fp16-padded-resumed.yaml",
+        model_type="qwen3vl",
+        model_dir=model_path,
+        dataset_path=dataset_path,
+        output_dir=resumed_output,
+        layout="padded",
+        packing="none",
+        steps=8,
+        save_steps=4,
+        resume_from_checkpoint=fresh_output / "checkpoint-4",
+        finetune_mode="lora",
+        torch_dtype="float32",
+        training_precision="fp16",
+    )
+    _run_qwen_training_gate(repo_root, resumed_config)
+
+    fresh_checkpoint = fresh_output / "checkpoint-8"
+    resumed_checkpoint = resumed_output / "checkpoint-8"
+    _assert_checkpoint_state_equivalent(
+        fresh_checkpoint,
+        resumed_checkpoint,
+        weight_filename="adapter_model.safetensors",
+    )
+    assert (fresh_checkpoint / "scaler.pt").is_file()
+    assert (resumed_checkpoint / "scaler.pt").is_file()
+    assert _file_sha256(
+        fresh_output / "best" / "adapter_model.safetensors"
+    ) == _file_sha256(
+        resumed_output / "best" / "adapter_model.safetensors"
+    )
+    for run_dir in (fresh_output, resumed_output):
+        _validate_qwen_peft_export(
+            repo_root,
+            export_path=run_dir / "best",
+            model_type="qwen3vl",
+            model_path=model_path,
+        )
+        _assert_standard_qwen_peft_export_reloads(
+            base_model_path=model_path,
+            export_dir=run_dir / "best",
+        )
+        _assert_lora_adapter_has_learned_update(
+            run_dir / "best" / "adapter_model.safetensors"
+        )
 
 
 @pytest.mark.integration
@@ -1137,16 +2244,20 @@ def test_qwen3vl_two_rank_lora_varlen_and_export_release_gate(
     )
 
     export_path = output_dir / "best"
-    _validate_qwen_peft_export(
-        repo_root,
-        export_path=export_path,
-        model_type="qwen3vl",
-        model_path=model_path,
+    assert _file_sha256(export_path / "adapter_model.safetensors") == _file_sha256(
+        resumed_output / "best" / "adapter_model.safetensors"
     )
-    _assert_standard_qwen_peft_export_reloads(
-        base_model_path=model_path,
-        export_dir=export_path,
-    )
+    for run_dir in (output_dir, resumed_output):
+        _validate_qwen_peft_export(
+            repo_root,
+            export_path=run_dir / "best",
+            model_type="qwen3vl",
+            model_path=model_path,
+        )
+        _assert_standard_qwen_peft_export_reloads(
+            base_model_path=model_path,
+            export_dir=run_dir / "best",
+        )
     summary = json.loads(
         (output_dir / "shaft_training_efficiency.json").read_text(encoding="utf-8")
     )

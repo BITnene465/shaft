@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any
+
+
+_TRAINING_USE_CACHE_STATE = "_shaft_training_use_cache_state"
 
 
 def align_model_generation_config(
@@ -117,24 +121,84 @@ def _align_special_tokens(target: Any, tokenizer: Any) -> None:
             generation_config.pad_token_id = tokenizer_pad
 
 
-def set_model_use_cache(model: Any, enabled: bool) -> dict[str, bool]:
-    previous: dict[str, bool] = {}
+def set_model_use_cache(model: Any, enabled: bool) -> dict[str, Any]:
+    previous: dict[str, Any] = {}
     for attr_name, config_obj in _iter_use_cache_targets(model):
         try:
-            previous[attr_name] = bool(getattr(config_obj, "use_cache"))
+            previous[attr_name] = getattr(config_obj, "use_cache")
             setattr(config_obj, "use_cache", bool(enabled))
         except Exception:  # noqa: BLE001
             continue
     return previous
 
 
-def restore_model_use_cache(model: Any, previous: dict[str, bool]) -> None:
+def restore_model_use_cache(model: Any, previous: dict[str, Any]) -> None:
     targets = dict(_iter_use_cache_targets(model))
     for attr_name, value in previous.items():
         config_obj = targets.get(attr_name)
         if config_obj is None:
             continue
         try:
-            setattr(config_obj, "use_cache", bool(value))
+            setattr(config_obj, "use_cache", value)
         except Exception:  # noqa: BLE001
             continue
+
+
+def disable_model_cache_for_training(model: Any) -> None:
+    """Disable KV caches while retaining the artifact's deployment defaults."""
+
+    existing = getattr(model, _TRAINING_USE_CACHE_STATE, None)
+    if existing is None:
+        state: list[tuple[Any, Any]] = []
+        for _, config_obj in _iter_use_cache_targets(model):
+            try:
+                state.append((config_obj, getattr(config_obj, "use_cache")))
+            except Exception:  # noqa: BLE001
+                continue
+        existing = tuple(state)
+        setattr(model, _TRAINING_USE_CACHE_STATE, existing)
+    for config_obj, _ in existing:
+        try:
+            setattr(config_obj, "use_cache", False)
+        except Exception:  # noqa: BLE001
+            continue
+
+
+def _find_training_cache_state(model: Any) -> tuple[tuple[Any, Any], ...] | None:
+    pending = [model]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        state = getattr(current, _TRAINING_USE_CACHE_STATE, None)
+        if state is not None:
+            return state
+        for attr_name in ("module", "base_model", "model"):
+            child = getattr(current, attr_name, None)
+            if child is not None:
+                pending.append(child)
+    return None
+
+
+@contextmanager
+def export_model_cache(model: Any):
+    """Temporarily restore deployment cache defaults while serializing a model."""
+
+    state = _find_training_cache_state(model)
+    if state is None:
+        yield
+        return
+    training_state: list[tuple[Any, Any]] = []
+    try:
+        for config_obj, deployment_value in state:
+            training_state.append((config_obj, getattr(config_obj, "use_cache")))
+            setattr(config_obj, "use_cache", deployment_value)
+        yield
+    finally:
+        for config_obj, training_value in training_state:
+            try:
+                setattr(config_obj, "use_cache", training_value)
+            except Exception:  # noqa: BLE001
+                continue
