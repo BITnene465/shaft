@@ -11,7 +11,7 @@ from .algorithm import (
 )
 from .data import SHAFT_BATCH_RESOURCE_NAMES
 from .runtime import RuntimeConfig
-from .training import resolve_eval_input_policy
+from .training import resolve_deepspeed_zero_stage, resolve_eval_input_policy
 
 _SCHEDULE_MIXING_STRATEGIES = {"concat", "weighted"}
 _BATCH_GROUPINGS = {"none", "length", "bounded_cost"}
@@ -809,12 +809,6 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             "train.distributed.ddp.static_graph=true is currently validated only for "
             "algorithm.name='sft'."
         )
-    if planned and train.distributed.strategy != "ddp":
-        raise ValueError(
-            f"data.batching.grouping={batching.grouping!r} currently supports "
-            "train.distributed.strategy='ddp' only; FSDP and DeepSpeed planned "
-            "batch/tensor-axis contracts have not been validated yet."
-        )
     fsdp_cfg = train.distributed.fsdp
     fsdp_cfg.sharding_strategy = str(fsdp_cfg.sharding_strategy).strip().lower()
     if fsdp_cfg.sharding_strategy not in _FSDP_SHARDING_STRATEGIES:
@@ -890,6 +884,37 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             "train.distributed.strategy='deepspeed' requires either "
             "train.distributed.deepspeed.config_path or train.distributed.deepspeed.config."
         )
+    if planned and train.distributed.strategy in {"fsdp", "deepspeed"}:
+        if batching.grouping != "bounded_cost":
+            raise ValueError(
+                "Sharded-backend planned batching currently requires "
+                "data.batching.grouping='bounded_cost'."
+            )
+        if batching.cardinality != "fixed":
+            raise ValueError(
+                "Sharded-backend planned batching currently requires "
+                "data.batching.cardinality='fixed'."
+            )
+        if packing.mode != "none" or batching.layout != "padded":
+            raise ValueError(
+                "Sharded-backend planned batching currently requires "
+                "packing.mode='none' and layout='padded'."
+            )
+        if train.distributed.strategy == "fsdp":
+            if fsdp_cfg.sharding_strategy != "full_shard":
+                raise ValueError(
+                    "FSDP planned batching currently requires "
+                    "train.distributed.fsdp.sharding_strategy='full_shard'."
+                )
+            if fsdp_cfg.state_dict_type != "full_state_dict":
+                raise ValueError(
+                    "FSDP planned exact resume currently requires "
+                    "train.distributed.fsdp.state_dict_type='full_state_dict'."
+                )
+        elif resolve_deepspeed_zero_stage(deepspeed_cfg) != 3:
+            raise ValueError(
+                "DeepSpeed planned batching currently requires ZeRO stage 3."
+            )
 
     eval_cfg = config.eval
     if isinstance(eval_cfg.eval_strategy, bool):

@@ -220,6 +220,11 @@ def _build_planned_batch_sampler(
             planning_frame_size=int(training_args.gradient_accumulation_steps),
             initial_state=initial_state,
             preflight_plan=preflight_plan,
+            process_index=(
+                int(training_args.process_index)
+                if config.train.distributed.strategy in {"fsdp", "deepspeed"}
+                else None
+            ),
         )
     return sampler, spec
 
@@ -895,19 +900,20 @@ class ShaftSFTPipeline:
             },
         ):
             callbacks: list[Any] = [ShaftBatchingMetadataCallback(batching_metadata)]
+            planning_callback: ShaftBatchPlanningCallback | None = None
             if train_batch_sampler is not None and planning_spec is not None:
                 if planning_resume_contract is None:
                     raise RuntimeError(
                         "Batch-planning training contract fingerprint was not resolved."
                     )
-                callbacks.append(
-                    ShaftBatchPlanningCallback(
-                        train_batch_sampler,
-                        planning_spec,
-                        gradient_accumulation_steps=int(training_args.gradient_accumulation_steps),
-                        resume_contract_fingerprint=planning_resume_contract,
-                    )
+                planning_callback = ShaftBatchPlanningCallback(
+                    train_batch_sampler,
+                    planning_spec,
+                    gradient_accumulation_steps=int(training_args.gradient_accumulation_steps),
+                    resume_contract_fingerprint=planning_resume_contract,
+                    backend=config.train.distributed.strategy,
                 )
+                callbacks.append(planning_callback)
             if efficiency_monitor is not None:
                 callbacks.append(ShaftTrainingEfficiencyCallback(efficiency_monitor))
             else:
@@ -1028,6 +1034,10 @@ class ShaftSFTPipeline:
         ):
             if efficiency_monitor is not None:
                 efficiency_monitor.bind_update_applied_provider(
+                    lambda: not bool(trainer.accelerator.optimizer_step_was_skipped)
+                )
+            if planning_callback is not None:
+                planning_callback.bind_update_applied_provider(
                     lambda: not bool(trainer.accelerator.optimizer_step_was_skipped)
                 )
 

@@ -144,17 +144,26 @@ class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
         planning_frame_size: int,
         initial_state: ShaftBatchPlanningState | None = None,
         preflight_plan: ShaftBatchMicrobatchPlan | None = None,
+        process_index: int | None = None,
     ) -> None:
         self.schedule = schedule
         self.cost_provider = cost_provider
         self.spec = spec
         self.global_microstep_count = int(global_microstep_count)
         self.planning_frame_size = int(planning_frame_size)
+        self.process_index = None if process_index is None else int(process_index)
         self.schedule.validate_data_world_size(int(spec.data_world_size))
         if self.global_microstep_count <= 0:
             raise ValueError("global_microstep_count must be > 0.")
         if self.planning_frame_size <= 0:
             raise ValueError("planning_frame_size must be > 0.")
+        if self.process_index is not None and not (
+            0 <= self.process_index < int(spec.data_world_size)
+        ):
+            raise ValueError(
+                "Invalid planned-batch process_index/data_world_size: "
+                f"{self.process_index}/{spec.data_world_size}."
+            )
         if initial_state is None:
             initial_state = ShaftBatchPlanningState(
                 contract_fingerprint=spec.fingerprint,
@@ -195,7 +204,15 @@ class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
 
     def __len__(self) -> int:
         remaining = self.global_microstep_count - int(self.initial_state.global_microstep)
+        if self.process_index is not None:
+            return remaining
         return remaining * int(self.spec.data_world_size)
+
+    @property
+    def owns_rank_sharding(self) -> bool:
+        """Whether this sampler emits only the canonical batch for one data rank."""
+
+        return self.process_index is not None
 
     def __iter__(self) -> Iterator[list[ShaftPlannedSampleRef]]:
         planner_state = (
@@ -285,6 +302,9 @@ class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
                 state = frame[-1].state_after
                 self._snapshots[int(state.global_microstep)] = state
                 for plan in frame:
+                    if self.process_index is not None:
+                        yield list(plan.planned_refs_for_rank(self.process_index))
+                        continue
                     for rank_index in range(len(plan.rank_microbatches)):
                         yield list(plan.planned_refs_for_rank(rank_index))
         finally:
@@ -319,13 +339,7 @@ class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
         target_microstep = int(global_microstep)
         if target_microstep < int(self._committed_state.global_microstep):
             raise ValueError("Cannot move committed batch-planning state backwards.")
-        try:
-            committed = self._snapshots[target_microstep]
-        except KeyError as exc:
-            raise RuntimeError(
-                "No batch-planning snapshot exists for completed planning frame at "
-                f"global_microstep={target_microstep}; producer/consumer state drifted."
-            ) from exc
+        committed = self.planning_state_at_global_microstep(target_microstep)
         self._committed_state = committed
         self._snapshots = {
             microstep: state
@@ -333,6 +347,23 @@ class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
             if microstep >= target_microstep
         }
         return committed
+
+    def planning_state_at_global_microstep(
+        self,
+        global_microstep: int,
+    ) -> ShaftBatchPlanningState:
+        """Return a planned boundary without advancing the committed cursor."""
+
+        target_microstep = int(global_microstep)
+        if target_microstep < int(self._committed_state.global_microstep):
+            raise ValueError("Cannot inspect batch-planning state behind the committed cursor.")
+        try:
+            return self._snapshots[target_microstep]
+        except KeyError as exc:
+            raise RuntimeError(
+                "No batch-planning snapshot exists for completed planning frame at "
+                f"global_microstep={target_microstep}; producer/consumer state drifted."
+            ) from exc
 
     @property
     def committed_state(self) -> ShaftBatchPlanningState:

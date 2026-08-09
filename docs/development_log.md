@@ -1144,3 +1144,62 @@
 - 远程 serving alias 不能承担本地 artifact identity；远程推理只解析实际消费的最小 contract。
 - 只有所有候选变体共享同一推理合同才能省略 variant；训练、本地加载、分片与导出始终要求完整 descriptor。
 - 模型族测试中的参数名必须来自当前上游真实权重索引或模型实现，不能长期保留能命中前缀但不存在的伪路径。
+
+## 2026-08-09：planned batching 接入 FSDP full-shard 与 DeepSpeed ZeRO-3
+
+### 现象
+
+- 既有 `bounded_cost` planner 能在 DDP 下平衡多模态长尾，但配置层拒绝 FSDP/DeepSpeed。27B full BF16
+  必须依赖 ZeRO-3 时只能退回 `grouping=none`，8 卡同一 microstep 曾同时出现 8,250 LLM tokens 与
+  7,696 vision patches 的 rank cost 长尾，产生 collective 等待风险。
+- 直接删除 normalize 限制并不安全：Accelerate 可能对已经按 rank 规划的 BatchSampler 再分片/补齐；
+  DataLoader prefetch 还会让 live cursor 领先真正完成的 optimizer boundary。旧 backend-native checkpoint
+  也没有把 planning state 与某次 FSDP/ZeRO generation 原子绑定。
+
+### 根因
+
+- canonical global microbatch 已存在，但 runtime 只有“global flattened sampler -> Accelerate 唯一分片”的
+  DDP 消费方式，没有 sharded backend 的 rank-local ownership contract。
+- planning callback 与 checkpoint storage protocol 分层正确，但 backend-native 路径此前缺少 typed commit
+  marker，无法证明 native shard 集合与 committed sampler state 属于同一 generation。
+- 该问题是训练 runtime/checkpoint integration 缺口，不是 grouping 算法、数据、prompt、processor 或
+  eval/codec/metric 的误判。
+
+### 影响范围
+
+- 新能力只覆盖 SFT、steps duration、`bounded_cost + fixed + packing=none + padded`、固定每-rank
+  cardinality、GA，以及 FSDP `full_shard + full_state_dict` / DeepSpeed ZeRO-3。
+- DDP 既有执行与 `shaft_checkpoint_commit.json` 格式不变。token-budget、length、greedy/varlen、RLHF、
+  world-size elastic resume、TP/CP/SP 仍 fail closed；不能以本次 tiny/canary 证据外推真实 27B 长训稳定性。
+
+### 修复方式
+
+- 复用 `ShaftBatchPlanner`、`ShaftPlannedBatchSampler` 与 `ShaftBatchPlanningState`。canonical plan 仍包含全部
+  rank；DDP 保持全局扁平输出，FSDP/DeepSpeed 由 sampler 确定性只 yield 当前 rank，并让 Trainer 绕过
+  Accelerate DataLoader sharding，消除二次切分、补齐、重复和遗漏。
+- sharded callback 在 optimizer boundary 预览 state，收敛所有 rank 的 step/microstep/status/fingerprint，
+  仅在完整 GA frame 和 optimizer update 成功后 commit。skipped update fail closed，不推进 committed cursor。
+- planned backend-native checkpoint 使用唯一 prepared -> committed generation。commit marker 绑定 backend、
+  step、world、Trainer/scheduler/RNG 小状态内容身份、完整 native shard 路径/非零尺寸集合和 planning
+  binding；run-root 只选择同时满足 backend 与 planning validator 的最新 generation。大 shard 不额外重读
+  hash，字节级内容继续交给 backend-native loader 校验。
+
+### 回归测试
+
+- focused 配置/sampler/DataLoader/checkpoint 测试覆盖：首版 accept matrix、全部未支持组合拒绝、draw 恰好一次、
+  rank 无交叠/无丢失、等 microstep、无 `BatchSamplerShard`、GA/world/config/generation/state drift fail closed、
+  skipped update 不提交，以及 heavy-text/heavy-vision 同 global microbatch 的 rank-skew 改善。
+- CUDA 0、1：2-rank FSDP full-shard 和 DeepSpeed ZeRO-3 均完成 fresh、checkpoint、interrupted resume；
+  sample stream、model、optimizer、scheduler、RNG 与 planning state 等价。
+- CUDA 0–7：真实 8-rank ZeRO-3 一步 canary 完成 8 个 global draws，覆盖 8,250-token 和
+  7,696-vision-patch 极端样本；checkpoint 含 8 个 model shard、8 个 optimizer shard，direct/run-root
+  resolver 与 planning generation 验证通过。训练进程正常退出，未操作 `gpu-holder`。
+
+### 后续防线
+
+- 新 backend 只能消费 canonical planner 的 rank view，禁止在 pipeline、trainer 或 backend adapter 建第二份
+  grouping/state；任何会 split/dispatch/even-pad planned batches 的组合必须在首个 forward 前拒绝。
+- checkpoint 只能保存 optimizer-boundary committed state。任何 rank 异常、OOM、skipped update、pending/
+  torn marker、native artifact 缺失或 generation 不一致必须让全体 rank fail closed。
+- 扩展 token-budget、length、packing/varlen 或 RLHF 前必须分别补 topology-specific sampler、loss 和
+  backend-native exact-resume 证据，不能复用本次 fixed padded 结论直接解除限制。

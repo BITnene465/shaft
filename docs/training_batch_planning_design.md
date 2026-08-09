@@ -1,8 +1,9 @@
 # Shaft batch planning design
 
 状态：**bounded grouping、length grouping、whole-sample greedy packing、Qwen3VL 与
-Qwen3.5/3.6 dense/MoE image-SFT varlen、committed efficiency telemetry 已实现；MoE 证据仍限于
-tiny upstream gate，context parallel 不在本轮范围内**
+Qwen3.5/3.6 dense/MoE image-SFT varlen、committed efficiency telemetry 已实现；bounded-cost fixed
+padded 已接入 FSDP full-shard 与 DeepSpeed ZeRO-3；MoE 证据仍限于 tiny upstream gate，context parallel
+不在本轮范围内**
 
 ## 1. 问题与设计结论
 
@@ -296,13 +297,20 @@ microstep 的各 rank 成本相近。对 token-budget `per_device_train_batch_si
 step；training adapter 把 frame size 设为 GA，callback 用 `global_step * GA` 提交 state。旧 bounded 名称
 只允许作为短期 import alias，不能继续成为 pipeline/trainer 的类型分支。
 
-Accelerate contract：
+DDP Accelerate contract：
 
 - `batch_size=None`
 - `drop_last=True`
 - `split_batches=False`
 - `even_batches=False`
 - sampler length 为 `remaining_steps * GA * world_size`
+
+FSDP/DeepSpeed 首版不让 Accelerate 再包装这个 BatchSampler：同一个 canonical plan 仍包含全部 rank，
+`ShaftPlannedBatchSampler(process_index=rank)` 只 yield 当前 rank 的 local batch，Trainer 直接使用原始
+DataLoader，随后由标准 `_prepare_inputs` 做 device placement。这样后端看见的已经是最终 local microbatch，
+不会再经过 `BatchSamplerShard`、split 或 even-batch 补副本。该路径只开放
+`bounded_cost + fixed + packing=none + padded`，并要求 FSDP `full_shard + full_state_dict` 或 DeepSpeed
+ZeRO-3；token-budget、length、packing、varlen 和 elastic world-size 仍明确拒绝。
 
 每个 rank 恰好取得 `remaining_steps * GA` 个 batch。fixed 模式每批 physical pack 数等于
 `per_device_train_batch_size`；token-budget 模式每批 physical row 为 1 到该上限，且不同 rank 可以不同。
@@ -316,15 +324,23 @@ planner cost 只用于容量和排序。
 DataLoader 可能预取未来 frame，因此 sampler live state 会领先模型：
 
 1. sampler 保存 frame-boundary snapshots；
-2. callback 在 `on_step_end` 提交 `global_step * GA` 对应 snapshot；
+2. callback 在 `on_step_end` 先预览 `global_step * GA` 对应 snapshot；FSDP/DeepSpeed 会 all-gather
+   rank/status/fingerprint，只有所有 rank 已完成同一 optimizer boundary 且 optimizer update 未被跳过才提交。
+   forward/backward/OOM、rank-local 异常或 GradScaler skipped update 都不会推进 committed cursor；skipped
+   update 当前 fail closed 并从最后一个有效 checkpoint 重放该 frame；
 3. planner spec/committed state 作为 HF `ExportableState` 写入 checkpoint 的 `trainer_state.json`；
 4. DDP/native-HF 的 training 层 checkpoint mixin 暂缓 HF rotation；converged wrapper 捕获既有 `on_save` callback
    （包括 telemetry）的 rank-local 异常并汇聚，全部 rank 成功后才由 rank 0 在独立 commit phase 原子发布
    `shaft_checkpoint_commit.json` 并执行 rotation；planned state 与 resume-contract fingerprint 进入 manifest 的 `batch_planning`
    extension，但不复制 sampler state；
-5. resume 验证 manifest、全部 rank RNG、optimizer/scheduler、cardinality-bounded emitted count、planner、
+5. FSDP/DeepSpeed planned checkpoint 在后端保存前建立唯一 prepared generation；native shard 和 callbacks
+   全部成功后才发布 `shaft_backend_checkpoint_commit.json`。marker 绑定 backend/step/world、Trainer/
+   scheduler/RNG 小状态内容身份、完整 native shard 路径/非零尺寸集合，以及与同一 committed sampler state
+   计算出的 planning binding。大 model/optimizer shard 不为此额外全量读取 hash，其字节级正确性继续由
+   backend-native loader 负责；run-root 从新到旧只选择 marker 与 native artifacts 同时有效的 generation；
+6. resume 验证 manifest/marker、全部 rank RNG、optimizer/scheduler、cardinality-bounded emitted count、planner、
    grouping 和 packer version、batch contract、source/media/cost/topology 和 training schedule；
-6. sampler 从 committed state 继续，并设置 `ignore_data_skip=true`，避免 HF 二次 skip。
+7. sampler 从 committed state 继续，并设置 `ignore_data_skip=true`，避免 HF 二次 skip。
 
 generic planner state 分开记录 logical draw 与 physical capacity：
 
@@ -430,6 +446,21 @@ hybrid-language hidden state parity、完整 vision forward 和 lm-head gradient
 Qwen3.5/3.6 dense tiny-upstream capability。MoE 已从早期架构骨架回归提升为 tiny capability gate，覆盖
 optimizer/router/expert 和 backend-native checkpoint topology，但仍未覆盖真实 35B 权重、目标硬件容量、
 长程数值、显存或吞吐，因此保持 experimental，不得据此声明生产支持。
+
+2026-08-09 完成 sharded planned batching 专项验收：
+
+- CPU/focused 覆盖 rank-local sampler draw 守恒、无 rank 重叠、等 microstep 数、DataLoader 不产生
+  `BatchSamplerShard`，以及 FSDP/DeepSpeed 能力矩阵与未支持组合拒绝。
+- CUDA 0、1 分别完成 2-rank FSDP full-shard 与 DeepSpeed ZeRO-3 的 bounded-cost fixed padded fresh、
+  checkpoint、interrupt/resume；连续与恢复后的 sample stream、model、optimizer、scheduler、RNG 与 planning
+  state 等价。
+- 真实 8-rank DeepSpeed ZeRO-3 canary 使用同一 global microstep 同时覆盖 8,250 LLM tokens 的 heavy-text
+  draw 与 7,696 vision patches 的 heavy-vision draw，local cardinality=1、global draws=8，完成 optimizer
+  step 和 committed checkpoint；marker 解析为 8 个 model shards、8 个 optimizer shards，run-root resolver
+  与 planning generation 校验通过。全程未操作 `gpu-holder`。
+
+这组证据证明的是既有 bounded-cost planner 的 sharded runtime/checkpoint integration，不是新 grouping
+算法，也不外推到 token-budget、length、packing、varlen、RLHF、context parallel 或真实 27B 长训练稳定性。
 
 ## 9. Varlen layout
 

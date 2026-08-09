@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
+from pathlib import Path
 from typing import Any
 
 
@@ -25,6 +27,25 @@ class TrainFSDPConfig:
 class TrainDeepSpeedConfig:
     config_path: str | None = None
     config: dict[str, Any] = field(default_factory=dict)
+
+
+def resolve_deepspeed_zero_stage(config: TrainDeepSpeedConfig) -> int:
+    """Resolve the canonical ZeRO stage from inline or file-backed config."""
+
+    payload = dict(config.config)
+    if not payload and config.config_path:
+        with Path(config.config_path).open("r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        if not isinstance(loaded, dict):
+            raise TypeError("DeepSpeed config root must be a mapping.")
+        payload = loaded
+    zero_optimization = payload.get("zero_optimization")
+    if not isinstance(zero_optimization, dict):
+        return 0
+    stage = zero_optimization.get("stage", 0)
+    if type(stage) is not int:
+        raise TypeError("DeepSpeed zero_optimization.stage must be an integer.")
+    return int(stage)
 
 
 @dataclass

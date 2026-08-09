@@ -1,20 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
-from pathlib import Path
 from typing import Any
 
-
-def _resolve_deepspeed_zero_stage(train: Any) -> int:
-    deepspeed = train.distributed.deepspeed
-    config = dict(deepspeed.config)
-    if not config and deepspeed.config_path:
-        config = json.loads(Path(deepspeed.config_path).read_text(encoding="utf-8"))
-    zero_optimization = config.get("zero_optimization", {})
-    if not isinstance(zero_optimization, dict):
-        return 0
-    return int(zero_optimization.get("stage", 0))
+from shaft.config.training import resolve_deepspeed_zero_stage
 
 
 @dataclass(frozen=True)
@@ -43,7 +32,7 @@ class ModelShardingPolicy:
         distributed = train.distributed
         strategy = str(distributed.strategy).strip().lower()
         zero_stage = (
-            _resolve_deepspeed_zero_stage(train)
+            resolve_deepspeed_zero_stage(train.distributed.deepspeed)
             if strategy == "deepspeed"
             else 0
         )

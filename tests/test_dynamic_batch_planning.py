@@ -952,6 +952,111 @@ def test_batch_sampler_matches_accelerate_fixed_batch_sharding(
         assert set(rank_batches[0][local_step]).isdisjoint(rank_batches[1][local_step])
 
 
+@pytest.mark.parametrize("local_batch_size", [1, 2])
+def test_rank_local_batch_sampler_owns_the_only_distributed_sharding_step(
+    local_batch_size: int,
+) -> None:
+    provider = CountingCostProvider([1, 2, 5, 7])
+    spec = _spec(
+        provider,
+        world_size=2,
+        buffer_size=12,
+        local_batch_size=local_batch_size,
+        max_tokens=16,
+    )
+    rank_batches = [
+        list(
+            ShaftPlannedBatchSampler(
+                _schedule(),
+                cost_provider=provider,
+                spec=spec,
+                global_microstep_count=6,
+                planning_frame_size=2,
+                process_index=rank,
+            )
+        )
+        for rank in range(2)
+    ]
+
+    assert [len(batches) for batches in rank_batches] == [6, 6]
+    observed_draws: list[int] = []
+    for microstep in range(6):
+        left = rank_batches[0][microstep]
+        right = rank_batches[1][microstep]
+        assert len(left) == len(right) == local_batch_size
+        assert set(left).isdisjoint(right)
+        observed_draws.extend(ref.context.draw_id for ref in (*left, *right))
+    assert len(observed_draws) == len(set(observed_draws))
+    global_provider = CountingCostProvider([1, 2, 5, 7])
+    global_batches = list(
+        ShaftPlannedBatchSampler(
+            _schedule(),
+            cost_provider=global_provider,
+            spec=_spec(
+                global_provider,
+                world_size=2,
+                buffer_size=12,
+                local_batch_size=local_batch_size,
+                max_tokens=16,
+            ),
+            global_microstep_count=6,
+            planning_frame_size=2,
+        )
+    )
+    expected_draws = [
+        ref.context.draw_id for batch in global_batches for ref in batch
+    ]
+    assert sorted(observed_draws) == sorted(expected_draws)
+
+
+def test_rank_local_planning_preserves_long_tail_frame_balance() -> None:
+    provider = CountingCostProvider(
+        [8250, 554, 612, 530],
+        vision=[0, 7696, 128, 96],
+    )
+    spec = _spec(
+        provider,
+        world_size=2,
+        buffer_size=8,
+        local_batch_size=1,
+        max_tokens=9000,
+        max_vision=8192,
+    )
+    batches = [
+        list(
+            ShaftPlannedBatchSampler(
+                _schedule(),
+                cost_provider=provider,
+                spec=spec,
+                global_microstep_count=2,
+                planning_frame_size=2,
+                process_index=rank,
+            )
+        )
+        for rank in range(2)
+    ]
+
+    def normalized_load(ref) -> float:
+        index = ref.context.draw_id % len(provider.lengths)
+        return provider.lengths[index] / 9000 + provider.vision[index] / 8192
+
+    rank_loads = [
+        sum(normalized_load(ref) for batch in rank_batches for ref in batch)
+        for rank_batches in batches
+    ]
+    mean = sum(rank_loads) / len(rank_loads)
+    rank_skew = max(abs(load - mean) / mean for load in rank_loads)
+    naive_loads = [
+        normalized_load(_schedule().ref_at(draw_id))
+        + normalized_load(_schedule().ref_at(draw_id + 2))
+        for draw_id in range(2)
+    ]
+    naive_mean = sum(naive_loads) / len(naive_loads)
+    naive_skew = max(abs(load - naive_mean) / naive_mean for load in naive_loads)
+
+    assert rank_skew < naive_skew
+
+
 def test_batch_sampler_shards_variable_token_budget_batches_without_rank_drift() -> None:
     provider = CountingCostProvider([9, 1, 1])
     spec = _spec(

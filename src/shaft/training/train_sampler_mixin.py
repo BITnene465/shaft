@@ -175,6 +175,29 @@ class ShaftTrainSamplerMixin:
                 rank=self.args.process_index,
             )
         dataloader = DataLoader(train_dataset, **dataloader_params)
+        if (
+            isinstance(self.train_batch_sampler, ShaftPlannedBatchSampler)
+            and self.train_batch_sampler.owns_rank_sharding
+        ):
+            world_size = int(self.train_batch_sampler.spec.data_world_size)
+            process_index = int(self.train_batch_sampler.process_index or 0)
+            if int(self.args.world_size) != world_size:
+                raise RuntimeError(
+                    "Rank-local planned sampler world size differs from Trainer runtime."
+                )
+            if int(self.args.process_index) != process_index:
+                raise RuntimeError(
+                    "Rank-local planned sampler process index differs from Trainer runtime."
+                )
+            # The sampler already selects the canonical rank assignment. Returning
+            # the ordinary DataLoader is deliberate: Accelerate's DataLoaderShard,
+            # BatchSamplerShard and Dispatcher would constitute a second sharding
+            # step. Trainer._prepare_inputs still owns device placement.
+            if len(dataloader) != len(self.train_batch_sampler):
+                raise RuntimeError(
+                    "Rank-local planned DataLoader length differs from its sampler."
+                )
+            return dataloader
         previous_even_batches = self.accelerator.even_batches
         self.accelerator.even_batches = False
         try:

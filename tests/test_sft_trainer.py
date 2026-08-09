@@ -24,7 +24,11 @@ from shaft.data import (
     SFTRecord,
     ShaftCollatedBatchStats,
     ShaftSamplePlan,
+    ShaftBatchPlanningSpec,
+    ShaftPlannedBatchSampler,
+    ShaftSampleCost,
     ShaftSampleRef,
+    ShaftSampleSchedule,
     ShaftSampleSampler,
 )
 from shaft.training import ShaftEpochIntervalCallback
@@ -2010,6 +2014,76 @@ def test_shaft_trainer_uses_variable_train_batch_sampler() -> None:
     assert trainer.accelerator.even_batches is True
     initial_values = trainer.set_initial_training_values(args, train_dataloader)
     assert len(initial_values) >= 7
+
+
+def test_rank_local_planned_dataloader_is_not_accelerate_sharded_again() -> None:
+    schedule = ShaftSampleSchedule(
+        {"ds": 32},
+        {"ds": 1.0},
+        strategy="concat",
+        shuffle=False,
+        seed=7,
+    )
+
+    class _CostProvider:
+        fingerprint = "fixture-cost-v1"
+
+        def __call__(self, sample_ref):
+            _ = sample_ref
+            return ShaftSampleCost(
+                llm_tokens=4,
+                supervised_tokens=2,
+                vision_patches=0,
+                exact=True,
+            )
+
+    spec = ShaftBatchPlanningSpec(
+        data_world_size=1,
+        buffer_size=8,
+        per_device_microbatch_size=2,
+        max_tokens_per_microbatch=16,
+        resource_budgets=(),
+        seed=7,
+        sample_schedule_fingerprint=schedule.fingerprint,
+        cost_fingerprint=_CostProvider.fingerprint,
+    )
+    sampler = ShaftPlannedBatchSampler(
+        schedule,
+        cost_provider=_CostProvider(),
+        spec=spec,
+        global_microstep_count=2,
+        planning_frame_size=1,
+        process_index=0,
+    )
+
+    class _RefDataset:
+        def __len__(self):
+            return 32
+
+        def __getitem__(self, ref):
+            return ref
+
+    trainer = ShaftSFTTrainer(
+        model=_TinyModel(),
+        args=build_training_args(
+            output_dir="/tmp/shaft_rank_local_planned_loader",
+            per_device_train_batch_size=2,
+        ),
+        train_dataset=_RefDataset(),
+        eval_dataset=[],
+        train_batch_sampler=sampler,
+        data_collator=lambda rows: rows,
+    )
+
+    with patch.object(
+        trainer.accelerator,
+        "prepare_data_loader",
+        side_effect=AssertionError("rank-local planned loader must not be prepared"),
+    ):
+        train_dataloader = trainer.get_train_dataloader()
+
+    assert not isinstance(train_dataloader.batch_sampler, BatchSamplerShard)
+    assert [len(batch) for batch in train_dataloader] == [2, 2]
 
 
 def test_shaft_trainer_evaluate_merges_online_metrics() -> None:

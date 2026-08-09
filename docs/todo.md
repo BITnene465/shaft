@@ -36,11 +36,11 @@
 - 多图 sequence packing：单图 varlen/packing 已有执行骨架，但多图 media-segment 对齐、隔离与模型族
   correctness 需要独立设计和 GPU 验收；普通 padded SFT/DPO 与有序多图推理已经支持，不在此 TODO 内。
 - FSDP/DeepSpeed 下尚未开放的 planned sampler 组合：继续 fail closed，不以兼容开关伪装支持。
-- FSDP/DeepSpeed 的 typed committed checkpoint protocol：当前 backend-native 路径由后端负责保存和
-  rotation，不提供 DDP `committed_manifest` 同等级的 torn/atomic 保证。SFT FSDP+PEFT 已单独把完整标准
-  adapter 绑定到 generation identity/stat guard，但 optimizer、scheduler、每-rank RNG、可选 scaler 与
-  full/native shard 仍需统一的 typed manifest、完整性校验和 run-root fallback gate；完成前不要把 intact
-  checkpoint 的 exact-resume 验收表述为任意崩溃点原子提交。
+- backend-native typed checkpoint 的后续泛化：planned SFT 已用
+  `shaft_backend_checkpoint_commit.json` 绑定 planning generation、Trainer/scheduler/RNG 小状态与完整 native
+  shard 路径/非零尺寸集合，并支持 run-root fallback；普通 unplanned FSDP/DeepSpeed 仍沿用后端协议。若要把
+  同等 transaction 扩到全部算法/ordinary fixed，或对数百 GiB model/optimizer shard 增加内容 digest/DCP
+  identity，需要先设计不会给每次保存增加第二次全量 I/O 的 backend-native 方案并补崩溃点验收。
 - 脱离 Hugging Face Trainer 的大规模训练内核重写：当前继续 HF-first，除非真实瓶颈和收益足以支撑独立立项。
 - 重型离线 benchmark / Eval Bench 产品：已经从主线切除；未来如有真实需求，作为独立项目重新立项，
   不复制 Shaft 的 codec、metric 或 infer 真源。

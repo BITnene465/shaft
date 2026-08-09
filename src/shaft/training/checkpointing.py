@@ -38,6 +38,8 @@ from shaft.utils.contract_schema import (
 from .batch_planning import (
     BATCHING_RUN_METADATA_FILENAME,
     BATCH_PLANNING_CHECKPOINT_COMMIT_EXTENSION,
+    ShaftBatchPlanningCallback,
+    build_batch_planning_checkpoint_binding_payload,
     build_batch_planning_checkpoint_commit_payload,
     validate_batch_planning_checkpoint_commit_payload,
 )
@@ -46,7 +48,25 @@ from .optimizer_plan import OPTIMIZER_SUMMARY_FILENAME
 
 
 TRAINING_CHECKPOINT_COMMIT_FILENAME = "shaft_checkpoint_commit.json"
+BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME = "shaft_backend_checkpoint_commit.json"
 _TRAINING_CHECKPOINT_COMMIT_VERSION = "shaft-training-checkpoint-commit-v2"
+_BACKEND_NATIVE_CHECKPOINT_COMMIT_VERSION = "shaft-backend-checkpoint-commit-v1"
+_BACKEND_NATIVE_CHECKPOINT_COMMIT_KEYS = frozenset(
+    {
+        "version",
+        "status",
+        "generation_id",
+        "planning_generation_id",
+        "backend",
+        "global_step",
+        "world_size",
+        "requires_grad_scaler",
+        "trainer_state_sha256",
+        "backend_artifacts",
+        "backend_artifacts_fingerprint",
+        "planning",
+    }
+)
 _TRAINING_CHECKPOINT_COMMIT_KEYS = frozenset(
     {
         "version",
@@ -238,8 +258,16 @@ def _committed_checkpoint_stat_guard(
 def _backend_checkpoint_stat_guard(
     checkpoint: Path,
     adapter_artifact: ResolvedAdapterInit | None = None,
+    backend_commit: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[str, int, int, int, int, int], ...]:
     names = ["trainer_state.json"]
+    if backend_commit is not None:
+        artifacts = require_json_mapping(
+            backend_commit["backend_artifacts"],
+            role="backend-native checkpoint commit.backend_artifacts",
+        )
+        names.extend(artifacts)
+        names.append(BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME)
     if adapter_artifact is not None:
         names.extend(
             (
@@ -271,9 +299,20 @@ def validate_resolved_resume_checkpoint_guard(
             raise ValueError("Resolved training checkpoint commit marker changed during startup.")
         actual = _committed_checkpoint_stat_guard(resolved.path, manifest)
     else:
+        backend_commit = None
+        if resolved.commit_fingerprint is not None:
+            backend_commit = validate_backend_native_checkpoint_commit(
+                resolved.path,
+                require_planning_state=True,
+            )
+            if _canonical_sha256(backend_commit) != resolved.commit_fingerprint:
+                raise ValueError(
+                    "Resolved backend-native checkpoint commit changed during startup."
+                )
         actual = _backend_checkpoint_stat_guard(
             resolved.path,
             resolved.adapter_artifact,
+            backend_commit,
         )
     if actual != resolved.stat_guard:
         raise ValueError("Resolved training checkpoint artifacts changed during startup.")
@@ -531,6 +570,369 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> Path:
     finally:
         temporary.unlink(missing_ok=True)
     return path
+
+
+def _validate_sha256_digest(value: Any, *, role: str) -> str:
+    if type(value) is not str or len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
+        raise ValueError(f"{role} must be a lowercase SHA-256 digest.")
+    return value
+
+
+def _load_backend_native_checkpoint_commit(
+    path: str | Path,
+    *,
+    expected_status: str,
+) -> dict[str, Any]:
+    checkpoint = Path(path)
+    marker_path = checkpoint / BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME
+    try:
+        payload = load_strict_json(
+            marker_path,
+            role="backend-native checkpoint generation transaction",
+        )
+    except FileNotFoundError as exc:
+        raise ValueError(
+            f"Backend-native planned checkpoint is not committed or is torn: {checkpoint}."
+        ) from exc
+    payload = require_json_mapping(
+        payload,
+        role="backend-native checkpoint generation transaction",
+    )
+    require_exact_keys(
+        payload,
+        expected=_BACKEND_NATIVE_CHECKPOINT_COMMIT_KEYS,
+        role="backend-native checkpoint generation transaction",
+    )
+    version = json_string(
+        payload,
+        "version",
+        role="backend-native checkpoint generation transaction",
+    )
+    if version != _BACKEND_NATIVE_CHECKPOINT_COMMIT_VERSION:
+        raise ValueError("Unsupported backend-native checkpoint transaction version.")
+    status = json_string(
+        payload,
+        "status",
+        role="backend-native checkpoint generation transaction",
+    )
+    if status != expected_status:
+        raise ValueError(
+            "Backend-native planned checkpoint transaction is not "
+            f"{expected_status!r}: actual={status!r}."
+        )
+    generation_id = _validate_sha256_digest(
+        payload["generation_id"],
+        role="Backend-native checkpoint generation_id",
+    )
+    planning_generation_id = _validate_sha256_digest(
+        payload["planning_generation_id"],
+        role="Backend-native checkpoint planning_generation_id",
+    )
+    if generation_id != planning_generation_id:
+        raise ValueError(
+            "Backend-native checkpoint generation differs from its planning generation."
+        )
+    backend = json_string(
+        payload,
+        "backend",
+        role="backend-native checkpoint generation transaction",
+    )
+    if backend not in {"fsdp", "deepspeed"}:
+        raise ValueError(f"Unsupported backend-native checkpoint backend: {backend!r}.")
+    global_step = json_int(
+        payload,
+        "global_step",
+        role="backend-native checkpoint generation transaction",
+    )
+    world_size = json_int(
+        payload,
+        "world_size",
+        role="backend-native checkpoint generation transaction",
+    )
+    if global_step < 0 or world_size <= 0:
+        raise ValueError(
+            "Backend-native checkpoint global_step/world_size must be non-negative/positive."
+        )
+    json_bool(
+        payload,
+        "requires_grad_scaler",
+        role="backend-native checkpoint generation transaction",
+    )
+    validate_json_value(
+        payload,
+        role="backend-native checkpoint generation transaction",
+    )
+    return dict(payload)
+
+
+def begin_backend_native_checkpoint(
+    path: str | Path,
+    *,
+    backend: str,
+    global_step: int,
+    world_size: int,
+    requires_grad_scaler: bool,
+) -> Path:
+    """Revoke any old publication and prepare one backend-owned generation."""
+
+    checkpoint = Path(path)
+    normalized_backend = str(backend).strip().lower()
+    if normalized_backend not in {"fsdp", "deepspeed"}:
+        raise ValueError(f"Unsupported backend-native checkpoint backend: {backend!r}.")
+    if type(global_step) is not int or global_step < 0:
+        raise ValueError("Backend-native checkpoint global_step must be >= 0.")
+    if type(world_size) is not int or world_size <= 0:
+        raise ValueError("Backend-native checkpoint world_size must be > 0.")
+    if type(requires_grad_scaler) is not bool:
+        raise TypeError("requires_grad_scaler must be a JSON boolean.")
+    if checkpoint.name != f"checkpoint-{global_step}":
+        raise ValueError(
+            "Backend-native checkpoint directory differs from the prepared global step."
+        )
+    if checkpoint.is_symlink():
+        raise ValueError("Backend-native checkpoint directory must not be a symlink.")
+    checkpoint.mkdir(parents=True, exist_ok=True)
+    generation_id = hashlib.sha256(uuid.uuid4().bytes).hexdigest()
+    payload = {
+        "version": _BACKEND_NATIVE_CHECKPOINT_COMMIT_VERSION,
+        "status": "prepared",
+        "generation_id": generation_id,
+        "planning_generation_id": generation_id,
+        "backend": normalized_backend,
+        "global_step": global_step,
+        "world_size": world_size,
+        "requires_grad_scaler": requires_grad_scaler,
+        "trainer_state_sha256": None,
+        "backend_artifacts": {},
+        "backend_artifacts_fingerprint": None,
+        "planning": None,
+    }
+    return _atomic_write_json(
+        checkpoint / BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME,
+        payload,
+    )
+
+
+def _backend_native_artifact_manifest(
+    checkpoint: Path,
+    *,
+    backend: str,
+    world_size: int,
+    requires_grad_scaler: bool,
+) -> dict[str, dict[str, Any]]:
+    hashed_names = {"trainer_state.json", "scheduler.pt"}
+    if world_size <= 1:
+        hashed_names.add("rng_state.pth")
+    else:
+        hashed_names.update(f"rng_state_{rank}.pth" for rank in range(world_size))
+    if requires_grad_scaler:
+        hashed_names.add(str(hf_trainer_module.SCALER_NAME))
+
+    native_names: set[str] = set()
+    if backend == "fsdp":
+        native_names.update({"pytorch_model_fsdp.bin", "optimizer.bin"})
+    else:
+        latest = checkpoint / "latest"
+        if latest.is_symlink() or not latest.is_file() or latest.stat().st_size <= 0:
+            raise ValueError("DeepSpeed checkpoint has no non-empty latest generation tag.")
+        generation = latest.read_text(encoding="utf-8").strip()
+        generation_path = Path(generation)
+        if (
+            not generation
+            or generation_path.is_absolute()
+            or len(generation_path.parts) != 1
+            or generation_path.name in {".", ".."}
+        ):
+            raise ValueError("DeepSpeed latest generation tag is not a canonical directory name.")
+        shard_dir = checkpoint / generation
+        if shard_dir.is_symlink() or not shard_dir.is_dir():
+            raise ValueError("DeepSpeed latest generation directory is missing.")
+        model_shards = tuple(sorted(shard_dir.glob("*_model_states.pt")))
+        optimizer_shards = tuple(sorted(shard_dir.glob("*_optim_states.pt")))
+        if len(model_shards) != world_size or len(optimizer_shards) != world_size:
+            raise ValueError(
+                "DeepSpeed ZeRO-3 checkpoint shard count differs from world_size: "
+                f"model={len(model_shards)}, optimizer={len(optimizer_shards)}, "
+                f"world_size={world_size}."
+            )
+        hashed_names.add("latest")
+        native_names.update(
+            path.relative_to(checkpoint).as_posix()
+            for path in (*model_shards, *optimizer_shards)
+        )
+
+    artifacts: dict[str, dict[str, Any]] = {}
+    for relative_name in sorted(hashed_names | native_names):
+        artifact = checkpoint / relative_name
+        if artifact.is_symlink() or not artifact.is_file() or artifact.stat().st_size <= 0:
+            raise ValueError(
+                "Backend-native checkpoint required artifact is missing or empty: "
+                f"{relative_name}."
+            )
+        artifacts[relative_name] = {
+            "size": int(artifact.stat().st_size),
+            # Native model/optimizer shards can be tens of GB. Their backend
+            # loader owns content validation; the publication transaction binds
+            # their complete path/size set without adding another full read pass.
+            "sha256": _sha256(artifact) if relative_name in hashed_names else None,
+        }
+    return artifacts
+
+
+def commit_backend_native_checkpoint(path: str | Path) -> Path:
+    """Publish planning state only after the backend checkpoint has completed."""
+
+    checkpoint = Path(path)
+    prepared = _load_backend_native_checkpoint_commit(
+        checkpoint,
+        expected_status="prepared",
+    )
+    trainer_state = _validate_backend_native_checkpoint_location(checkpoint)
+    global_step = json_int(
+        prepared,
+        "global_step",
+        role="prepared backend-native checkpoint",
+    )
+    if int(trainer_state["global_step"]) != global_step:
+        raise ValueError(
+            "Backend-native prepared generation differs from trainer global_step."
+        )
+    planning = build_batch_planning_checkpoint_binding_payload(checkpoint)
+    if planning is None:
+        raise ValueError(
+            "Backend-native planned checkpoint has no canonical planning callback state."
+        )
+    if int(planning["global_step"]) != global_step:
+        raise ValueError(
+            "Backend-native planning state differs from the prepared generation step."
+        )
+    world_size = json_int(
+        prepared,
+        "world_size",
+        role="prepared backend-native checkpoint",
+    )
+    if int(planning["data_world_size"]) != world_size:
+        raise ValueError(
+            "Backend-native planning world size differs from the prepared generation."
+        )
+    backend = json_string(
+        prepared,
+        "backend",
+        role="prepared backend-native checkpoint",
+    )
+    requires_grad_scaler = json_bool(
+        prepared,
+        "requires_grad_scaler",
+        role="prepared backend-native checkpoint",
+    )
+    artifacts = _backend_native_artifact_manifest(
+        checkpoint,
+        backend=backend,
+        world_size=world_size,
+        requires_grad_scaler=requires_grad_scaler,
+    )
+    trainer_state_sha256 = artifacts["trainer_state.json"]["sha256"]
+    assert isinstance(trainer_state_sha256, str)
+    committed = {
+        **prepared,
+        "status": "committed",
+        "trainer_state_sha256": trainer_state_sha256,
+        "backend_artifacts": artifacts,
+        "backend_artifacts_fingerprint": _canonical_sha256(artifacts),
+        "planning": planning,
+    }
+    return _atomic_write_json(
+        checkpoint / BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME,
+        committed,
+    )
+
+
+def validate_backend_native_checkpoint_commit(
+    path: str | Path,
+    *,
+    require_planning_state: bool = True,
+) -> dict[str, Any]:
+    """Validate one published backend generation without hashing native shards."""
+
+    checkpoint = Path(path)
+    committed = _load_backend_native_checkpoint_commit(
+        checkpoint,
+        expected_status="committed",
+    )
+    trainer_state = _validate_backend_native_checkpoint_location(checkpoint)
+    global_step = json_int(
+        committed,
+        "global_step",
+        role="backend-native checkpoint commit",
+    )
+    if int(trainer_state["global_step"]) != global_step:
+        raise ValueError(
+            "Backend-native checkpoint commit differs from trainer global_step."
+        )
+    world_size = json_int(
+        committed,
+        "world_size",
+        role="backend-native checkpoint commit",
+    )
+    artifacts = _backend_native_artifact_manifest(
+        checkpoint,
+        backend=json_string(
+            committed,
+            "backend",
+            role="backend-native checkpoint commit",
+        ),
+        world_size=world_size,
+        requires_grad_scaler=json_bool(
+            committed,
+            "requires_grad_scaler",
+            role="backend-native checkpoint commit",
+        ),
+    )
+    stored_artifacts = require_json_mapping(
+        committed["backend_artifacts"],
+        role="backend-native checkpoint commit.backend_artifacts",
+    )
+    if dict(stored_artifacts) != artifacts:
+        raise ValueError(
+            "Backend-native checkpoint artifact manifest changed after publication."
+        )
+    stored_artifact_fingerprint = _validate_sha256_digest(
+        committed["backend_artifacts_fingerprint"],
+        role="Backend-native checkpoint artifact fingerprint",
+    )
+    if stored_artifact_fingerprint != _canonical_sha256(artifacts):
+        raise ValueError("Backend-native checkpoint artifact fingerprint is stale.")
+    trainer_state_sha256 = _validate_sha256_digest(
+        committed["trainer_state_sha256"],
+        role="Backend-native checkpoint trainer_state_sha256",
+    )
+    if trainer_state_sha256 != artifacts["trainer_state.json"]["sha256"]:
+        raise ValueError(
+            "Backend-native checkpoint trainer state changed after publication."
+        )
+    planning = build_batch_planning_checkpoint_binding_payload(checkpoint)
+    stored_planning = committed["planning"]
+    if require_planning_state and planning is None:
+        raise ValueError("Backend-native checkpoint is missing batch-planning state.")
+    if planning is None:
+        if stored_planning is not None:
+            raise ValueError("Backend-native checkpoint has stale planning state.")
+    else:
+        stored_planning = require_json_mapping(
+            stored_planning,
+            role="backend-native checkpoint commit.planning",
+        )
+        if dict(stored_planning) != planning:
+            raise ValueError(
+                "Backend-native checkpoint planning state differs from its generation."
+            )
+        if int(planning["data_world_size"]) != world_size:
+            raise ValueError(
+                "Backend-native checkpoint planning state world size differs from generation."
+            )
+    return committed
 
 
 def revoke_training_checkpoint_commit(path: str | Path) -> None:
@@ -956,14 +1358,37 @@ class ShaftCheckpointCommitMixin:
             )
         self._shaft_checkpoint_protocol = checkpoint_protocol
         self._shaft_pending_checkpoint_path: Path | None = None
-        if checkpoint_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE:
+        self._shaft_backend_planning_commit = bool(
+            checkpoint_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE
+            and any(
+                isinstance(callback, ShaftBatchPlanningCallback)
+                for callback in getattr(self.callback_handler, "callbacks", ())
+            )
+        )
+        if (
+            checkpoint_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE
+            and not self._shaft_backend_planning_commit
+        ):
             return
         # Replace only on_save so callbacks added later remain part of the same
         # converged pre-commit phase without another sentinel callback/state source.
         self.callback_handler.on_save = self._run_converged_shaft_on_save
 
     def _uses_shaft_checkpoint_commit(self) -> bool:
-        return self._shaft_checkpoint_protocol is ShaftCheckpointProtocol.COMMITTED_MANIFEST
+        return (
+            getattr(
+                self,
+                "_shaft_checkpoint_protocol",
+                ShaftCheckpointProtocol.COMMITTED_MANIFEST,
+            )
+            is ShaftCheckpointProtocol.COMMITTED_MANIFEST
+        )
+
+    def _uses_shaft_checkpoint_publication(self) -> bool:
+        return bool(
+            self._uses_shaft_checkpoint_commit()
+            or bool(getattr(self, "_shaft_backend_planning_commit", False))
+        )
 
     def _run_converged_shaft_on_save(
         self,
@@ -1015,7 +1440,7 @@ class ShaftCheckpointCommitMixin:
         checkpoint_path = (
             Path(self._get_output_dir(trial=trial)) / f"checkpoint-{int(self.state.global_step)}"
         )
-        if not self._uses_shaft_checkpoint_commit():
+        if not self._uses_shaft_checkpoint_publication():
             # Telemetry transaction preparation is backend-agnostic and existed
             # before the storage protocols split. Backend-native save/rotation
             # still begins from the same prepared generation.
@@ -1031,13 +1456,25 @@ class ShaftCheckpointCommitMixin:
             super()._save_checkpoint(model, trial)
             return
         self._shaft_pending_checkpoint_path = checkpoint_path
-        revoke_error: Exception | None = None
+        begin_error: Exception | None = None
         if self.is_world_process_zero():
             try:
-                revoke_training_checkpoint_commit(checkpoint_path)
+                if self._uses_shaft_checkpoint_commit():
+                    revoke_training_checkpoint_commit(checkpoint_path)
+                else:
+                    backend = "deepspeed" if self.is_deepspeed_enabled else "fsdp"
+                    begin_backend_native_checkpoint(
+                        checkpoint_path,
+                        backend=backend,
+                        global_step=int(self.state.global_step),
+                        world_size=int(self.args.world_size),
+                        requires_grad_scaler=(
+                            getattr(self.accelerator, "scaler", None) is not None
+                        ),
+                    )
             except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
-                revoke_error = exc
-        self._raise_synchronized_checkpoint_error("checkpoint begin", revoke_error)
+                begin_error = exc
+        self._raise_synchronized_checkpoint_error("checkpoint begin", begin_error)
 
         prepare_error: Exception | None = None
         try:
@@ -1079,11 +1516,16 @@ class ShaftCheckpointCommitMixin:
         commit_error: Exception | None = None
         if self.is_world_process_zero():
             try:
-                commit_training_checkpoint(
-                    checkpoint_path,
-                    world_size=int(self.args.world_size),
-                    requires_grad_scaler=(getattr(self.accelerator, "scaler", None) is not None),
-                )
+                if self._uses_shaft_checkpoint_commit():
+                    commit_training_checkpoint(
+                        checkpoint_path,
+                        world_size=int(self.args.world_size),
+                        requires_grad_scaler=(
+                            getattr(self.accelerator, "scaler", None) is not None
+                        ),
+                    )
+                else:
+                    commit_backend_native_checkpoint(checkpoint_path)
             except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
                 commit_error = exc
         self._raise_synchronized_checkpoint_error("checkpoint commit", commit_error)
@@ -1279,6 +1721,7 @@ def _resolved_backend_checkpoint(
     trainer_state: Mapping[str, Any],
     *,
     adapter_artifact: ResolvedAdapterInit | None = None,
+    backend_commit: Mapping[str, Any] | None = None,
 ) -> ResolvedResumeCheckpoint:
     global_step = json_int(
         trainer_state,
@@ -1286,11 +1729,15 @@ def _resolved_backend_checkpoint(
         role="trainer checkpoint state",
     )
     trainer_state_fingerprint = _canonical_sha256(trainer_state)
+    backend_commit_fingerprint = (
+        None if backend_commit is None else _canonical_sha256(backend_commit)
+    )
     generation_fingerprint = _canonical_sha256(
         {
             "protocol": ShaftCheckpointProtocol.BACKEND_NATIVE.value,
             "global_step": global_step,
             "trainer_state_fingerprint": trainer_state_fingerprint,
+            "backend_commit_fingerprint": backend_commit_fingerprint,
             "adapter_artifact_fingerprint": (
                 None
                 if adapter_artifact is None
@@ -1303,8 +1750,12 @@ def _resolved_backend_checkpoint(
         protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
         global_step=global_step,
         generation_fingerprint=generation_fingerprint,
-        commit_fingerprint=None,
-        stat_guard=_backend_checkpoint_stat_guard(checkpoint, adapter_artifact),
+        commit_fingerprint=backend_commit_fingerprint,
+        stat_guard=_backend_checkpoint_stat_guard(
+            checkpoint,
+            adapter_artifact,
+            backend_commit,
+        ),
         adapter_artifact=adapter_artifact,
     )
 
@@ -1343,11 +1794,6 @@ def resolve_resume_checkpoint_generation(
     if path is None:
         return None
     resolved_protocol = _normalize_checkpoint_protocol(protocol)
-    if resolved_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE and require_planning_state:
-        raise ValueError(
-            "Batch-planning exact resume requires checkpoint protocol "
-            f"{ShaftCheckpointProtocol.COMMITTED_MANIFEST.value!r}."
-        )
     target = Path(path).resolve()
     if not target.exists():
         raise FileNotFoundError(f"resume_from checkpoint path not found: {target}")
@@ -1370,6 +1816,14 @@ def resolve_resume_checkpoint_generation(
             for _step, candidate in sorted(child_candidates, reverse=True):
                 try:
                     trainer_state = _validate_backend_native_checkpoint_location(candidate)
+                    backend_commit = (
+                        validate_backend_native_checkpoint_commit(
+                            candidate,
+                            require_planning_state=True,
+                        )
+                        if require_planning_state
+                        else None
+                    )
                     adapter_artifact = _resolve_backend_adapter_artifact(
                         candidate,
                         finetune_mode=finetune_mode,
@@ -1380,6 +1834,7 @@ def resolve_resume_checkpoint_generation(
                     candidate,
                     trainer_state,
                     adapter_artifact=adapter_artifact,
+                    backend_commit=backend_commit,
                 )
         else:
             # Validate newest-first and stop at the first complete generation.
@@ -1411,6 +1866,14 @@ def resolve_resume_checkpoint_generation(
     if resolved_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE:
         if layout.has_trainer_state:
             trainer_state = _validate_backend_native_checkpoint_location(target)
+            backend_commit = (
+                validate_backend_native_checkpoint_commit(
+                    target,
+                    require_planning_state=True,
+                )
+                if require_planning_state
+                else None
+            )
             adapter_artifact = _resolve_backend_adapter_artifact(
                 target,
                 finetune_mode=finetune_mode,
@@ -1419,6 +1882,7 @@ def resolve_resume_checkpoint_generation(
                 target,
                 trainer_state,
                 adapter_artifact=adapter_artifact,
+                backend_commit=backend_commit,
             )
         raise ValueError(f"No backend-native trainer checkpoint found under: {target}")
 
@@ -1520,6 +1984,14 @@ def validate_resume_checkpoint(
         validate_resolved_resume_checkpoint_guard(resolved_generation)
     if resolved_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE:
         _validate_backend_native_checkpoint_location(checkpoint)
+        if (
+            resolved_generation is not None
+            and resolved_generation.commit_fingerprint is not None
+        ):
+            validate_backend_native_checkpoint_commit(
+                checkpoint,
+                require_planning_state=True,
+            )
         if mode not in {"full", "lora", "dora", "qlora"}:
             raise ValueError(f"Unsupported finetune mode: {finetune_mode!r}")
         if mode in {"lora", "dora", "qlora"}:

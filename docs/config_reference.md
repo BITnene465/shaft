@@ -558,7 +558,8 @@ data:
 | 普通 fixed | `none/fixed/none/padded` | SFT/DPO/GRPO；PPO 使用独立几何 | `steps / epochs` | DDP/FSDP/DeepSpeed 可装配，重型验收按模型另行声明 |
 | length padded | `length/fixed/none/padded` | SFT | `steps` | DDP |
 | length varlen | `length/fixed/none或greedy/varlen` | SFT | `steps` | DDP |
-| bounded cost | `bounded_cost/fixed或token_budget/none/padded` | SFT | `steps` | DDP |
+| bounded cost fixed | `bounded_cost/fixed/none/padded` | SFT | `steps` | DDP；FSDP `full_shard + full_state_dict`；DeepSpeed ZeRO-3 |
+| bounded cost token budget | `bounded_cost/token_budget/none/padded` | SFT | `steps` | DDP |
 
 `length` 与 `bounded_cost` 统称 planned batching，均要求 `media_snapshot_id`、planning-safe transforms
 和提供 exact image-cost policy 的模型。padded 路径可估算并执行单样本有序多图；varlen/greedy packing
@@ -576,8 +577,10 @@ DataLoader 每 rank 一次取得 `B × gradient_accumulation_steps` 条，再受
 - 旧 `data.batching.strategy`、`cost_aware`、`dynamic_cost_aware`、
   `fixed_guard`、`planning_window`、`cost_plan_cache_dir`、`rank_balance` 和
   `train.optimizer_batch` 已删除；出现时按未知配置字段拒绝，不提供隐式迁移。
-- `bounded_cost` 当前只支持 SFT、`train.duration.unit=steps` 和 DDP（单进程也使用 DDP
-  contract）。FSDP/DeepSpeed 的自定义 BatchSampler 尚未专项验收，因此 normalize 阶段拒绝。
+- `bounded_cost` 当前只支持 SFT 和 `train.duration.unit=steps`。DDP 支持 `fixed` 与 `token_budget`；
+  FSDP/DeepSpeed 首版只开放 `fixed + none + padded`，并分别硬性要求
+  `full_shard + full_state_dict` 与 ZeRO stage 3。sharded backend 继续拒绝 `token_budget`、`length`、
+  greedy packing、varlen、其它 FSDP sharding/state-dict 组合和 ZeRO stage 0/1/2，不会静默退回普通 batch。
 - `buffer_size` 是 planner 中最多常驻的轻量 `SampleRef + SampleCost` 数量。`fixed` 时必须至少等于
   `DP world size × per_device_train_batch_size`；`token_budget` 时至少等于 DP world size，实际配置应保留
   足够 lookahead 以找到相近成本样本。它不是全训练 horizon，也不会导致启动时扫描 `steps * samples`。
@@ -657,9 +660,11 @@ layout=padded
   复用。首个 forward 前会原子规划完整 GA frame，
   cost call 上界是 `buffer + (GA - 1) * W * per_device_train_batch_size`，而不是完整 duration；运行中最坏 host 预取内存还
   需计入 `num_workers * prefetch_factor`。
-- 所有 rank 在 immutable snapshot contract 下独立重放同一个轻量全局 BatchSampler，Accelerate 以
-  `split_batches=false/even_batches=false` 选择各 rank 的 batch。sampler 内禁止 collective，避免 worker
-  预取速度不同造成死锁；首 buffer 漂移和 startup 单 rank 错误会先做 all-rank 聚合再退出。
+- 所有 rank 在 immutable snapshot contract 下独立重放同一个 canonical global microbatch stream。
+  DDP 保持原有全局扁平 BatchSampler，由 Accelerate 在 `split_batches=false/even_batches=false` 下执行唯一一次
+  rank 分片；FSDP/DeepSpeed 则由同一 `ShaftPlannedBatchSampler` 确定性选择本 rank 的 local batch，Trainer
+  直接使用原始 DataLoader，禁止 Accelerate/后端再次分片或补齐。两条路径的 sampler 内都不做 collective，
+  避免 worker 预取速度不同造成死锁；首 buffer 漂移和 startup 单 rank 错误会先做 all-rank 聚合再退出。
 - duration-independent spec、已提交 global microstep、FIFO buffer 及实际累计成本，作为
   `ShaftBatchPlanningCallback` stateful payload 写入 checkpoint 的 HF `trainer_state.json`。只保存已完成
   optimizer step 对应 snapshot，不保存预取推进后的 live cursor。planned 状态写入 training 层通用
@@ -689,9 +694,13 @@ layout=padded
   `on_save` callback 拓扑与顺序完全相同，再逐 callback 汇聚 rank-local 异常。拓扑差异在任何 callback
   执行前 fail closed；全部成功后才进入独立 commit phase，原子提交 manifest 并执行
   rotation；direct-path 和 run-root resume 只接受通过 manifest 校验的 checkpoint。FSDP/DeepSpeed 使用
-  `backend_native`，由后端拥有保存、发现、校验和 rotation；该路径不启用 Shaft committed-manifest 的
-  converged `on_save`/commit wrapper，但 trainer mixin 仍保留 backend-agnostic 的准备与 metadata 逻辑，
-  因而不具备上述通用 torn/atomic 保证。PPO 不接入任一 resumable 协议，要求 `save_strategy: no` 且仍禁止 resume；这不影响
+  `backend_native`。普通 fixed FSDP/DeepSpeed 仍沿用后端保存、发现、校验和 rotation；planned sharded SFT
+  额外使用 `shaft_backend_checkpoint_commit.json` 做 prepared -> committed generation 事务：marker 绑定
+  backend、step、world size、Trainer/scheduler/RNG 等小状态内容身份、完整 native shard 路径/非零尺寸集合，
+  以及 planning state/spec/batch/resume contract。大模型/optimizer shard 不额外全量重读计算 SHA256，字节内容
+  仍由 backend-native loader 校验；marker 保证该完整 shard 集合与 planning generation 不可拆分。
+  direct-path 和 run-root resume 只接受 marker 与 backend artifact 同时有效的 generation，并跳过 pending、
+  torn、stale 或 generation 不匹配目录。PPO 不接入任一 resumable 协议，要求 `save_strategy: no` 且仍禁止 resume；这不影响
   `save_final_model` 的 `best` 导出或 root final state。
 - 所有 checkpoint 都在 stateful callback 中保存同一 canonical batch contract。exact resume 改变四轴、
   `per_device_train_batch_size`、DP world size 或 GA 会在模型加载前失败；旧 checkpoint 若没有该 callback，

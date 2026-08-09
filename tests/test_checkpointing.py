@@ -44,10 +44,13 @@ from shaft.training.batch_planning import (
     write_batching_run_metadata,
 )
 from shaft.training.checkpointing import (
+    BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME,
     TRAINING_CHECKPOINT_COMMIT_FILENAME,
     ShaftCheckpointCommitMixin,
     ShaftCheckpointProtocol,
     _validate_shared_callback_schedule,
+    begin_backend_native_checkpoint,
+    commit_backend_native_checkpoint,
     commit_training_checkpoint,
     ensure_hf_export_layout,
     revoke_training_checkpoint_commit,
@@ -486,6 +489,67 @@ def _write_exact_resume_artifacts(path: Path, *, world_size: int) -> None:
         return
     for rank in range(int(world_size)):
         (path / f"rng_state_{rank}.pth").write_bytes(b"rng")
+
+
+def _write_backend_native_planned_checkpoint(
+    path: Path,
+    *,
+    backend: str,
+    spec: ShaftBatchPlanningSpec,
+    state: ShaftBatchPlanningState,
+    gradient_accumulation_steps: int = 2,
+) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    global_step = int(state.global_microstep) // int(gradient_accumulation_steps)
+    begin_backend_native_checkpoint(
+        path,
+        backend=backend,
+        global_step=global_step,
+        world_size=spec.data_world_size,
+        requires_grad_scaler=False,
+    )
+    trainer_state = {
+        "global_step": global_step,
+        "stateful_callbacks": {
+            BATCH_PLANNING_CALLBACK_NAME: {
+                "args": {
+                    "spec": spec.to_dict(),
+                    "gradient_accumulation_steps": gradient_accumulation_steps,
+                    "resume_contract_fingerprint": "resume-v1",
+                },
+                "attributes": {"planning_state": state.to_dict()},
+            },
+            BATCHING_METADATA_CALLBACK_NAME: ShaftBatchingMetadataCallback(
+                _metadata_for_spec(
+                    spec,
+                    gradient_accumulation_steps=gradient_accumulation_steps,
+                )
+            ).state(),
+        },
+    }
+    (path / "trainer_state.json").write_text(
+        json.dumps(trainer_state),
+        encoding="utf-8",
+    )
+    (path / "scheduler.pt").write_bytes(b"scheduler")
+    for rank in range(spec.data_world_size):
+        (path / f"rng_state_{rank}.pth").write_bytes(f"rng-{rank}".encode())
+    if backend == "fsdp":
+        (path / "pytorch_model_fsdp.bin").write_bytes(b"fsdp-model")
+        (path / "optimizer.bin").write_bytes(b"fsdp-optimizer")
+    else:
+        generation = f"global_step{global_step}"
+        (path / "latest").write_text(generation, encoding="utf-8")
+        shard_dir = path / generation
+        shard_dir.mkdir()
+        for rank in range(spec.data_world_size):
+            (shard_dir / f"rank{rank}_model_states.pt").write_bytes(
+                f"model-{rank}".encode()
+            )
+            (shard_dir / f"rank{rank}_optim_states.pt").write_bytes(
+                f"optimizer-{rank}".encode()
+            )
+    commit_backend_native_checkpoint(path)
 
 
 def test_validate_training_state_policy_requires_eval_for_best_model() -> None:
@@ -1853,6 +1917,129 @@ def test_bounded_callback_saves_only_committed_step_state(tmp_path: Path) -> Non
         == committed
     )
     assert checkpoint_has_batch_planning_state(checkpoint)
+
+
+def test_bounded_callback_does_not_commit_a_skipped_optimizer_update() -> None:
+    spec = _spec()
+
+    class _Sampler:
+        committed_state = ShaftBatchPlanningState(
+            contract_fingerprint=spec.fingerprint,
+        )
+
+        def planning_state_at_global_microstep(self, global_microstep):
+            raise AssertionError(f"skipped update must not inspect {global_microstep}")
+
+        def commit_global_microstep(self, global_microstep):
+            raise AssertionError(f"skipped update must not commit {global_microstep}")
+
+    callback = ShaftBatchPlanningCallback(
+        _Sampler(),
+        spec,
+        gradient_accumulation_steps=2,
+        resume_contract_fingerprint="resume-v1",
+        backend="fsdp",
+    )
+    callback.bind_update_applied_provider(lambda: False)
+    state = SimpleNamespace(global_step=1, max_steps=2, epoch=0.0, num_train_epochs=1)
+
+    with pytest.raises(RuntimeError, match="optimizer update was skipped.*backend=fsdp"):
+        callback.on_step_end(SimpleNamespace(), state, object())
+
+
+@pytest.mark.parametrize("backend", ["fsdp", "deepspeed"])
+def test_backend_native_planning_checkpoint_roundtrip(
+    tmp_path: Path,
+    backend: str,
+) -> None:
+    spec = _spec()
+    state = ShaftBatchPlanningState(
+        contract_fingerprint=spec.fingerprint,
+        global_microstep=4,
+        next_draw_id=8,
+        emitted_samples=8,
+    )
+    checkpoint = tmp_path / "checkpoint-2"
+    _write_backend_native_planned_checkpoint(
+        checkpoint,
+        backend=backend,
+        spec=spec,
+        state=state,
+    )
+
+    resolved = resolve_resume_checkpoint_generation(
+        checkpoint,
+        protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        require_planning_state=True,
+    )
+
+    assert resolved is not None
+    assert resolved.commit_fingerprint is not None
+    assert checkpoint_has_batch_planning_state(checkpoint)
+    assert load_batch_planning_state(
+        checkpoint,
+        expected_spec=spec,
+        expected_global_step=2,
+        gradient_accumulation_steps=2,
+        expected_resume_contract_fingerprint="resume-v1",
+        expected_commit_fingerprint=resolved.commit_fingerprint,
+    ) == state
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "missing_commit",
+        "corrupt_planning_state",
+        "generation_mismatch",
+        "missing_backend_artifact",
+    ],
+)
+def test_backend_native_planning_resolver_skips_invalid_newer_generation(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    root = tmp_path / "run"
+    spec = _spec()
+    for step in (1, 2):
+        state = ShaftBatchPlanningState(
+            contract_fingerprint=spec.fingerprint,
+            global_microstep=step * 2,
+            next_draw_id=step * 4,
+            emitted_samples=step * 4,
+        )
+        _write_backend_native_planned_checkpoint(
+            root / f"checkpoint-{step}",
+            backend="deepspeed",
+            spec=spec,
+            state=state,
+        )
+    newer = root / "checkpoint-2"
+    if corruption == "missing_commit":
+        (newer / BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME).unlink()
+    elif corruption == "corrupt_planning_state":
+        state_path = newer / "trainer_state.json"
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        payload["stateful_callbacks"][BATCH_PLANNING_CALLBACK_NAME]["attributes"][
+            "planning_state"
+        ]["next_draw_id"] += 1
+        state_path.write_text(json.dumps(payload), encoding="utf-8")
+    elif corruption == "generation_mismatch":
+        commit_path = newer / BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME
+        payload = json.loads(commit_path.read_text(encoding="utf-8"))
+        payload["planning_generation_id"] = "0" * 64
+        commit_path.write_text(json.dumps(payload), encoding="utf-8")
+    else:
+        (newer / "global_step2" / "rank1_optim_states.pt").unlink()
+
+    resolved = resolve_resume_checkpoint_generation(
+        root,
+        protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        require_planning_state=True,
+    )
+
+    assert resolved is not None
+    assert resolved.path == (root / "checkpoint-1").resolve()
 
 
 def test_batching_run_metadata_roundtrip(tmp_path: Path) -> None:

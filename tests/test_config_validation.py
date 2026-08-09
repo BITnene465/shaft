@@ -1358,10 +1358,28 @@ train:
         load_config(write_config_yaml(tmp_path, payload))
 
 
-@pytest.mark.parametrize("distributed_strategy", ["fsdp", "deepspeed"])
-def test_bounded_batching_rejects_unvalidated_distributed_strategies(
+@pytest.mark.parametrize(
+    ("distributed_strategy", "backend_config"),
+    [
+        (
+            "fsdp",
+            """fsdp:
+      sharding_strategy: full_shard
+      state_dict_type: full_state_dict""",
+        ),
+        (
+            "deepspeed",
+            """deepspeed:
+      config:
+        zero_optimization:
+          stage: 3""",
+        ),
+    ],
+)
+def test_bounded_fixed_batching_accepts_validated_sharded_backends(
     tmp_path: Path,
     distributed_strategy: str,
+    backend_config: str,
 ) -> None:
     payload = f"""
 data:
@@ -1383,8 +1401,107 @@ train:
     value: 2
   distributed:
     strategy: {distributed_strategy}
+    {backend_config}
 """
-    with pytest.raises(ValueError, match="supports.*ddp.*only"):
+    config = load_config(write_config_yaml(tmp_path, payload))
+
+    assert config.train.distributed.strategy == distributed_strategy
+
+
+@pytest.mark.parametrize(
+    ("batching", "distributed", "message"),
+    [
+        (
+            """grouping: bounded_cost
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
+    max_tokens_per_microbatch: 512""",
+            """strategy: fsdp
+    fsdp:
+      sharding_strategy: shard_grad_op""",
+            "full_shard",
+        ),
+        (
+            """grouping: bounded_cost
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
+    max_tokens_per_microbatch: 512""",
+            """strategy: fsdp
+    fsdp:
+      sharding_strategy: full_shard
+      state_dict_type: sharded_state_dict""",
+            "full_state_dict",
+        ),
+        (
+            """grouping: bounded_cost
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
+    max_tokens_per_microbatch: 512""",
+            """strategy: deepspeed
+    deepspeed:
+      config:
+        zero_optimization:
+          stage: 2""",
+            "ZeRO stage 3",
+        ),
+        (
+            """grouping: bounded_cost
+    cardinality: token_budget
+    packing:
+      mode: none
+    layout: padded
+    max_tokens_per_microbatch: 512""",
+            """strategy: deepspeed
+    deepspeed:
+      config:
+        zero_optimization:
+          stage: 3""",
+            "cardinality='fixed'",
+        ),
+        (
+            """grouping: length
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded""",
+            """strategy: fsdp
+    fsdp:
+      sharding_strategy: full_shard""",
+            "grouping='bounded_cost'",
+        ),
+    ],
+)
+def test_planned_batching_rejects_unsupported_sharded_backend_contracts(
+    tmp_path: Path,
+    batching: str,
+    distributed: str,
+    message: str,
+) -> None:
+    payload = f"""
+data:
+  media_snapshot_id: fixture-v1
+  max_length: 128
+  batching:
+    {batching}
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  duration:
+    unit: steps
+    value: 2
+  distributed:
+    {distributed}
+"""
+
+    with pytest.raises(ValueError, match=message):
         load_config(write_config_yaml(tmp_path, payload))
 
 

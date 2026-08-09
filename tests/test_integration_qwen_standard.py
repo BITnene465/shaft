@@ -1828,6 +1828,7 @@ def test_qwen35_moe_two_rank_sharded_backend_release_gate(
         gradient_checkpointing=distributed_strategy == "fsdp",
         logging_steps=2,
         warmup_ratio=0.0,
+        bounded_cost_grouping=True,
     )
     _run_qwen_training_gate(repo_root, config_path)
 
@@ -1850,6 +1851,7 @@ def test_qwen35_moe_two_rank_sharded_backend_release_gate(
         gradient_checkpointing=distributed_strategy == "fsdp",
         logging_steps=2,
         warmup_ratio=0.0,
+        bounded_cost_grouping=True,
     )
     _run_qwen_training_gate(repo_root, resumed_config)
 

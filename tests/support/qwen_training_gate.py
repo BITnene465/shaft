@@ -48,6 +48,7 @@ def prepare_tiny_qwen35_training_assets(
     moe: bool = False,
     attention_implementation: str = "flash_attention_2",
     layer_types: tuple[str, ...] = ("linear_attention", "full_attention"),
+    max_position_embeddings: int = 512,
 ) -> tuple[Path, Path]:
     model_dir = root / ("tiny-qwen35-moe" if moe else "tiny-qwen35-dense")
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -64,7 +65,7 @@ def prepare_tiny_qwen35_training_assets(
         "linear_num_value_heads": 4,
         "linear_conv_kernel_dim": 4,
         "layer_types": list(layer_types),
-        "max_position_embeddings": 512,
+        "max_position_embeddings": int(max_position_embeddings),
         "rope_parameters": {
             "rope_type": "default",
             "rope_theta": 10_000.0,
@@ -206,13 +207,36 @@ def write_qwen_training_gate_config(
     experts_implementation: str | None = None,
     router_aux_loss_weight: float | None = None,
     warmup_ratio: float | None = None,
+    bounded_cost_grouping: bool = False,
+    bounded_max_tokens_per_microbatch: int = 512,
+    bounded_vision_patches: int = 1024,
+    data_max_length: int = 256,
+    min_pixels: int = 65536,
+    max_pixels: int = 65536,
 ) -> Path:
     if gradient_accumulation_steps <= 0:
         raise ValueError("gradient_accumulation_steps must be > 0.")
     if logging_steps <= 0:
         raise ValueError("logging_steps must be > 0.")
-    grouping = "length" if layout == "varlen" else "none"
+    if bounded_cost_grouping and (layout != "padded" or packing != "none"):
+        raise ValueError(
+            "bounded_cost_grouping requires layout='padded' and packing='none'."
+        )
+    grouping = (
+        "bounded_cost"
+        if bounded_cost_grouping
+        else "length"
+        if layout == "varlen"
+        else "none"
+    )
     planning_lines = (
+        "    buffer_size: 8\n"
+        "    cost_cache_size: 32\n"
+        f"    max_tokens_per_microbatch: {int(bounded_max_tokens_per_microbatch)}\n"
+        "    resource_budgets:\n"
+        f"      vision_patches: {int(bounded_vision_patches)}\n"
+        if grouping == "bounded_cost"
+        else
         "    buffer_size: 8\n"
         "    cost_cache_size: 32\n"
         "    resource_budgets:\n"
@@ -363,9 +387,9 @@ data:
   prefetch_factor: {2 if workers_enabled else 'null'}
   pin_memory: {str(not use_cpu).lower()}
   persistent_workers: {str(workers_enabled).lower()}
-  min_pixels: 65536
-  max_pixels: 65536
-  max_length: 256
+  min_pixels: {int(min_pixels)}
+  max_pixels: {int(max_pixels)}
+  max_length: {int(data_max_length)}
   add_eos_token: true
 train:
   duration:

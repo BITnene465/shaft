@@ -144,8 +144,10 @@
   fixed 模式贪心失败时使用有界 exact fallback；未选 entry 保持 FIFO，已选、buffer、future cursor
   精确分割 draw stream。
 - planner 每个 global microstep 输出 W 个非空 local batches。`ShaftPlannedBatchSampler` 只认识
-  global-microstep stream 与 generic planning frame，并在 frame 内按 rank 累计 load 分配后展平给
-  Accelerate；training callback 单独解释 GA/global step。sampler 内不做 collective。
+  global-microstep stream 与 generic planning frame，并在 frame 内按 rank 累计 load 分配；DDP 保持全局扁平
+  sampler 交给 Accelerate 做唯一一次 rank 分片，FSDP/DeepSpeed 则让 sampler 直接只产出本 rank 的 local
+  batches，并绕过 Accelerate DataLoader sharding。training callback 单独解释 GA/global step；两条路径共享
+  同一个 planner/state 真源，sampler 内不做 collective。
 - state 只保存轻量 ref/cost/cursor/实际累计指标。训练 callback 按实际完成的 optimizer boundary commit
   snapshot，不能保存 DataLoader 预取后的 live cursor。
 - 普通 `ShaftSampleSampler` 交给 HF Trainer 时保持 global/unsharded，由 Accelerate 完成唯一一次 rank
@@ -665,8 +667,11 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
   - manifest 绑定非空 model/adapter、`trainer_state.json` hash、optimizer、scheduler、按保存 world size 的
     每-rank RNG，以及 checkpoint 内全部 recorded artifact 的相对路径、尺寸和 SHA-256。`committed_manifest` 的 direct-path 与
     run-root resolver 只接受通过同一 validator 的 committed checkpoint；run-root 会跳过未提交或已损坏的
-    目录。`backend_native` 不安装 wrapper，沿用 HF/FSDP/DeepSpeed 的保存、发现、校验和 rotation，当前不提供
-    通用 manifest 的 torn/atomic 保证
+    目录。普通 fixed `backend_native` 沿用 HF/FSDP/DeepSpeed 的保存、发现、校验和 rotation；planned
+    FSDP/DeepSpeed SFT 安装 backend-native transaction wrapper，在后端保存前发布 prepared generation，
+    所有 callback/rank 收敛成功后才原子写入 `shaft_backend_checkpoint_commit.json` 并执行 rotation。
+    marker 将 planning binding 与 backend、step、world size、Trainer/scheduler/RNG 小状态内容身份及完整 native
+    shard 路径/非零尺寸集合绑定；大 model/optimizer shard 不做第二次全量 hash，由 backend loader 负责字节级校验
   - startup 用 `ResolvedResumeCheckpoint` 固定本次恢复的 protocol、step、content-derived generation identity、
     commit identity 与 stat guard。run-root 从新到旧验证到首个有效 generation 即停止；选中 generation 的大
     artifact 只做一次完整 digest 校验，preflight、planned state 与 train 入口复用同一 token。进入 Trainer 前
@@ -716,9 +721,10 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
   - planned SFT 额外保存 committed data state；改变 duration/optimizer/scheduler 或
     topology/data/media/processor/planner contract 时，exact resume 同样拒绝
   - planned checkpoint 会交叉校验 canonical batch-contract callback 与 planner callback；二者的 planner
-    fingerprint、batch geometry、GA、committed cursor 和 resume contract 写入通用 manifest 的
-    `batch_planning` extension，不再维护第二个 completion marker。旧独立 planning completion 不能作为新
-    exact-resume 提交点；需要继承时使用 `init_from_checkpoint` 开新 schedule
+    fingerprint、batch geometry、GA、committed cursor 和 resume contract 在 DDP 写入通用 manifest 的
+    `batch_planning` extension，在 FSDP/DeepSpeed 写入 backend-native commit marker 的 planning binding；
+    两者都不维护第二份 sampler state。旧独立 planning completion 不能作为新 exact-resume 提交点；需要继承时
+    使用 `init_from_checkpoint` 开新 schedule
   - `ShaftBatchContract` 是 resolved physical batch 的唯一真源；fixed 模式从
     `per_device_train_batch_size`、DP world size 与 GA 派生精确 physical-pack 计数，token-budget 模式派生
     min/max pack range，
@@ -737,9 +743,10 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
   ranks 间汇总；local numerator 采用同一个 global denominator，保证 gradient accumulation 与 DDP
   分割不改变 token 权重。
 - `ShaftTrainSamplerMixin` 保留普通 `train_sampler` 路径，并在提供 `train_batch_sampler` 时通过 HF 明确
-  支持的 `get_train_dataloader()` 扩展点构造 bounded grouped DataLoader。它同步复用 worker seed、
-  prefetch、pin/persistent worker、MPS multiprocessing 与 Accelerate prepare 语义；throughput 使用 committed
-  sample count，不改 optimizer-step 计算。
+  支持的 `get_train_dataloader()` 扩展点构造 planned DataLoader。DDP 路径复用 Accelerate prepare；
+  rank-local FSDP/DeepSpeed sampler 已经拥有 sharding，因此返回原始 DataLoader，只保留 Trainer 的 input
+  device placement，避免 `BatchSamplerShard` 二次切分/补齐。两条路径都复用 worker seed、prefetch、
+  pin/persistent worker；throughput 使用 committed sample count，不改 optimizer-step 计算。
 - `ShaftSFTTrainer.evaluate()` 在训练生命周期内把 eval 当作纯观察者：调用标准 HF evaluate 前后保存并
   恢复 Python、NumPy、Torch CPU 与当前 rank CUDA RNG。这样 persistent eval DataLoader 的首次 iterator
   创建不会因 uninterrupted/resume 生命周期不同而改变后续训练随机序列；独立 eval 调用保持标准行为。

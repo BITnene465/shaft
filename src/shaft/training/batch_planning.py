@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import uuid
 
 from transformers import TrainerCallback
@@ -27,7 +27,9 @@ from shaft.data import (
 )
 
 from .distributed import (
+    all_gather_objects,
     broadcast_object_from_rank_zero,
+    get_rank,
     get_world_size,
     is_rank_zero,
 )
@@ -1333,6 +1335,28 @@ def build_batch_planning_checkpoint_commit_payload(
     ) = _validate_batch_planning_checkpoint_payload(checkpoint)
     required_artifacts = _batch_planning_resume_artifact_names(checkpoint, spec=spec)
     return {
+        **_batch_planning_checkpoint_binding_payload(
+            spec=spec,
+            state=state,
+            global_step=global_step,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            resume_contract_fingerprint=resume_contract_fingerprint,
+            batch_contract_fingerprint=batch_contract_fingerprint,
+        ),
+        "required_artifacts": list(required_artifacts),
+    }
+
+
+def _batch_planning_checkpoint_binding_payload(
+    *,
+    spec: ShaftBatchPlanningSpec,
+    state: ShaftBatchPlanningState,
+    global_step: int,
+    gradient_accumulation_steps: int,
+    resume_contract_fingerprint: str,
+    batch_contract_fingerprint: str,
+) -> dict[str, Any]:
+    return {
         "version": _BATCH_PLANNING_CHECKPOINT_COMMIT_VERSION,
         "contract_fingerprint": spec.fingerprint,
         "batch_contract_fingerprint": batch_contract_fingerprint,
@@ -1341,8 +1365,35 @@ def build_batch_planning_checkpoint_commit_payload(
         "global_step": global_step,
         "gradient_accumulation_steps": gradient_accumulation_steps,
         "data_world_size": int(spec.data_world_size),
-        "required_artifacts": list(required_artifacts),
     }
+
+
+def build_batch_planning_checkpoint_binding_payload(
+    path: str | Path,
+) -> dict[str, Any] | None:
+    """Build the storage-protocol-neutral planning/checkpoint binding."""
+
+    checkpoint = Path(path)
+    trainer_state = _load_trainer_state_payload(checkpoint)
+    callbacks = trainer_state.get("stateful_callbacks")
+    if not isinstance(callbacks, dict) or BATCH_PLANNING_CALLBACK_NAME not in callbacks:
+        return None
+    (
+        spec,
+        state,
+        global_step,
+        gradient_accumulation_steps,
+        resume_contract_fingerprint,
+        batch_contract_fingerprint,
+    ) = _validate_batch_planning_checkpoint_payload(checkpoint)
+    return _batch_planning_checkpoint_binding_payload(
+        spec=spec,
+        state=state,
+        global_step=global_step,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        resume_contract_fingerprint=resume_contract_fingerprint,
+        batch_contract_fingerprint=batch_contract_fingerprint,
+    )
 
 
 def validate_batch_planning_checkpoint_commit_payload(
@@ -1372,9 +1423,34 @@ def _validate_committed_batch_planning_checkpoint(
     str,
 ]:
     from .checkpointing import (
+        BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME,
         TRAINING_CHECKPOINT_COMMIT_FILENAME,
+        validate_backend_native_checkpoint_commit,
         validate_training_checkpoint_commit,
     )
+
+    backend_commit_path = Path(path) / BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME
+    if backend_commit_path.is_file():
+        backend_commit = validate_backend_native_checkpoint_commit(
+            path,
+            require_planning_state=True,
+        )
+        canonical = json.dumps(
+            backend_commit,
+            allow_nan=False,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        actual_fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        if (
+            expected_commit_fingerprint is not None
+            and actual_fingerprint != str(expected_commit_fingerprint)
+        ):
+            raise ValueError(
+                "Batch-planning backend-native commit changed during startup."
+            )
+        return _validate_batch_planning_checkpoint_payload(path)
 
     if expected_commit_fingerprint is None:
         validate_training_checkpoint_commit(path)
@@ -1503,15 +1579,35 @@ class ShaftBatchPlanningCallback(TrainerCallback, ExportableState):
         *,
         gradient_accumulation_steps: int,
         resume_contract_fingerprint: str,
+        backend: str = "ddp",
     ) -> None:
         self.sampler = sampler
         self.spec = spec
         self.gradient_accumulation_steps = int(gradient_accumulation_steps)
         self.resume_contract_fingerprint = str(resume_contract_fingerprint)
+        self.backend = str(backend).strip().lower()
+        self._update_applied_provider: Callable[[], bool] | None = None
         if self.gradient_accumulation_steps <= 0:
             raise ValueError("gradient_accumulation_steps must be > 0.")
         if not self.resume_contract_fingerprint:
             raise ValueError("resume_contract_fingerprint must not be empty.")
+        if self.backend not in {"ddp", "fsdp", "deepspeed"}:
+            raise ValueError(f"Unsupported batch-planning backend: {backend!r}.")
+
+    def bind_update_applied_provider(self, provider: Callable[[], bool]) -> None:
+        self._update_applied_provider = provider
+
+    def _update_applied(self) -> bool:
+        if self._update_applied_provider is None:
+            if self.backend != "ddp":
+                raise RuntimeError(
+                    "Sharded batch planning has no optimizer-update status provider."
+                )
+            return True
+        value = self._update_applied_provider()
+        if type(value) is not bool:
+            raise TypeError("Optimizer-update status provider must return a boolean.")
+        return value
 
     @staticmethod
     def _normalize_step_progress(state: Any) -> None:
@@ -1530,9 +1626,64 @@ class ShaftBatchPlanningCallback(TrainerCallback, ExportableState):
 
     def on_step_end(self, args, state, control, **kwargs):
         _ = args, kwargs
-        self.sampler.commit_global_microstep(
-            int(state.global_step) * self.gradient_accumulation_steps
-        )
+        global_step = int(state.global_step)
+        global_microstep = global_step * self.gradient_accumulation_steps
+        update_applied = self._update_applied()
+        if self.backend == "ddp" or get_world_size() <= 1:
+            if not update_applied:
+                raise RuntimeError(
+                    "Planned optimizer update was skipped; the data cursor was not "
+                    f"committed: backend={self.backend}, global_step={global_step}, "
+                    f"global_microstep={global_microstep}."
+                )
+            self.sampler.commit_global_microstep(global_microstep)
+        else:
+            local_error: Exception | None = None
+            prospective_state: ShaftBatchPlanningState | None = None
+            if not update_applied:
+                local_error = RuntimeError("optimizer update was skipped")
+            else:
+                try:
+                    prospective_state = self.sampler.planning_state_at_global_microstep(
+                        global_microstep
+                    )
+                except Exception as exc:  # noqa: BLE001 - converge rank-local drift
+                    local_error = exc
+            statuses = all_gather_objects(
+                {
+                    "backend": self.backend,
+                    "rank": int(get_rank()),
+                    "global_step": global_step,
+                    "global_microstep": global_microstep,
+                    "update_applied": update_applied,
+                    "ok": local_error is None,
+                    "error_type": (
+                        None if local_error is None else type(local_error).__name__
+                    ),
+                    "error": None if local_error is None else str(local_error),
+                    "planning_state_fingerprint": (
+                        None
+                        if prospective_state is None
+                        else prospective_state.to_dict()["fingerprint"]
+                    ),
+                }
+            )
+            failures = [status for status in statuses if not bool(status.get("ok"))]
+            fingerprints = {
+                status.get("planning_state_fingerprint") for status in statuses
+            }
+            expected_ranks = list(range(int(self.spec.data_world_size)))
+            actual_ranks = sorted(int(status.get("rank", -1)) for status in statuses)
+            if failures or len(fingerprints) != 1 or actual_ranks != expected_ranks:
+                diagnostic = (
+                    "Sharded planned optimizer boundary did not converge: "
+                    f"backend={self.backend}, global_step={global_step}, "
+                    f"global_microstep={global_microstep}, statuses={statuses!r}."
+                )
+                if local_error is not None:
+                    raise RuntimeError(diagnostic) from local_error
+                raise RuntimeError(diagnostic)
+            self.sampler.commit_global_microstep(global_microstep)
         self._normalize_step_progress(state)
         return control
 

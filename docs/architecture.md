@@ -257,7 +257,9 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   5. 贪心误入死路时执行有界 exact feasibility fallback；
   6. 删除已选 entry，未选 entry 保持 FIFO。
 - `ShaftPlannedBatchSampler` 在一个 planning frame 内按 rank 累计 text+vision load 分配每个 microstep 的
-  local batches；training callback 再负责 `global_step * GA -> global_microstep` 的 committed 映射。
+  local batches；DDP 将 global flattened stream 交给 Accelerate 做唯一一次 rank 分片，FSDP/DeepSpeed
+  直接消费 sampler 产出的 rank-local stream，禁止后端二次切分或补齐。training callback 再负责
+  `global_step * GA -> global_microstep` 的 committed 映射。
 - oldest-anchor 保证样本不会因长度长期饥饿；buffer 重排不改变 mixer draw multiset，不丢弃、不复制，也不
   按长度修改 source 权重。weighted bounded 模式当前要求 `shuffle=true`；unshuffled v3 已改成跨 cycle
   连续的 exact-ticket 低差异 stream，但 planned schedule API 尚未开放该执行路径，因此仍明确拒绝，不能把
@@ -270,10 +272,11 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   提供；data planner 不复制模型或模板语义。
 - `data.media_snapshot_id` 是外部媒体的不可变 snapshot contract，并进入 cost fingerprint。多 rank 在
   startup 对首个 bounded plan 做 digest 一致性检查；provider/spec/resume 的本地错误先聚合再统一抛出。
-- 全局 BatchSampler 的扁平顺序固定为
-  `[optimizer step][gradient-accumulation microstep][rank]`。Accelerate 使用
-  `split_batches=false, even_batches=false` 做唯一一次 rank 分片；每个 rank 的 batch 数相等，token-budget
-  模式允许各 rank 样本数不同。eval 仍使用 fixed/even batches。
+- canonical global plan 的顺序固定为
+  `[optimizer step][gradient-accumulation microstep][rank]`。DDP 仍由 Accelerate 在
+  `split_batches=false, even_batches=false` 下做唯一一次 rank 分片；FSDP/DeepSpeed 首版 fixed planned
+  路径让 sampler 直接选取当前 rank，Trainer 不再调用 Accelerate DataLoader sharding。每个 rank 的
+  microstep 数严格一致，draw 不重叠、不丢失、不补副本。eval 仍使用 fixed/even batches。
 - `ShaftSFTTrainer` 始终根据 collate 后真实 `labels/loss_scale`，跨 GA 和 DP rank 计算 global loss
   denominator；planner cost 只用于容量和排序，不能替代真实 loss denominator。
 - checkpoint 保存的是模型真正完成 optimizer step 后的 committed state。sampler 可以因 worker prefetch
@@ -288,9 +291,12 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   rotation。rank-zero progress 也在所有 rank 安装同类 callback，非零 rank 只执行无 sink 的 no-op 路径。
   direct-path 和 run-root resume 共用同一
   validator，run-root 跳过未提交或 artifact 缺失、尺寸变化、SHA-256 digest 漂移的 torn/tampered
-  checkpoint。FSDP/DeepSpeed 使用
-  `backend_native`，保存、发现、校验和 rotation 全部交回后端，不安装 wrapper，也不提供上述通用
-  torn/atomic 保证；typed sharded/ZeRO commit protocol 留待后续设计。PPO 仍不支持 resume，且
+  checkpoint。FSDP/DeepSpeed 使用 `backend_native`；普通 fixed 路径仍交回后端保存和恢复，planned SFT
+  则增加 prepared -> committed generation wrapper。后端写完 shard、所有 rank/callback 收敛后，rank 0
+  原子发布 `shaft_backend_checkpoint_commit.json`，将 backend generation 与 planning binding、step、world
+  size、Trainer/scheduler/RNG 小状态内容身份和完整 shard 路径/非零尺寸集合绑定，再执行 rotation。
+  run-root 只选择 marker 与 native artifact 同时有效的最新 generation；pending、损坏、陈旧或 planning
+  generation 不一致均 fail closed。PPO 仍不支持 resume，且
   `save_strategy` 必须为 `no`；最终 `best` 导出与 root final state 不受影响。
 - 恢复启动把选中的 checkpoint 固定为一个 `ResolvedResumeCheckpoint` generation token。run root 只从新到旧
   扫描到首个有效 generation；preflight、planned state 与 Trainer 入口复用同一 content identity，不重复
