@@ -6,13 +6,17 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import time
+from urllib.request import urlopen
 
 import numpy as np
 import pytest
 import torch
+import yaml
 from torch.distributed.tensor import DTensor
 from PIL import Image
 from safetensors import safe_open
@@ -45,10 +49,12 @@ from shaft.training import (
 )
 from tests.support.qwen_training_gate import (
     prepare_qwen_training_dataset,
+    prepare_tiny_qwen3vl_artifact,
     prepare_tiny_qwen3vl_moe_training_assets,
     prepare_tiny_qwen35_training_assets,
     write_qwen_training_gate_config,
 )
+from tests.support.opd import write_qwen3vl_opd_config
 
 
 class _CountingProcessor:
@@ -87,7 +93,10 @@ def _run_qwen_training_gate(
     *,
     cpu_only: bool = False,
     timeout_seconds: int = 600,
+    world_size: int = 2,
 ) -> None:
+    if int(world_size) <= 0:
+        raise ValueError("Qwen training gate world_size must be > 0.")
     env = {**os.environ, "OMP_NUM_THREADS": "1"}
     if cpu_only:
         env["CUDA_VISIBLE_DEVICES"] = ""
@@ -98,7 +107,7 @@ def _run_qwen_training_gate(
             "torch.distributed.run",
             "--standalone",
             "--nnodes=1",
-            "--nproc_per_node=2",
+            f"--nproc_per_node={int(world_size)}",
             "scripts/train.py",
             "sft",
             "--config",
@@ -124,7 +133,95 @@ def _run_qwen_training_gate(
         raise
     if process.returncode != 0:
         raise AssertionError(
-            "Qwen training release gate failed.\n"
+            f"Qwen training release gate failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        )
+
+
+def _run_qwen_opd_cpu_gate(repo_root: Path, config_path: Path) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/train.py",
+            "opd",
+            "--config",
+            str(config_path),
+        ],
+        cwd=repo_root,
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "1"},
+        text=True,
+        capture_output=True,
+        timeout=600,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Qwen3VL OPD CPU gate failed.\n"
+            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+        )
+
+
+def _run_qwen_opd_cuda_gate(
+    repo_root: Path,
+    config_path: Path,
+    *,
+    world_size: int,
+    timeout_seconds: int = 1200,
+) -> None:
+    if int(world_size) not in {1, 2}:
+        raise ValueError("The Qwen3VL OPD release gate supports world_size 1 or 2.")
+    raw_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if raw_visible_devices is None:
+        visible_devices = [str(index) for index in range(torch.cuda.device_count())]
+    else:
+        visible_devices = [
+            device.strip()
+            for device in raw_visible_devices.split(",")
+            if device.strip()
+        ]
+    if len(visible_devices) < int(world_size):
+        raise RuntimeError(
+            "The Qwen3VL OPD CUDA gate does not have enough visible devices: "
+            f"requested={world_size}, visible={visible_devices}."
+        )
+    command = [sys.executable]
+    if int(world_size) == 2:
+        command.extend(
+            (
+                "-m",
+                "torch.distributed.run",
+                "--standalone",
+                "--nnodes=1",
+                "--nproc_per_node=2",
+            )
+        )
+    command.extend(("scripts/train.py", "opd", "--config", str(config_path)))
+    process = subprocess.Popen(
+        command,
+        cwd=repo_root,
+        env={
+            **os.environ,
+            "CUDA_VISIBLE_DEVICES": ",".join(visible_devices[: int(world_size)]),
+            "OMP_NUM_THREADS": "1",
+        },
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=int(timeout_seconds))
+    except subprocess.TimeoutExpired as exc:
+        stdout, stderr = _terminate_qwen_training_gate(process)
+        raise AssertionError(
+            "Qwen3VL OPD CUDA gate timed out and its process group was terminated.\n"
+            f"stdout:\n{stdout}\nstderr:\n{stderr}"
+        ) from exc
+    except BaseException:
+        _terminate_qwen_training_gate(process)
+        raise
+    if process.returncode != 0:
+        raise AssertionError(
+            "Qwen3VL OPD CUDA gate failed.\n"
             f"stdout:\n{stdout}\nstderr:\n{stderr}"
         )
 
@@ -225,6 +322,7 @@ def _assert_checkpoint_state_equivalent(
     resumed_checkpoint: Path,
     *,
     weight_filename: str,
+    efficiency_expected: bool = True,
 ) -> None:
     fresh_commit = validate_training_checkpoint_commit(fresh_checkpoint)
     resumed_commit = validate_training_checkpoint_commit(resumed_checkpoint)
@@ -272,9 +370,14 @@ def _assert_checkpoint_state_equivalent(
     assert _normalized_trainer_state(fresh_checkpoint) == _normalized_trainer_state(
         resumed_checkpoint
     )
-    assert _restore_efficiency_snapshot_set(fresh_checkpoint) == (
-        _restore_efficiency_snapshot_set(resumed_checkpoint)
-    )
+    if efficiency_expected:
+        assert _restore_efficiency_snapshot_set(fresh_checkpoint) == (
+            _restore_efficiency_snapshot_set(resumed_checkpoint)
+        )
+    else:
+        for checkpoint in (fresh_checkpoint, resumed_checkpoint):
+            assert not tuple(checkpoint.glob("shaft_training_efficiency_rank*.json"))
+            assert not (checkpoint / "shaft_training_efficiency_snapshot_set.json").exists()
 
 
 def _assert_backend_native_checkpoint_state_equivalent(
@@ -354,9 +457,7 @@ def _assert_backend_native_checkpoint_state_equivalent(
         return
 
     fresh_generation = (fresh_checkpoint / "latest").read_text(encoding="utf-8").strip()
-    resumed_generation = (resumed_checkpoint / "latest").read_text(
-        encoding="utf-8"
-    ).strip()
+    resumed_generation = (resumed_checkpoint / "latest").read_text(encoding="utf-8").strip()
     assert fresh_generation == resumed_generation
     fresh_shard_dir = fresh_checkpoint / fresh_generation
     resumed_shard_dir = resumed_checkpoint / resumed_generation
@@ -431,10 +532,7 @@ def _assert_lora_adapter_has_learned_update(adapter_path: Path) -> None:
     with safe_open(adapter_path, framework="pt", device="cpu") as tensors:
         lora_b_names = [name for name in tensors.keys() if "lora_B" in name]
         assert lora_b_names
-        assert any(
-            bool(torch.count_nonzero(tensors.get_tensor(name)))
-            for name in lora_b_names
-        )
+        assert any(bool(torch.count_nonzero(tensors.get_tensor(name))) for name in lora_b_names)
 
 
 def _assert_full_moe_router_and_experts_updated(
@@ -452,11 +550,7 @@ def _assert_full_moe_router_and_experts_updated(
         with safe_open(trained_weights, framework="pt", device="cpu") as trained_handle:
             trained_keys = set(trained_handle.keys())
             for role, markers in roles.items():
-                matching = [
-                    key
-                    for key in base_keys
-                    if all(marker in key for marker in markers)
-                ]
+                matching = [key for key in base_keys if all(marker in key for marker in markers)]
                 assert matching, role
                 assert all(key in trained_keys for key in matching), role
                 assert any(
@@ -482,11 +576,7 @@ def _assert_fused_moe_router_and_experts_updated(
         with safe_open(trained_weights, framework="pt", device="cpu") as trained_handle:
             trained_keys = set(trained_handle.keys())
             for role, markers in roles.items():
-                matching = [
-                    key
-                    for key in base_keys
-                    if all(marker in key for marker in markers)
-                ]
+                matching = [key for key in base_keys if all(marker in key for marker in markers)]
                 assert matching, role
                 assert all(key in trained_keys for key in matching), role
                 assert any(
@@ -503,13 +593,11 @@ def _assert_router_auxiliary_loss_was_logged(
     *,
     expected_coefficient: float | None = None,
 ) -> None:
-    history = json.loads(
-        (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
-    )["log_history"]
+    history = json.loads((checkpoint / "trainer_state.json").read_text(encoding="utf-8"))[
+        "log_history"
+    ]
     values = [
-        float(entry["aux/router_aux_loss"])
-        for entry in history
-        if "aux/router_aux_loss" in entry
+        float(entry["aux/router_aux_loss"]) for entry in history if "aux/router_aux_loss" in entry
     ]
     weighted = [
         float(entry["aux/router_aux_loss_weighted"])
@@ -530,9 +618,9 @@ def _assert_router_auxiliary_loss_was_logged(
 
 
 def _assert_finite_training_metrics(checkpoint: Path) -> None:
-    history = json.loads(
-        (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
-    )["log_history"]
+    history = json.loads((checkpoint / "trainer_state.json").read_text(encoding="utf-8"))[
+        "log_history"
+    ]
     for name in ("loss", "grad_norm"):
         values = [float(entry[name]) for entry in history if name in entry]
         assert values, name
@@ -546,14 +634,11 @@ def _assert_resumed_root_train_loss_matches_global_checkpoint_window(
     resumed_output: Path,
 ) -> None:
     def cumulative_rank_losses(checkpoint: Path) -> list[float]:
-        state = json.loads(
-            (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
-        )
+        state = json.loads((checkpoint / "trainer_state.json").read_text(encoding="utf-8"))
         callback = state["stateful_callbacks"]["ShaftSFTReportingStateCallback"]
         snapshot = callback["attributes"]["snapshot"]
         return [
-            float(rank["total_loss_scalar"]) + float(rank["tr_loss"])
-            for rank in snapshot["ranks"]
+            float(rank["total_loss_scalar"]) + float(rank["tr_loss"]) for rank in snapshot["ranks"]
         ]
 
     start = cumulative_rank_losses(start_checkpoint)
@@ -562,16 +647,10 @@ def _assert_resumed_root_train_loss_matches_global_checkpoint_window(
     assert start[0] != start[1], "The gate must expose rank-local pending loss skew."
     start_step = int(start_checkpoint.name.removeprefix("checkpoint-"))
     end_step = int(end_checkpoint.name.removeprefix("checkpoint-"))
-    expected = (float(np.mean(end)) - float(np.mean(start))) / (
-        end_step - start_step
-    )
-    root_state = json.loads(
-        (resumed_output / "trainer_state.json").read_text(encoding="utf-8")
-    )
+    expected = (float(np.mean(end)) - float(np.mean(start))) / (end_step - start_step)
+    root_state = json.loads((resumed_output / "trainer_state.json").read_text(encoding="utf-8"))
     final_entry = next(
-        entry
-        for entry in reversed(root_state["log_history"])
-        if "train_loss" in entry
+        entry for entry in reversed(root_state["log_history"]) if "train_loss" in entry
     )
     assert float(final_entry["train_loss"]) == pytest.approx(expected)
 
@@ -585,28 +664,18 @@ def _assert_moe_lora_router_and_experts_updated(adapter_path: Path) -> None:
     with safe_open(adapter_path, framework="pt", device="cpu") as tensors:
         keys = tuple(tensors.keys())
         for role, marker in markers.items():
-            matching = [
-                name
-                for name in keys
-                if marker in name and "lora_B" in name
-            ]
+            matching = [name for name in keys if marker in name and "lora_B" in name]
             assert matching, role
-            assert any(
-                bool(torch.count_nonzero(tensors.get_tensor(name)))
-                for name in matching
-            ), role
+            assert any(bool(torch.count_nonzero(tensors.get_tensor(name))) for name in matching), (
+                role
+            )
         ordinary_modules = [
             name
             for name in keys
-            if "lora_B" in name
-            and ".mlp.gate.lora_B." not in name
-            and ".mlp.experts" not in name
+            if "lora_B" in name and ".mlp.gate.lora_B." not in name and ".mlp.experts" not in name
         ]
         assert ordinary_modules
-        assert any(
-            bool(torch.count_nonzero(tensors.get_tensor(name)))
-            for name in ordinary_modules
-        )
+        assert any(bool(torch.count_nonzero(tensors.get_tensor(name))) for name in ordinary_modules)
 
     adapter_config = json.loads(
         (adapter_path.parent / "adapter_config.json").read_text(encoding="utf-8")
@@ -631,10 +700,7 @@ def _assert_qwen3vl_moe_lora_roles_updated(
         keys = tuple(tensors.keys())
         lora_b_keys = tuple(name for name in keys if "lora_B" in name)
         assert lora_b_keys
-        assert all(
-            bool(torch.count_nonzero(tensors.get_tensor(name)))
-            for name in lora_b_keys
-        )
+        assert all(bool(torch.count_nonzero(tensors.get_tensor(name))) for name in lora_b_keys)
         for layer_index in range(language_layers):
             layer_marker = f".language_model.layers.{layer_index}."
             for role, marker in {
@@ -643,17 +709,13 @@ def _assert_qwen3vl_moe_lora_roles_updated(
                 "fused_down": ".mlp.experts.base_layer.lora_B.",
                 "language_attention": ".self_attn.",
             }.items():
-                matching = [
-                    name
-                    for name in lora_b_keys
-                    if layer_marker in name and marker in name
-                ]
+                matching = [name for name in lora_b_keys if layer_marker in name and marker in name]
                 assert matching, (layer_index, role)
         for block_index in range(vision_blocks):
-            assert any(
-                f".visual.blocks.{block_index}." in name
-                for name in lora_b_keys
-            ), (block_index, "vision_tower")
+            assert any(f".visual.blocks.{block_index}." in name for name in lora_b_keys), (
+                block_index,
+                "vision_tower",
+            )
 
 
 def _assert_adapter_tensors_changed(before_path: Path, after_path: Path) -> None:
@@ -673,6 +735,16 @@ def _assert_adapter_tensors_changed(before_path: Path, after_path: Path) -> None
 
 def _restore_efficiency_snapshot_set(checkpoint_dir: Path) -> dict:
     global_step = int(checkpoint_dir.name.rsplit("-", 1)[-1])
+    transaction_path = (
+        checkpoint_dir / "shaft_training_efficiency_checkpoint_transaction.json"
+    )
+    transaction = json.loads(transaction_path.read_text(encoding="utf-8"))
+    world_size = int(transaction.get("world_size", 0))
+    if world_size <= 0:
+        raise AssertionError(
+            "Efficiency checkpoint transaction has an invalid world_size: "
+            f"{transaction!r}."
+        )
     with tempfile.TemporaryDirectory(prefix="shaft-efficiency-restore-") as directory:
         output_path = Path(directory) / "restored.json"
         completed = subprocess.run(
@@ -682,7 +754,7 @@ def _restore_efficiency_snapshot_set(checkpoint_dir: Path) -> dict:
                 "torch.distributed.run",
                 "--standalone",
                 "--nnodes=1",
-                "--nproc_per_node=2",
+                f"--nproc_per_node={world_size}",
                 "tests/support/distributed_efficiency_checkpoint_validate.py",
                 str(checkpoint_dir),
                 str(global_step),
@@ -923,9 +995,7 @@ def test_qwen_vl_runtime_cost_matches_real_processor_and_collator(
         fix_mistral_regex=False,
     )
     tokenizer = processor.tokenizer
-    model_adapter = build_model_meta(model_type).resolve_adapter(
-        model_name_or_path=str(model_path)
-    )
+    model_adapter = build_model_meta(model_type).resolve_adapter(model_name_or_path=str(model_path))
     template = build_template(template_name)
 
     for index, image_size in enumerate(((64, 64), (128, 512))):
@@ -995,9 +1065,7 @@ def test_qwen_vl_runtime_cost_matches_real_processor_and_collator(
         assert estimated.llm_tokens == int(actual["attention_mask"].sum())
         assert estimated.supervised_tokens == int(shifted_valid.sum())
         assert estimated.loss_weight_sum == pytest.approx(actual_loss_weight)
-        assert estimated.vision_patches == int(
-            actual["image_grid_thw"].prod(dim=-1).sum()
-        )
+        assert estimated.vision_patches == int(actual["image_grid_thw"].prod(dim=-1).sum())
 
 
 @pytest.mark.integration
@@ -1012,9 +1080,7 @@ def test_qwen3vl_bounded_planner_hard_caps_match_heterogeneous_real_batches(
         trust_remote_code=True,
         fix_mistral_regex=False,
     )
-    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
-        model_name_or_path=str(model_path)
-    )
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(model_name_or_path=str(model_path))
     template = build_template("qwen3vl")
     records: list[SFTRecord] = []
     for index, (image_size, prompt_length) in enumerate(
@@ -1089,14 +1155,10 @@ def test_qwen3vl_bounded_planner_hard_caps_match_heterogeneous_real_batches(
     for local_batch in local_batches:
         actual = collator([dataset[ref] for ref in local_batch.sample_refs])
         assert actual["input_ids"].numel() == local_batch.padded_llm_tokens
-        assert int(actual["image_grid_thw"].prod(dim=-1).sum()) == (
-            local_batch.vision_patches
-        )
+        assert int(actual["image_grid_thw"].prod(dim=-1).sum()) == (local_batch.vision_patches)
         assert len(local_batch.sample_refs) == planning_spec.per_device_microbatch_size
         assert local_batch.padded_llm_tokens <= planning_spec.max_tokens_per_microbatch
-        assert local_batch.vision_patches <= int(
-            planning_spec.resource_budget("vision_patches")
-        )
+        assert local_batch.vision_patches <= int(planning_spec.resource_budget("vision_patches"))
 
 
 @pytest.mark.integration
@@ -1125,9 +1187,7 @@ def test_qwen_vl_sft_multiround_supervision_uses_one_processor_call(
         trust_remote_code=True,
         fix_mistral_regex=False,
     )
-    model_adapter = build_model_meta(model_type).resolve_adapter(
-        model_name_or_path=str(model_path)
-    )
+    model_adapter = build_model_meta(model_type).resolve_adapter(model_name_or_path=str(model_path))
     template = build_template(template_name)
     item = {
         "dataset_name": "integration",
@@ -1197,9 +1257,7 @@ def test_qwen_vl_dpo_reuses_one_processed_prompt_for_both_completions(
         fix_mistral_regex=False,
     )
     processor = _CountingProcessor(base_processor)
-    model_adapter = build_model_meta(model_type).resolve_adapter(
-        model_name_or_path=str(model_path)
-    )
+    model_adapter = build_model_meta(model_type).resolve_adapter(model_name_or_path=str(model_path))
     collator = DPOCollator(
         model_adapter=model_adapter,
         template=build_template(template_name),
@@ -1412,6 +1470,431 @@ def test_qwen35_qwen36_moe_cpu_train_save_exact_resume_and_hf_reload(
 
 
 @pytest.mark.integration
+def test_qwen3vl_opd_cpu_multimodal_rollout_backward_and_hf_reload(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    processor_source = Path("models/Qwen3-VL-2B-Instruct")
+    if not (processor_source / "preprocessor_config.json").is_file():
+        pytest.skip(f"Qwen3VL processor assets not found: {processor_source}")
+
+    student_dir = prepare_tiny_qwen3vl_artifact(
+        tmp_path,
+        processor_source=processor_source,
+        name="tiny-qwen3vl-opd-student",
+        seed=101,
+    )
+    teacher_dir = prepare_tiny_qwen3vl_artifact(
+        tmp_path,
+        processor_source=processor_source,
+        name="tiny-qwen3vl-opd-teacher",
+        seed=202,
+    )
+    output_dir = tmp_path / "qwen3vl-opd-output"
+    config_path = write_qwen3vl_opd_config(
+        tmp_path,
+        student_dir=student_dir,
+        teacher_dir=teacher_dir,
+        output_dir=output_dir,
+        train_steps=2,
+        image_count=2,
+        do_sample=True,
+    )
+    teacher_hash_before = _file_sha256(teacher_dir / "model.safetensors")
+    _run_qwen_opd_cpu_gate(repo_root, config_path)
+
+    checkpoint = output_dir / "checkpoint-2"
+    validate_training_checkpoint_commit(checkpoint)
+    assert _file_sha256(teacher_dir / "model.safetensors") == teacher_hash_before
+    with (
+        safe_open(
+            student_dir / "model.safetensors",
+            framework="pt",
+            device="cpu",
+        ) as initial,
+        safe_open(
+            output_dir / "best" / "model.safetensors",
+            framework="pt",
+            device="cpu",
+        ) as trained,
+    ):
+        shared_keys = sorted(set(initial.keys()) & set(trained.keys()))
+        assert shared_keys
+        assert any(
+            not torch.equal(initial.get_tensor(name), trained.get_tensor(name))
+            for name in shared_keys
+        )
+    _assert_finite_training_metrics(checkpoint)
+    _assert_full_hf_export_reloads(
+        output_dir / "best",
+        source_model_dir=student_dir,
+        expected_type="Qwen3VLForConditionalGeneration",
+        device="cpu",
+    )
+
+    resumed_output_dir = tmp_path / "qwen3vl-opd-resumed"
+    resumed_config_path = write_qwen3vl_opd_config(
+        tmp_path,
+        student_dir=student_dir,
+        teacher_dir=teacher_dir,
+        output_dir=resumed_output_dir,
+        train_steps=2,
+        image_count=2,
+        do_sample=True,
+        resume_from_checkpoint=output_dir / "checkpoint-1",
+    )
+    _run_qwen_opd_cpu_gate(repo_root, resumed_config_path)
+    resumed_checkpoint = resumed_output_dir / "checkpoint-2"
+    validate_training_checkpoint_commit(resumed_checkpoint)
+    assert _file_sha256(checkpoint / "model.safetensors") == _file_sha256(
+        resumed_checkpoint / "model.safetensors"
+    )
+    for filename in ("optimizer.pt", "scheduler.pt"):
+        _assert_nested_state_equal(
+            torch.load(checkpoint / filename, map_location="cpu", weights_only=True),
+            torch.load(
+                resumed_checkpoint / filename,
+                map_location="cpu",
+                weights_only=True,
+            ),
+            path=filename,
+        )
+    expected_rng = tuple(sorted(path.name for path in checkpoint.glob("rng_state*.pth")))
+    actual_rng = tuple(sorted(path.name for path in resumed_checkpoint.glob("rng_state*.pth")))
+    assert expected_rng == actual_rng
+    assert expected_rng
+    for filename in expected_rng:
+        _assert_nested_state_equal(
+            torch.load(checkpoint / filename, map_location="cpu", weights_only=False),
+            torch.load(
+                resumed_checkpoint / filename,
+                map_location="cpu",
+                weights_only=False,
+            ),
+            path=filename,
+        )
+    assert _normalized_trainer_state(checkpoint) == _normalized_trainer_state(resumed_checkpoint)
+    assert _file_sha256(output_dir / "best" / "model.safetensors") == _file_sha256(
+        resumed_output_dir / "best" / "model.safetensors"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.manual
+def test_qwen3vl_opd_release_weights_single_and_two_rank_exact_resume_gate(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    if os.environ.get("SHAFT_RUN_QWEN_OPD_RELEASE_GATE") != "1":
+        pytest.skip("Set SHAFT_RUN_QWEN_OPD_RELEASE_GATE=1 to run the OPD CUDA gate.")
+    if torch.cuda.device_count() < 2:
+        pytest.skip("The Qwen3VL OPD release gate requires two visible CUDA devices.")
+    student_path = Path("models/Qwen3-VL-2B-Instruct").resolve()
+    teacher_path = Path("models/Qwen3-VL-4B-Instruct").resolve()
+    for role, model_path in (("student", student_path), ("teacher", teacher_path)):
+        if not (model_path / "config.json").is_file():
+            pytest.skip(f"Qwen3VL OPD {role} assets not found: {model_path}")
+
+    common = {
+        "student_dir": student_path,
+        "teacher_dir": teacher_path,
+        "do_sample": True,
+        "train_size": 8,
+        "finetune_mode": "lora",
+        "use_cpu": False,
+        "torch_dtype": "bfloat16",
+        "training_precision": "bf16",
+        "attention_implementation": "eager",
+        "learning_rate": 1.0e-4,
+    }
+
+    single_output = tmp_path / "qwen3vl-opd-release-single"
+    single_config = write_qwen3vl_opd_config(
+        tmp_path,
+        output_dir=single_output,
+        train_steps=1,
+        image_count=2,
+        gradient_accumulation_steps=1,
+        **common,
+    )
+    _run_qwen_opd_cuda_gate(repo_root, single_config, world_size=1)
+    single_checkpoint = single_output / "checkpoint-1"
+    validate_training_checkpoint_commit(single_checkpoint)
+    _assert_finite_training_metrics(single_checkpoint)
+    with safe_open(
+        single_checkpoint / "adapter_model.safetensors",
+        framework="pt",
+        device="cpu",
+    ) as adapter:
+        lora_b_keys = [name for name in adapter.keys() if "lora_B" in name]
+        assert lora_b_keys
+        assert any(
+            bool(torch.count_nonzero(adapter.get_tensor(name))) for name in lora_b_keys
+        )
+    _validate_qwen_peft_export(
+        repo_root,
+        export_path=single_output / "best",
+        model_type="qwen3vl",
+        model_path=student_path,
+    )
+
+    fresh_output = tmp_path / "qwen3vl-opd-release-ddp-fresh"
+    fresh_config = write_qwen3vl_opd_config(
+        tmp_path,
+        output_dir=fresh_output,
+        train_steps=2,
+        image_count=1,
+        gradient_accumulation_steps=2,
+        **common,
+    )
+    _run_qwen_opd_cuda_gate(repo_root, fresh_config, world_size=2)
+
+    resumed_output = tmp_path / "qwen3vl-opd-release-ddp-resumed"
+    resumed_config = write_qwen3vl_opd_config(
+        tmp_path,
+        output_dir=resumed_output,
+        train_steps=2,
+        image_count=1,
+        gradient_accumulation_steps=2,
+        resume_from_checkpoint=fresh_output / "checkpoint-1",
+        **common,
+    )
+    _run_qwen_opd_cuda_gate(repo_root, resumed_config, world_size=2)
+
+    _assert_checkpoint_state_equivalent(
+        fresh_output / "checkpoint-2",
+        resumed_output / "checkpoint-2",
+        weight_filename="adapter_model.safetensors",
+        efficiency_expected=False,
+    )
+    assert _file_sha256(fresh_output / "best" / "adapter_model.safetensors") == (
+        _file_sha256(resumed_output / "best" / "adapter_model.safetensors")
+    )
+    for run_dir in (fresh_output, resumed_output):
+        _assert_finite_training_metrics(run_dir / "checkpoint-2")
+        _validate_qwen_peft_export(
+            repo_root,
+            export_path=run_dir / "best",
+            model_type="qwen3vl",
+            model_path=student_path,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.manual
+@pytest.mark.gpu
+def test_qwen3vl_opd_vllm_server_rollout_release_gate(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    if os.environ.get("SHAFT_RUN_QWEN_OPD_VLLM_GATE") != "1":
+        pytest.skip("Set SHAFT_RUN_QWEN_OPD_VLLM_GATE=1 to run the OPD vLLM gate.")
+    training_world_size = int(os.environ.get("SHAFT_OPD_VLLM_TRAIN_WORLD_SIZE", "1"))
+    if training_world_size <= 0:
+        raise ValueError("SHAFT_OPD_VLLM_TRAIN_WORLD_SIZE must be > 0.")
+    training_gpus = [
+        value.strip()
+        for value in os.environ.get(
+            "SHAFT_OPD_VLLM_TRAIN_GPUS",
+            ",".join(str(index) for index in range(training_world_size)),
+        ).split(",")
+        if value.strip()
+    ]
+    server_gpu = os.environ.get(
+        "SHAFT_OPD_VLLM_SERVER_GPU",
+        str(training_world_size),
+    ).strip()
+    if len(training_gpus) != training_world_size:
+        raise ValueError(
+            "SHAFT_OPD_VLLM_TRAIN_GPUS cardinality must match "
+            "SHAFT_OPD_VLLM_TRAIN_WORLD_SIZE."
+        )
+    if len(set(training_gpus)) != len(training_gpus) or server_gpu in training_gpus:
+        raise ValueError("OPD vLLM training and server GPU assignments must be disjoint.")
+    numeric_gpus = [int(value) for value in (*training_gpus, server_gpu)]
+    if any(index < 0 or index >= torch.cuda.device_count() for index in numeric_gpus):
+        pytest.skip(
+            "The OPD vLLM gate does not have all requested CUDA devices: "
+            f"training={training_gpus}, server={server_gpu}."
+        )
+    student_path = Path("models/Qwen3-VL-2B-Instruct").resolve()
+    teacher_path = Path("models/Qwen3-VL-4B-Instruct").resolve()
+    for model_path in (student_path, teacher_path):
+        if not (model_path / "config.json").is_file():
+            pytest.skip(f"Qwen3VL OPD vLLM asset not found: {model_path}")
+
+    def reserve_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            return int(listener.getsockname()[1])
+
+    server_port = reserve_port()
+    group_port = reserve_port()
+    while group_port == server_port:
+        group_port = reserve_port()
+    server = subprocess.Popen(
+        [
+            str(Path(sys.executable).with_name("trl")),
+            "vllm-serve",
+            "--model",
+            str(student_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(server_port),
+            "--gpu-memory-utilization",
+            "0.5",
+            "--dtype",
+            "bfloat16",
+            "--max-model-len",
+            "512",
+            "--enforce-eager",
+            "--log-level",
+            "warning",
+        ],
+        cwd=repo_root,
+        env={
+            **os.environ,
+            "CUDA_VISIBLE_DEVICES": server_gpu,
+            "OMP_NUM_THREADS": "1",
+        },
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 300
+        while True:
+            if server.poll() is not None:
+                stdout, stderr = server.communicate()
+                raise AssertionError(
+                    "TRL vLLM server exited during startup.\n"
+                    f"stdout:\n{stdout}\nstderr:\n{stderr}"
+                )
+            try:
+                with urlopen(  # noqa: S310 - loopback test endpoint
+                    f"http://127.0.0.1:{server_port}/health/",
+                    timeout=2,
+                ) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                raise AssertionError("TRL vLLM server did not become healthy within 300s.")
+            time.sleep(1)
+
+        output_dir = tmp_path / "qwen3vl-opd-vllm"
+        config_path = write_qwen3vl_opd_config(
+            tmp_path,
+            student_dir=student_path,
+            teacher_dir=teacher_path,
+            output_dir=output_dir,
+            train_steps=1,
+            image_count=1,
+            do_sample=True,
+            train_size=max(2, training_world_size),
+            finetune_mode="lora",
+            use_cpu=False,
+            torch_dtype="bfloat16",
+            training_precision="bf16",
+            learning_rate=1.0e-4,
+        )
+        payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        payload["train"]["efficiency"]["enabled"] = True
+        payload["opd"]["rollout"]["backend"] = "vllm"
+        payload["opd"]["rollout"]["vllm"] = {
+            "mode": "server",
+            "server_host": "127.0.0.1",
+            "server_port": server_port,
+            "group_port": group_port,
+            "server_timeout": 300.0,
+            "max_model_length": 512,
+            "max_num_seqs": 2,
+            "tensor_parallel_size": 1,
+            "gpu_memory_utilization": 0.5,
+        }
+        config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = ",".join(training_gpus)
+        env["OMP_NUM_THREADS"] = "1"
+        probe_path = tmp_path / "qwen3vl-opd-vllm-probe.json"
+        command = [sys.executable]
+        if training_world_size > 1:
+            command.extend(
+                (
+                    "-m",
+                    "torch.distributed.run",
+                    "--standalone",
+                    "--nnodes=1",
+                    f"--nproc_per_node={training_world_size}",
+                )
+            )
+        command.extend(
+            (
+                "tests/support/distributed_opd_train.py",
+                str(config_path),
+                str(probe_path),
+            )
+        )
+        completed = subprocess.run(
+            command,
+            cwd=repo_root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=1200,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(
+                "Qwen3VL OPD vLLM gate failed.\n"
+                f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+            )
+        probe = json.loads(probe_path.read_text(encoding="utf-8"))
+        expected_probe = {
+            "all_ranks_student_changed": True,
+            "all_ranks_teacher_unchanged": True,
+            "teacher_model_loaded": True,
+            "teacher_provider": "hf_local",
+            "world_size": training_world_size,
+        }
+        assert {key: probe[key] for key in expected_probe} == expected_probe
+        assert probe["minimum_rank_student_max_abs_delta"] > 0
+        assert len(probe["rank_traces"]) == training_world_size
+        telemetry = json.loads(
+            (output_dir / "shaft_opd_telemetry.json").read_text(encoding="utf-8")
+        )
+        assert telemetry["world_size"] == training_world_size
+        assert len(telemetry["rank_frames"]) == training_world_size
+        assert all(len(rank_frames) == 1 for rank_frames in telemetry["rank_frames"])
+        assert all(
+            frame["global_step"] == 1
+            and frame["update_applied"]
+            and frame["rollout_weight_sync_seconds"] > 0
+            and frame["rollout_generate_seconds"] > 0
+            and frame["completion_tokens"] > 0
+            and frame["device_optimizer_frame_seconds"] is not None
+            for rank_frames in telemetry["rank_frames"]
+            for frame in rank_frames
+        )
+    finally:
+        try:
+            os.killpg(server.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            server.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(server.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            server.communicate(timeout=30)
+
+
+@pytest.mark.integration
 def test_qwen3vl_moe_cpu_train_save_exact_resume_and_hf_reload(
     tmp_path: Path,
     repo_root: Path,
@@ -1609,9 +2092,7 @@ def test_qwen35_qwen36_two_rank_train_save_and_exact_resume_release_gate(
         (resumed_output, 2),
     ):
         summary = json.loads(
-            (output_dir / "shaft_training_efficiency.json").read_text(
-                encoding="utf-8"
-            )
+            (output_dir / "shaft_training_efficiency.json").read_text(encoding="utf-8")
         )
         assert summary["schema_version"] == TRAINING_EFFICIENCY_SCHEMA_VERSION
         assert summary["complete_history"] is True
@@ -1619,17 +2100,16 @@ def test_qwen35_qwen36_two_rank_train_save_and_exact_resume_release_gate(
         assert summary["aggregate"]["update_applied_steps"] > 0
         assert summary["aggregate"]["device_timing_steps"] == expected_steps
         assert summary["aggregate"]["device_training_seconds"] > 0
-        assert summary["aggregate"]["critical_path_seconds"] >= summary["aggregate"][
-            "device_training_seconds"
-        ]
+        assert (
+            summary["aggregate"]["critical_path_seconds"]
+            >= summary["aggregate"]["device_training_seconds"]
+        )
 
     fresh_contract = json.loads(
         (fresh_output / "shaft_training_efficiency.json").read_text(encoding="utf-8")
     )["contract"]
     resumed_contract = json.loads(
-        (resumed_output / "shaft_training_efficiency.json").read_text(
-            encoding="utf-8"
-        )
+        (resumed_output / "shaft_training_efficiency.json").read_text(encoding="utf-8")
     )["contract"]
     assert fresh_contract == resumed_contract
 
@@ -1728,9 +2208,7 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         resumed_output / "checkpoint-2",
         weight_filename="model.safetensors",
     )
-    assert _file_sha256(
-        qwen35_output / "best" / "adapter_model.safetensors"
-    ) == _file_sha256(
+    assert _file_sha256(qwen35_output / "best" / "adapter_model.safetensors") == _file_sha256(
         qwen35_resumed_output / "best" / "adapter_model.safetensors"
     )
     for run_dir in (qwen35_output, qwen35_resumed_output):
@@ -1744,9 +2222,7 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
             base_model_path=model_dir,
             export_dir=run_dir / "best",
         )
-        _assert_moe_lora_router_and_experts_updated(
-            run_dir / "best" / "adapter_model.safetensors"
-        )
+        _assert_moe_lora_router_and_experts_updated(run_dir / "best" / "adapter_model.safetensors")
     _assert_router_auxiliary_loss_was_logged(qwen35_output / "checkpoint-2")
     _assert_router_auxiliary_loss_was_logged(qwen35_resumed_output / "checkpoint-2")
     assert _file_sha256(fresh_output / "best" / "model.safetensors") == (
@@ -1766,9 +2242,7 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         (resumed_output, 2),
     ):
         summary = json.loads(
-            (output_dir / "shaft_training_efficiency.json").read_text(
-                encoding="utf-8"
-            )
+            (output_dir / "shaft_training_efficiency.json").read_text(encoding="utf-8")
         )
         assert summary["complete_history"] is True
         assert summary["aggregate"]["optimizer_steps"] == expected_steps
@@ -1780,9 +2254,7 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         (fresh_output / "shaft_training_efficiency.json").read_text(encoding="utf-8")
     )["contract"]
     resumed_contract = json.loads(
-        (resumed_output / "shaft_training_efficiency.json").read_text(
-            encoding="utf-8"
-        )
+        (resumed_output / "shaft_training_efficiency.json").read_text(encoding="utf-8")
     )["contract"]
     assert fresh_contract == resumed_contract
 
@@ -1856,9 +2328,7 @@ def test_qwen35_moe_two_rank_sharded_backend_release_gate(
     _run_qwen_training_gate(repo_root, resumed_config)
 
     weight_filename = (
-        "adapter_model.safetensors"
-        if finetune_mode == "lora"
-        else "model.safetensors"
+        "adapter_model.safetensors" if finetune_mode == "lora" else "model.safetensors"
     )
     _assert_backend_native_checkpoint_state_equivalent(
         output_dir / "checkpoint-2",
@@ -1867,9 +2337,7 @@ def test_qwen35_moe_two_rank_sharded_backend_release_gate(
         weight_filename=weight_filename,
     )
     if finetune_mode == "lora":
-        _assert_moe_lora_router_and_experts_updated(
-            output_dir / "checkpoint-1" / weight_filename
-        )
+        _assert_moe_lora_router_and_experts_updated(output_dir / "checkpoint-1" / weight_filename)
         assert _file_sha256(output_dir / "checkpoint-1" / weight_filename) != (
             _file_sha256(output_dir / "checkpoint-2" / weight_filename)
         )
@@ -1880,18 +2348,14 @@ def test_qwen35_moe_two_rank_sharded_backend_release_gate(
     for run_dir in (output_dir, resumed_output):
         assert (run_dir / "checkpoint-2").is_dir()
         trainer_state = json.loads(
-            (run_dir / "checkpoint-2" / "trainer_state.json").read_text(
-                encoding="utf-8"
-            )
+            (run_dir / "checkpoint-2" / "trainer_state.json").read_text(encoding="utf-8")
         )
         # Eight samples / (2 ranks * local batch 2) yield two microbatches per
         # rank; GA=2 therefore reaches optimizer step 2 at exactly one epoch.
         assert float(trainer_state["epoch"]) == pytest.approx(1.0)
         assert float(trainer_state["total_flos"]) > 0.0
         efficiency = json.loads(
-            (run_dir / "shaft_training_efficiency.json").read_text(
-                encoding="utf-8"
-            )
+            (run_dir / "shaft_training_efficiency.json").read_text(encoding="utf-8")
         )
         assert efficiency["contract"]["gradient_accumulation_steps"] == 2
         _assert_router_auxiliary_loss_was_logged(run_dir / "checkpoint-2")
@@ -1931,9 +2395,7 @@ def test_qwen3vl_30b_moe_two_rank_fsdp_lora_release_gate(
     repo_root: Path,
 ) -> None:
     if os.environ.get("SHAFT_RUN_QWEN3VL_MOE_30B_GATE") != "1":
-        pytest.skip(
-            "Set SHAFT_RUN_QWEN3VL_MOE_30B_GATE=1 to run the real 30B MoE SFT gate."
-        )
+        pytest.skip("Set SHAFT_RUN_QWEN3VL_MOE_30B_GATE=1 to run the real 30B MoE SFT gate.")
     if torch.cuda.device_count() < 2:
         pytest.skip("The Qwen3VL 30B MoE gate requires two visible CUDA devices.")
     model_path = Path("models/Qwen3-VL-30B-A3B-Instruct").resolve()
@@ -1946,9 +2408,7 @@ def test_qwen3vl_30b_moe_two_rank_fsdp_lora_release_gate(
     missing = [name for name in required_files if not (model_path / name).is_file()]
     if missing:
         pytest.skip(f"Qwen3VL 30B MoE assets are incomplete: missing={missing}")
-    model_config = json.loads(
-        (model_path / "config.json").read_text(encoding="utf-8")
-    )
+    model_config = json.loads((model_path / "config.json").read_text(encoding="utf-8"))
     language_layers = int(model_config["text_config"]["num_hidden_layers"])
     vision_blocks = int(model_config["vision_config"]["depth"])
     num_experts = int(model_config["text_config"]["num_experts"])
@@ -2058,30 +2518,20 @@ def test_qwen3vl_30b_moe_two_rank_fsdp_lora_release_gate(
         with safe_open(adapter_path, framework="pt", device="cpu") as adapter_state:
             adapter_keys = tuple(adapter_state.keys())
             adapter_numel = sum(
-                int(np.prod(adapter_state.get_slice(name).get_shape()))
-                for name in adapter_keys
+                int(np.prod(adapter_state.get_slice(name).get_shape())) for name in adapter_keys
             )
         trainable_params = int(finetune_summary["trainable_params"])
         assert adapter_numel == trainable_params
         assert int(optimizer_summary["total_trainable_params"]) == trainable_params
-        assert sum(
-            int(group["num_tensors"])
-            for group in optimizer_summary["groups"]
-        ) == len(adapter_keys)
+        assert sum(int(group["num_tensors"]) for group in optimizer_summary["groups"]) == len(
+            adapter_keys
+        )
         assert int(finetune_summary["total_params"]) == (
             trainable_params + int(finetune_summary["frozen_params"])
         )
-        assert int(finetune_summary["frozen_params"]) > int(
-            finetune_summary["trainable_params"]
-        )
-        assert all(
-            "lora_" in name
-            for name in finetune_summary["sample_trainable_parameters"]
-        )
-        assert all(
-            "lora_" not in name
-            for name in finetune_summary["sample_frozen_parameters"]
-        )
+        assert int(finetune_summary["frozen_params"]) > int(finetune_summary["trainable_params"])
+        assert all("lora_" in name for name in finetune_summary["sample_trainable_parameters"])
+        assert all("lora_" not in name for name in finetune_summary["sample_frozen_parameters"])
         assert efficiency["aggregate"]["optimizer_steps"] == 2
         assert efficiency["aggregate"]["update_applied_steps"] == 2
         assert efficiency["contract"]["torch_dtype"] == "bfloat16"
@@ -2172,9 +2622,7 @@ def test_qwen3vl_2b_two_rank_fp16_padded_lora_exact_resume_release_gate(
     )
     assert (fresh_checkpoint / "scaler.pt").is_file()
     assert (resumed_checkpoint / "scaler.pt").is_file()
-    assert _file_sha256(
-        fresh_output / "best" / "adapter_model.safetensors"
-    ) == _file_sha256(
+    assert _file_sha256(fresh_output / "best" / "adapter_model.safetensors") == _file_sha256(
         resumed_output / "best" / "adapter_model.safetensors"
     )
     for run_dir in (fresh_output, resumed_output):
@@ -2188,21 +2636,24 @@ def test_qwen3vl_2b_two_rank_fp16_padded_lora_exact_resume_release_gate(
             base_model_path=model_path,
             export_dir=run_dir / "best",
         )
-        _assert_lora_adapter_has_learned_update(
-            run_dir / "best" / "adapter_model.safetensors"
-        )
+        _assert_lora_adapter_has_learned_update(run_dir / "best" / "adapter_model.safetensors")
 
 
 @pytest.mark.integration
 @pytest.mark.manual
-def test_qwen3vl_two_rank_lora_varlen_and_export_release_gate(
+def test_qwen3vl_multi_rank_lora_varlen_and_export_release_gate(
     tmp_path: Path,
     repo_root: Path,
 ) -> None:
     if os.environ.get("SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE") != "1":
         pytest.skip("Set SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE=1 to run the CUDA release gate.")
-    if torch.cuda.device_count() < 2:
-        pytest.skip("The Qwen training release gate requires two visible CUDA devices.")
+    world_size = int(os.environ.get("SHAFT_QWEN_PACKING_WORLD_SIZE", "2"))
+    if world_size < 2:
+        raise ValueError("SHAFT_QWEN_PACKING_WORLD_SIZE must be >= 2.")
+    if torch.cuda.device_count() < world_size:
+        pytest.skip(
+            f"The Qwen packing release gate requires {world_size} visible CUDA devices."
+        )
     model_path = Path("models/Qwen3-VL-4B-Instruct").resolve()
     if not (model_path / "config.json").is_file():
         pytest.skip(f"Qwen3VL model assets not found: {model_path}")
@@ -2221,7 +2672,7 @@ def test_qwen3vl_two_rank_lora_varlen_and_export_release_gate(
         save_steps=1,
         finetune_mode="lora",
     )
-    _run_qwen_training_gate(repo_root, config_path)
+    _run_qwen_training_gate(repo_root, config_path, world_size=world_size)
 
     resumed_output = tmp_path / "qwen3vl-lora-varlen-resumed"
     resumed_config = write_qwen_training_gate_config(
@@ -2237,7 +2688,7 @@ def test_qwen3vl_two_rank_lora_varlen_and_export_release_gate(
         resume_from_checkpoint=output_dir / "checkpoint-1",
         finetune_mode="lora",
     )
-    _run_qwen_training_gate(repo_root, resumed_config)
+    _run_qwen_training_gate(repo_root, resumed_config, world_size=world_size)
 
     _assert_checkpoint_state_equivalent(
         output_dir / "checkpoint-2",
@@ -2268,14 +2719,10 @@ def test_qwen3vl_two_rank_lora_varlen_and_export_release_gate(
     assert summary["aggregate"]["optimizer_steps"] == 2
     assert summary["aggregate"]["update_applied_steps"] > 0
     assert summary["aggregate"]["device_timing_steps"] == 2
-    assert summary["aggregate"]["logical_segments"] > summary["aggregate"][
-        "physical_packs"
-    ]
+    assert summary["aggregate"]["logical_segments"] > summary["aggregate"]["physical_packs"]
     assert (export_path / "adapter_config.json").is_file()
     assert (export_path / "adapter_model.safetensors").is_file()
-    _assert_lora_adapter_has_learned_update(
-        export_path / "adapter_model.safetensors"
-    )
+    _assert_lora_adapter_has_learned_update(export_path / "adapter_model.safetensors")
 
     reload_output = tmp_path / "qwen3vl-lora-varlen-reloaded"
     reload_config = write_qwen_training_gate_config(
@@ -2291,5 +2738,5 @@ def test_qwen3vl_two_rank_lora_varlen_and_export_release_gate(
         init_from_checkpoint=export_path,
         finetune_mode="lora",
     )
-    _run_qwen_training_gate(repo_root, reload_config)
+    _run_qwen_training_gate(repo_root, reload_config, world_size=world_size)
     assert (reload_output / "best" / "adapter_model.safetensors").is_file()

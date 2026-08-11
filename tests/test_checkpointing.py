@@ -15,6 +15,7 @@ from tokenizers import AddedToken
 
 import shaft.training.checkpointing as checkpointing_module
 import shaft.training.resume_contract as resume_contract_module
+import shaft.rl as _rl  # noqa: F401  # register RL-owned resume policies
 from shaft.config import RuntimeConfig
 from shaft.data import ShaftBatchPlanningSpec, ShaftBatchPlanningState
 from shaft.model.input_identity import stable_artifact_value
@@ -543,12 +544,8 @@ def _write_backend_native_planned_checkpoint(
         shard_dir = path / generation
         shard_dir.mkdir()
         for rank in range(spec.data_world_size):
-            (shard_dir / f"rank{rank}_model_states.pt").write_bytes(
-                f"model-{rank}".encode()
-            )
-            (shard_dir / f"rank{rank}_optim_states.pt").write_bytes(
-                f"optimizer-{rank}".encode()
-            )
+            (shard_dir / f"rank{rank}_model_states.pt").write_bytes(f"model-{rank}".encode())
+            (shard_dir / f"rank{rank}_optim_states.pt").write_bytes(f"optimizer-{rank}".encode())
     commit_backend_native_checkpoint(path)
 
 
@@ -612,9 +609,7 @@ def test_typed_resume_resolution_hashes_only_newest_valid_generation_once(
         )
 
     newest_manifest = json.loads(
-        (root / "checkpoint-3" / TRAINING_CHECKPOINT_COMMIT_FILENAME).read_text(
-            encoding="utf-8"
-        )
+        (root / "checkpoint-3" / TRAINING_CHECKPOINT_COMMIT_FILENAME).read_text(encoding="utf-8")
     )
     with patch.object(
         checkpointing_module,
@@ -1976,14 +1971,17 @@ def test_backend_native_planning_checkpoint_roundtrip(
     assert resolved is not None
     assert resolved.commit_fingerprint is not None
     assert checkpoint_has_batch_planning_state(checkpoint)
-    assert load_batch_planning_state(
-        checkpoint,
-        expected_spec=spec,
-        expected_global_step=2,
-        gradient_accumulation_steps=2,
-        expected_resume_contract_fingerprint="resume-v1",
-        expected_commit_fingerprint=resolved.commit_fingerprint,
-    ) == state
+    assert (
+        load_batch_planning_state(
+            checkpoint,
+            expected_spec=spec,
+            expected_global_step=2,
+            gradient_accumulation_steps=2,
+            expected_resume_contract_fingerprint="resume-v1",
+            expected_commit_fingerprint=resolved.commit_fingerprint,
+        )
+        == state
+    )
 
 
 @pytest.mark.parametrize(
@@ -2020,9 +2018,9 @@ def test_backend_native_planning_resolver_skips_invalid_newer_generation(
     elif corruption == "corrupt_planning_state":
         state_path = newer / "trainer_state.json"
         payload = json.loads(state_path.read_text(encoding="utf-8"))
-        payload["stateful_callbacks"][BATCH_PLANNING_CALLBACK_NAME]["attributes"][
-            "planning_state"
-        ]["next_draw_id"] += 1
+        payload["stateful_callbacks"][BATCH_PLANNING_CALLBACK_NAME]["attributes"]["planning_state"][
+            "next_draw_id"
+        ] += 1
         state_path.write_text(json.dumps(payload), encoding="utf-8")
     elif corruption == "generation_mismatch":
         commit_path = newer / BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME
@@ -3660,7 +3658,7 @@ def test_dpo_beta_drift_is_rejected_before_exact_resume(tmp_path: Path) -> None:
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_dpo_args=_resolved_dpo_args(),
+        algorithm_resume_context={"resolved_trainer_args": _resolved_dpo_args()},
     )
     checkpoint = tmp_path / "checkpoint-1"
     _write_metadata_checkpoint(
@@ -3673,7 +3671,7 @@ def test_dpo_beta_drift_is_rejected_before_exact_resume(tmp_path: Path) -> None:
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_dpo_args=_resolved_dpo_args(beta=0.25),
+        algorithm_resume_context={"resolved_trainer_args": _resolved_dpo_args(beta=0.25)},
     )
 
     with pytest.raises(ValueError, match=r"Training resume contract.*objective"):
@@ -3700,7 +3698,7 @@ def test_dpo_resolved_trl_objective_drift_is_rejected(
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_dpo_args=_resolved_dpo_args(),
+        algorithm_resume_context={"resolved_trainer_args": _resolved_dpo_args()},
     )
     checkpoint = tmp_path / field_name / "checkpoint-1"
     _write_metadata_checkpoint(
@@ -3711,7 +3709,9 @@ def test_dpo_resolved_trl_objective_drift_is_rejected(
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_dpo_args=_resolved_dpo_args(**{field_name: changed_value}),
+        algorithm_resume_context={
+            "resolved_trainer_args": _resolved_dpo_args(**{field_name: changed_value})
+        },
     )
 
     with pytest.raises(ValueError, match=r"Training resume contract.*objective"):
@@ -3778,7 +3778,7 @@ def test_grpo_reward_and_update_cadence_drift_are_rejected(tmp_path: Path) -> No
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_grpo_args=_resolved_grpo_args(),
+        algorithm_resume_context={"resolved_trainer_args": _resolved_grpo_args()},
     )
     checkpoint = tmp_path / "checkpoint-1"
     _write_metadata_checkpoint(
@@ -3791,7 +3791,9 @@ def test_grpo_reward_and_update_cadence_drift_are_rejected(tmp_path: Path) -> No
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_grpo_args=_resolved_grpo_args(steps_per_generation=4),
+        algorithm_resume_context={
+            "resolved_trainer_args": _resolved_grpo_args(steps_per_generation=4)
+        },
     )
 
     with pytest.raises(ValueError, match=r"Training resume contract.*objective"):
@@ -3818,7 +3820,7 @@ def test_grpo_resolved_trl_loss_semantics_drift_is_rejected(
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_grpo_args=_resolved_grpo_args(),
+        algorithm_resume_context={"resolved_trainer_args": _resolved_grpo_args()},
     )
     checkpoint = tmp_path / field_name / "checkpoint-1"
     _write_metadata_checkpoint(
@@ -3829,7 +3831,9 @@ def test_grpo_resolved_trl_loss_semantics_drift_is_rejected(
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_grpo_args=_resolved_grpo_args(**{field_name: changed_value}),
+        algorithm_resume_context={
+            "resolved_trainer_args": _resolved_grpo_args(**{field_name: changed_value})
+        },
     )
 
     with pytest.raises(ValueError, match=r"Training resume contract.*objective"):
@@ -3848,13 +3852,17 @@ def test_grpo_eval_only_generation_count_does_not_change_training_contract() -> 
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_grpo_args=_resolved_grpo_args(num_generations_eval=1),
+        algorithm_resume_context={
+            "resolved_trainer_args": _resolved_grpo_args(num_generations_eval=1)
+        },
     )
     changed = build_training_resume_contract(
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_grpo_args=_resolved_grpo_args(num_generations_eval=8),
+        algorithm_resume_context={
+            "resolved_trainer_args": _resolved_grpo_args(num_generations_eval=8)
+        },
     )
 
     assert original.fingerprint == changed.fingerprint
@@ -3872,7 +3880,7 @@ def test_grpo_reward_implementation_drift_changes_contract() -> None:
             config=config,
             training_args=_resume_training_args(),
             batch_contract_fingerprint=batch_contract.fingerprint,
-            resolved_grpo_args=_resolved_grpo_args(),
+            algorithm_resume_context={"resolved_trainer_args": _resolved_grpo_args()},
         )
     with patch(
         "shaft.algorithms.grpo_rewards.GRPO_REWARD_REGISTRY.get",
@@ -3882,7 +3890,7 @@ def test_grpo_reward_implementation_drift_changes_contract() -> None:
             config=config,
             training_args=_resume_training_args(),
             batch_contract_fingerprint=batch_contract.fingerprint,
-            resolved_grpo_args=_resolved_grpo_args(),
+            algorithm_resume_context={"resolved_trainer_args": _resolved_grpo_args()},
         )
 
     assert original.fingerprint != changed.fingerprint
@@ -4018,13 +4026,10 @@ def test_training_resume_contract_binds_effective_model_execution() -> None:
         != changed.to_dict()["execution"]["model_execution"]
     )
     assert (
-        changed.to_dict()["execution"]["model_execution"]["experts_implementation"]
-        == "grouped_mm"
+        changed.to_dict()["execution"]["model_execution"]["experts_implementation"] == "grouped_mm"
     )
     assert (
-        changed.to_dict()["execution"]["model_execution"][
-            "experts_implementation_request"
-        ]
+        changed.to_dict()["execution"]["model_execution"]["experts_implementation_request"]
         == "grouped_mm"
     )
 
@@ -4049,9 +4054,7 @@ def test_training_resume_preflight_preserves_resolved_experts_implementation() -
 
     assert preflight == stored
     assert (
-        preflight.to_dict()["execution"]["model_execution"][
-            "experts_implementation"
-        ]
+        preflight.to_dict()["execution"]["model_execution"]["experts_implementation"]
         == "grouped_mm"
     )
 
@@ -4186,7 +4189,7 @@ def test_training_resume_contract_binds_algorithm_helper_implementation() -> Non
             config=config,
             training_args=_resume_training_args(),
             batch_contract_fingerprint=batch_contract.fingerprint,
-            resolved_dpo_args=_resolved_dpo_args(),
+            algorithm_resume_context={"resolved_trainer_args": _resolved_dpo_args()},
         )
     with patch(
         "shaft.algorithms.dpo.build_reference_model",
@@ -4196,7 +4199,7 @@ def test_training_resume_contract_binds_algorithm_helper_implementation() -> Non
             config=config,
             training_args=_resume_training_args(),
             batch_contract_fingerprint=batch_contract.fingerprint,
-            resolved_dpo_args=_resolved_dpo_args(),
+            algorithm_resume_context={"resolved_trainer_args": _resolved_dpo_args()},
         )
 
     assert original.fingerprint != changed.fingerprint
@@ -4233,7 +4236,7 @@ def test_training_resume_contract_binds_codec_helper_implementation() -> None:
         config=config,
         training_args=_resume_training_args(),
         batch_contract_fingerprint=batch_contract.fingerprint,
-        resolved_grpo_args=_resolved_grpo_args(),
+        algorithm_resume_context={"resolved_trainer_args": _resolved_grpo_args()},
     )
     with patch(
         "shaft.codec.json._decode_json_lenient",
@@ -4243,7 +4246,7 @@ def test_training_resume_contract_binds_codec_helper_implementation() -> None:
             config=config,
             training_args=_resume_training_args(),
             batch_contract_fingerprint=batch_contract.fingerprint,
-            resolved_grpo_args=_resolved_grpo_args(),
+            algorithm_resume_context={"resolved_trainer_args": _resolved_grpo_args()},
         )
 
     assert original.fingerprint != changed.fingerprint
@@ -4274,9 +4277,7 @@ def test_training_resume_contract_binds_hook_order_state_and_algorithm_params() 
     config = RuntimeConfig()
     config.algorithm.name = "sft"
     config.plugins.hooks = ["fixture"]
-    config.algorithm.params = {
-        "auxiliary_loss_weights": {"router_aux_loss": 0.001}
-    }
+    config.algorithm.params = {"auxiliary_loss_weights": {"router_aux_loss": 0.001}}
     batch_contract = _fixed_batch_contract()
     with patch(
         "shaft.plugins.hooks.HOOK_REGISTRY.create",
@@ -4295,9 +4296,7 @@ def test_training_resume_contract_binds_hook_order_state_and_algorithm_params() 
         )
         assert create_hook.call_count == 1
 
-    config.algorithm.params = {
-        "auxiliary_loss_weights": {"router_aux_loss": 0.009}
-    }
+    config.algorithm.params = {"auxiliary_loss_weights": {"router_aux_loss": 0.009}}
     with patch(
         "shaft.plugins.hooks.HOOK_REGISTRY.create",
         return_value=SimpleNamespace(
@@ -4476,7 +4475,7 @@ def test_training_resume_contract_binds_selective_runtime_versions() -> None:
             config=config,
             training_args=_resume_training_args(),
             batch_contract_fingerprint=batch_contract.fingerprint,
-            resolved_dpo_args=_resolved_dpo_args(),
+            algorithm_resume_context={"resolved_trainer_args": _resolved_dpo_args()},
         )
     with patch(
         "shaft.training.resume_contract._runtime_package_version",
@@ -4486,7 +4485,7 @@ def test_training_resume_contract_binds_selective_runtime_versions() -> None:
             config=config,
             training_args=_resume_training_args(),
             batch_contract_fingerprint=batch_contract.fingerprint,
-            resolved_dpo_args=_resolved_dpo_args(),
+            algorithm_resume_context={"resolved_trainer_args": _resolved_dpo_args()},
         )
 
     assert original.fingerprint != changed.fingerprint

@@ -11,7 +11,13 @@ from .batching import (
     resolve_local_pack_count_bounds,
 )
 from .planned import ShaftBatchContext, ShaftPlannedSampleRef
-from .collator import DPOCollator, GRPOCollator, PPOCollator, SFTCollator
+from .collator import (
+    DPOCollator,
+    GRPOCollator,
+    PPOCollator,
+    SFTCollator,
+    ShaftSequenceCollatorBase,
+)
 from .center import ShaftDataCenter, ShaftDatasetBundle, ShaftPreparedRecords
 from .cost import (
     ShaftSampleCost,
@@ -32,6 +38,7 @@ from .dataset import (
     PPORecord,
     SFTDataset,
     SFTRecord,
+    ShaftVisionDatasetBase,
 )
 from .dynamic_batching import (
     SHAFT_BATCH_PLANNING_VERSION,
@@ -51,7 +58,12 @@ from .mixing import (
     ShaftSampleSchedule,
     validate_sample_schedule_world_size,
 )
-from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore, ShaftRecordSubset
+from .record_store import (
+    ShaftArrowRecordStore,
+    ShaftConcatRecordStore,
+    ShaftRecordSubset,
+    register_record_type,
+)
 from .sampler import (
     ShaftGroupedSampleContract,
     ShaftGroupedSampleSampler,
@@ -92,6 +104,8 @@ __all__ = [
     "SFTCollator",
     "SFTDataset",
     "SFTRecord",
+    "ShaftSequenceCollatorBase",
+    "ShaftVisionDatasetBase",
     "SHAFT_BATCH_PLANNING_VERSION",
     "ShaftBatchMicrobatchPlan",
     "ShaftBatchMicrobatchStats",
@@ -115,6 +129,7 @@ __all__ = [
     "ShaftArrowRecordStore",
     "ShaftConcatRecordStore",
     "ShaftRecordSubset",
+    "register_record_type",
     "ShaftSampleContext",
     "ShaftGroupedSampleContract",
     "ShaftGroupedSampleSampler",

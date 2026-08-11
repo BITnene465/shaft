@@ -71,7 +71,7 @@ description: 在一个 feature 实现后，从全局代码视角做项目级收�
      - `docs/config_reference.md`
      - `docs/extension_guide.md`
      - `docs/online_eval_design.md`
-   - 如果有明确延期的设计想法，不要半实现，写进 `docs/todo.md`。
+   - 如果有明确延期的设计想法，不要半实现；通过 `docs/README.md` 的“当前待办”入口写入现行 TODO。
 
 ## 输出要求
 - review 结论优先写 **findings**，不要先写总结。

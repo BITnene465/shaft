@@ -1,71 +1,40 @@
 # Shaft 文档索引
 
-本文档是 `docs/` 目录的统一入口。
+本文是 `docs/` 的唯一导航入口。当前行为以正式参考文档和代码为准；开发日志只用于追溯，不能作为当前
+能力矩阵。
 
-## 1. 架构与边界
+## 当前真源
 
-- [architecture.md](architecture.md)
-  - 正式架构文档
-  - 模块边界
-  - 训练/推理主链
-  - 架构图与时序图
+### 架构与接口
 
-- [module_reference.md](module_reference.md)
-  - 各模块职责
-  - 关键类、函数、接口
-  - 扩展入口与禁止事项
+- [architecture.md](architecture.md)：模块边界、SFT/RL/OPD 三训练域、训练/推理/eval 主链。
+- [module_reference.md](module_reference.md)：模块职责、关键类与公共扩展点。
+- [config_reference.md](config_reference.md)：当前 schema、配置树、合法组合与 fail-closed 规则。
 
-- [config_reference.md](config_reference.md)
-  - `RuntimeConfig` 顶层职责树与 YAML 加载流程
-  - algorithm objective、schedule/mixing、transforms、batching、optimizer 的职责树与矩阵
-  - batching 四轴合法组合矩阵、选择决策树、跨层字段关系和常用字段原则
+### 专项设计与能力矩阵
 
-- [online_eval_design.md](online_eval_design.md)
-  - 单阶段在线 eval 设计说明
-  - 多数据集、多任务、共享 codec、final score 设计
+- [training_batch_planning_design.md](training_batch_planning_design.md)：mixing、grouping、cardinality、packing、
+  varlen、sharded sampler 与 committed resume。
+- [online_eval_design.md](online_eval_design.md)：共享 codec、dataset policy、在线 metric 与 score 聚合。
+- [infer.md](infer.md)：HF/vLLM 推理 engine 和 stage contract。
+- [export.md](export.md)：HF/PEFT inspect、validate、merge 与训练状态边界。
 
-- [training_batch_planning_design.md](training_batch_planning_design.md)
-  - sample-level mixing、bounded cost-aware batching、sequence packing 与 DDP/CP 的顶层边界
-  - horizon-independent schedule、bounded buffer、Accelerate 分片、committed-state resume 与 DDP
-    static-graph bitwise 恢复边界
+### 开发与运行
 
-## 2. 开发与扩展
+- [testing.md](testing.md)：suite 真源、CI、CPU/GPU/manual gate 与测试责任。
+- [extension_guide.md](extension_guide.md)：开发收口流程与正式扩展规范。
+- [scripts.md](scripts.md)：正式 CLI 与 task 脚本使用说明。
+- [../docker/inference/README.md](../docker/inference/README.md)：推理镜像和服务契约 smoke。
 
-- [development_workflow.md](development_workflow.md)
-  - 标准开发流程
-  - 测试、文档、提交前检查
+## 当前待办
 
-- [development_log.md](development_log.md)
-  - 已暴露工程问题、指标误判和重复 bug 的开发日志
-  - 根因、修复、回归测试和后续防线
+- [20260811_todo.md](20260811_todo.md)：只记录尚未实现、尚未验收或必须 fail closed 的事项。
 
-- [extension_guide.md](extension_guide.md)
-  - 如何新增模型族、模板、数据源、算法、推理后端、导出能力
-  - 包含 feature 完成后的全局收口 review 流程入口
+完成项不要继续堆在 TODO；稳定能力写入正式参考文档，事故与迁移过程写入开发日志。
 
-## 3. 运行与测试
+## 历史记录
 
-- [scripts.md](scripts.md)
-  - `scripts/` 目录的正式使用说明
-  - 顶层入口脚本与 `scripts/tasks/` 的稳定接口
+- [development_log.md](development_log.md)：按时间记录现象、根因、修复、回归与后续防线。历史条目可能描述
+  当时已经被后续版本替代的状态。
 
-- [infer.md](infer.md)
-  - 推理子系统设计
-  - stage / engine 边界
-
-- [../docker/inference/README.md](../docker/inference/README.md)
-  - 业务推理镜像构建与 vLLM 启动
-  - `shaft-contract-smoke` 推理契约验收
-
-- [export.md](export.md)
-  - HF 导出、validate、merge-peft
-
-- [testing.md](testing.md)
-  - unit / component / contract / smoke / integration / manual 分层
-  - 默认快速回归与显式 smoke 命令
-  - 测试 support 层、真实文件依赖规则和变更必跑清单
-
-## 4. 待办与限制
-
-- [todo.md](todo.md)
-- [ppo_todo.md](ppo_todo.md)
+阅读历史记录时，若与当前参考文档冲突，以当前参考文档、schema 和测试矩阵为准。

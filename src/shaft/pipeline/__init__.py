@@ -2,9 +2,11 @@ from .registry import PIPELINE_REGISTRY
 
 __all__ = [
     "ShaftSFTPipeline",
-    "ShaftRLHFPipeline",
+    "ShaftRLPipeline",
+    "ShaftOPDPipeline",
     "PIPELINE_REGISTRY",
-    "run_rlhf",
+    "run_rl",
+    "run_opd",
     "run_sft",
 ]
 
@@ -18,12 +20,20 @@ def __getattr__(name: str):
             "run_sft": run_sft,
         }
         return values[name]
-    if name in {"ShaftRLHFPipeline", "run_rlhf"}:
-        from .rlhf import ShaftRLHFPipeline, run_rlhf
+    if name in {"ShaftRLPipeline", "run_rl"}:
+        from .rl import ShaftRLPipeline, run_rl
 
         values = {
-            "ShaftRLHFPipeline": ShaftRLHFPipeline,
-            "run_rlhf": run_rlhf,
+            "ShaftRLPipeline": ShaftRLPipeline,
+            "run_rl": run_rl,
+        }
+        return values[name]
+    if name in {"ShaftOPDPipeline", "run_opd"}:
+        from .opd import ShaftOPDPipeline, run_opd
+
+        values = {
+            "ShaftOPDPipeline": ShaftOPDPipeline,
+            "run_opd": run_opd,
         }
         return values[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -14,6 +14,16 @@ Next v5.7 detection prompt pool:
 
 - `configs/prompts/pools/grounding_layout.v5.7.yaml`
 
+Prepared v5.7 reconstruction prompt pools:
+
+- `configs/prompts/pools/shape_context_reconstruction.v5.7.yaml`
+- `configs/prompts/pools/line_context_reconstruction.v5.7.yaml`
+- `configs/prompts/pools/line_context_points.v5.7.yaml`
+
+These pools define the next target contracts; creating them does not make old v5.3 JSONL targets
+compatible. Rebuild or explicitly migrate the corresponding derived data before enabling a v5.7
+pool in training.
+
 Active business reconstruction prompt pools:
 
 - `configs/prompts/pools/shape_region_reconstruction.v5.2.yaml`
@@ -40,13 +50,15 @@ only shape type, border, fill, effect, and optional callout body type. It must n
 body/tail geometry, bbox, or points. Its omission of geometry is task semantics, not a partial or
 malformed `shape_context_reconstruction` target.
 
-`line_context_points` is a separate geometry subset task combining archived-real single paths
-with a capped synthetic multi-segment supplement. It uses the same v5.3 contextual crop and
+`line_context_points` is a separate geometry subset task combining every non-empty ordered line
+path from the active compact human raw split with a capped synthetic multi-segment supplement. It
+uses the same contextual crop and
 approximate `proposal_bbox_2d` contract, but its exact target is only
 `{"type":"line","parameters":{"is_single":...,"points":[...]}}`. It must not ask for or emit
 style, arrow endpoint, dash, color, border, confidence, or bbox fields outside the subset contract.
-Preserve source segment order and point order.
-For directional arrows, the archived contract is explicitly tail-to-arrowhead; every prompt
+Preserve source segment order and point order. Empty human points are not synthesized; consecutive
+duplicates may be removed without dropping the source instance.
+For directional arrows, the source contract is explicitly tail-to-arrowhead; every prompt
 variant must state that order because this subset omits separate begin/end arrow fields.
 
 The v5.3 grounding pool keeps the existing labels/schema but makes the line instance contract
@@ -61,6 +73,17 @@ coordinates and complete visible extents; keeps shape/image borders and card/con
 inside their owning object; and preserves the v5.3 connected-line rule. The PDF's bottom-layer-first
 raw `layout` order is not a model-output requirement: current grounding SFT targets retain their
 validated row-major canonical order, so prompts must not request layer order.
+
+The v5.7 synthetic shape and line reconstruction pools follow the new `gt_standard` schema, not
+the broader real-image annotation value domain. Synthetic shape adds `card`, ordered per-region
+`fill`, and `splits`; uses `fill.type=uniform|complex` and `effect.type=none|exist`; and preserves
+the callout and clockwise-corner geometry rules. Synthetic line replaces legacy `fill_color` and
+`has_border/border_style/border_color` with required nested `fill` and `border` objects.
+
+`shape_context_attributes` is not part of v5.7 training. Its v5.3 prompt and weak-label dataset are
+retained only as historical assets; do not migrate, rebuild, or register them in a v5.7 data mix.
+Real shape attributes in v5.7 come only through an explicitly accepted task added in a later
+revision, not by pairing the historical weak targets with a new prompt.
 
 These v5.3 prompt pools are local run assets and remain ignored under the repository's current
 config policy. Maintained builders may use their conventional paths as local defaults, but tracked
@@ -117,6 +140,10 @@ detection labels live in the unified `grounding_layout` task.
   An icon/image asset with no independent editable outer shape returns only
   `{"shape_type":"other"}`; its rectangular bitmap boundary is not a rectangle container. A
   distinct enclosing tile, badge, or panel is still classified by that outer geometric shape.
+- The v5.7 synthetic shape contract additionally supports `card`. A card uses outer `corners`, an
+  ordered fill array, and ordered `splits`; each split contains exactly two `split_corners`, and
+  the fill count equals the split count plus one. Do not use legacy `fill.type=solid` or detailed
+  `shadow|glow` targets with this synthetic pool.
 - Region reconstruction consumes the full image and a dynamic `bbox_2d` prompt argument. The
   prompt bbox and every model-facing shape/line geometry field use the same Qwen integer `0..999`
   coordinate space normalized against the full input image. Do not normalize target geometry
@@ -132,14 +159,20 @@ detection labels live in the unified `grounding_layout` task.
   for example `[[[x1,y1],[x2,y2]]]` for a single line and multiple inner lists for forked or
   multi-branch lines. The line reconstruction model output should not include `bbox`; bbox is
   provided by crop metadata.
+- The v5.7 line contract requires nested `fill` and `border` for both path and shape-style lines.
+  `fill_color`, `has_border`, `border_style`, and `border_color` are legacy fields and must not
+  appear in new targets. A curved segment has exactly four points at start, one-third, two-thirds,
+  and end; a rounded straight-line bend uses one point at the visible arc midpoint. `corner_style`
+  applies to a bent straight line regardless of whether `line_style` is `path` or `shape`.
 - For the `line_context_points` field-subset task, prompts must support both one-path and connected
   multi-segment targets without implying that multiple independent objects belong in one answer.
   A single directional arrow keeps tail-to-arrowhead order; a connected branched target keeps each
   visible branch in a separate path segment. The target remains exactly `is_single + points`.
 - Image reconstruction prompts currently use only the PDF `image_type` field and return
-  `{"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|other"}}`.
+  `{"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}`.
   Do not add `clip_shape`, `border`, `effect`, or corner fields until those fields are explicitly
-  needed by training or downstream reconstruction.
+  needed by training or downstream reconstruction. The v9 synthetic source uses `image_type=N/A`;
+  never map that value to `other` or mix it into the reviewed 13-class task.
 - Background prompts consume a clean full bitmap and return only
   `{"background":true|false}`. The model-facing boolean means that a non-editable raster/photo/
   texture/complex visual backing remains after editable foreground extraction. Prelabeling fields

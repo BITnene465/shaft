@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
-from typing import Any
+from typing import Any, Callable
+
+from .generation_backend import GRPOVLLMConfig
+from .opd import normalize_opd_runtime_config
 
 
 SFT_AUXILIARY_LOSS_WEIGHTS_PARAM = "auxiliary_loss_weights"
@@ -57,8 +60,124 @@ def normalize_sft_algorithm_params(value: Any) -> dict[str, Any]:
 
 @dataclass
 class AlgorithmConfig:
-    name: str = "sft"  # sft | dpo | ppo | grpo
+    name: str = "sft"
     params: dict[str, Any] = field(default_factory=dict)
+
+
+def _normalize_empty_algorithm_params(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise TypeError("algorithm.params must be a mapping.")
+    if value:
+        raise ValueError(
+            "algorithm.params is not consumed by this built-in algorithm; "
+            f"unknown keys: {sorted(str(key) for key in value)}."
+        )
+    return {}
+
+
+def _noop_config_normalizer(config: Any) -> None:
+    _ = config
+
+
+@dataclass(frozen=True, slots=True)
+class AlgorithmProfile:
+    """Config-facing truth for algorithm ownership and supported mechanisms."""
+
+    name: str
+    domain: str
+    source_types: frozenset[str]
+    params_normalizer: Callable[[Any], dict[str, Any]] = _normalize_empty_algorithm_params
+    config_normalizer: Callable[[Any], None] = _noop_config_normalizer
+    supports_planned_batching: bool = False
+    supports_checkpoint: bool = True
+    supports_loss_eval: bool = True
+    supports_online_eval: bool = False
+    supports_eval_pixel_budget: bool = True
+
+    def __post_init__(self) -> None:
+        name = str(self.name).strip().lower()
+        domain = str(self.domain).strip().lower()
+        source_types = frozenset(
+            str(item).strip().lower() for item in self.source_types if str(item).strip()
+        )
+        if not name or not domain or not source_types:
+            raise ValueError("Algorithm profiles require name, domain, and source types.")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "domain", domain)
+        object.__setattr__(self, "source_types", source_types)
+
+
+_ALGORITHM_PROFILES: dict[str, AlgorithmProfile] = {}
+
+
+def register_algorithm_profile(profile: AlgorithmProfile) -> AlgorithmProfile:
+    existing = _ALGORITHM_PROFILES.get(profile.name)
+    if existing is not None and existing is not profile:
+        raise ValueError(f"Duplicate algorithm profile {profile.name!r}.")
+    _ALGORITHM_PROFILES[profile.name] = profile
+    return profile
+
+
+def resolve_algorithm_profile(name: str) -> AlgorithmProfile:
+    normalized = str(name).strip().lower()
+    try:
+        return _ALGORITHM_PROFILES[normalized]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unsupported algorithm.name={normalized!r}. Expected one of "
+            f"{sorted(_ALGORITHM_PROFILES)}."
+        ) from exc
+
+
+def algorithm_profile_names() -> tuple[str, ...]:
+    return tuple(sorted(_ALGORITHM_PROFILES))
+
+
+register_algorithm_profile(
+    AlgorithmProfile(
+        name="sft",
+        domain="sft",
+        source_types=frozenset({"jsonl_sft"}),
+        params_normalizer=normalize_sft_algorithm_params,
+        supports_planned_batching=True,
+        supports_online_eval=True,
+    )
+)
+
+register_algorithm_profile(
+    AlgorithmProfile(
+        name="opd",
+        domain="opd",
+        source_types=frozenset({"jsonl_opd"}),
+        config_normalizer=normalize_opd_runtime_config,
+        supports_loss_eval=False,
+    )
+)
+register_algorithm_profile(
+    AlgorithmProfile(
+        name="dpo",
+        domain="rl",
+        source_types=frozenset({"jsonl_dpo"}),
+    )
+)
+register_algorithm_profile(
+    AlgorithmProfile(
+        name="ppo",
+        domain="rl",
+        source_types=frozenset({"jsonl_ppo"}),
+        supports_checkpoint=False,
+        supports_eval_pixel_budget=False,
+    )
+)
+register_algorithm_profile(
+    AlgorithmProfile(
+        name="grpo",
+        domain="rl",
+        source_types=frozenset({"jsonl_sft"}),
+        supports_loss_eval=False,
+        supports_online_eval=True,
+    )
+)
 
 
 @dataclass
@@ -114,23 +233,6 @@ class GRPORolloutConfig:
     generation_kwargs: dict[str, Any] = field(default_factory=dict)
     cache_implementation: str | None = None
     use_transformers_paged: bool = False
-
-
-@dataclass
-class GRPOVLLMConfig:
-    enabled: bool = False
-    mode: str = "server"  # server | colocate
-    model_impl: str = "vllm"  # vllm | transformers
-    enable_sleep_mode: bool = False
-    structured_outputs_regex: str | None = None
-    server_base_url: str | None = None
-    server_host: str = "0.0.0.0"
-    server_port: int = 8000
-    server_timeout: float = 240.0
-    group_port: int = 51216
-    gpu_memory_utilization: float = 0.3
-    max_model_length: int | None = None
-    tensor_parallel_size: int = 1
 
 
 @dataclass

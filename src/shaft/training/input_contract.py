@@ -356,6 +356,18 @@ def component_semantic_signature(component: Any, *, role: str) -> str:
     return shared_component_semantic_fingerprint(component, role=role)
 
 
+def input_component_semantic_signature(component: Any, *, role: str) -> str:
+    """Fingerprint behavior-bearing input state without artifact locator noise."""
+
+    signature, incomplete_reasons = _component_semantic_identity(
+        component,
+        role=role,
+    )
+    if incomplete_reasons:
+        raise ValueError(f"Cannot prove {role} input compatibility: {list(incomplete_reasons)!r}.")
+    return signature
+
+
 def callable_semantic_signature(
     value: Any,
     *,

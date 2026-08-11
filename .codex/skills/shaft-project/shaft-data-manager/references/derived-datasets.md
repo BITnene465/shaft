@@ -149,12 +149,33 @@ task families.
 - Grounding bbox coordinates use image-boundary geometry: `x2` may equal image width and `y2` may
   equal image height. SFT conversion clips against `[0,width] x [0,height]` before mapping to Qwen
   `0..999`; clipping to `width-1/height-1` can erase a one-pixel line on the right or bottom edge.
-- Keep the v8 synthetic detection supplement separate as `grounding_layout_sync`. Build it with
-  `scripts/tasks/build_grounding_layout_sync_structured.py` from `gt_standard` and the source
-  `train.txt`; exclude `val.txt`, keep one clean full-image row per source, reference source PNGs
-  directly, and do not apply resize/crop/blur/noise/padding augmentation. Normalize source
-  `arrow` to model-facing `line`. This train-only source must not be merged into the real
-  `data/grounding_layout` directory or used for formal eval.
+- Keep the V9 synthetic detection supplement separate as `grounding_layout_sync`. Build it with
+  `scripts/tasks/build_grounding_layout_sync_structured.py` from `gt_standard` and the audited
+  train split; exclude `val.txt`. Materialize one full-image `synthetic_realism_v1` PNG per source:
+  every row contains Gaussian noise and may stack resample round-trip, blur, or JPEG compression.
+  Do not retain or reference a clean source view. Dimensions and bbox coordinates stay unchanged.
+  Normalize source `arrow` to model-facing `line`; this train-only source must not be merged into
+  real `data/grounding_layout` or used for formal eval.
+- The maintained v5.7 synthetic rebuild uses v9 at
+  `data/regulated_layout_dataset_v9_20260802`. First run
+  `scripts/tasks/prepare_gt_standard_v5_7.py`: it verifies JSON/image sizes, records schema issues,
+  keeps `val.txt` outside train, and writes source-identity-only shape/line/line-points selection
+  manifests under `data/reconstruction_v5_7_selection`. The 2026-08-05 selection contains 300,000
+  shape rows, 300,000 line rows, and 15,000 synthetic multi-segment point-subset rows. Shape types
+  with at most 60,000 valid instances are retained in full; head types and line rows are sampled
+  without replacement across detailed style/geometry strata.
+- Publish maintained v5.7 outputs under their standard `data/<task>` directories. The current build
+  contains `grounding_layout` 58,440 real rows, `grounding_layout_sync` 100,000 fully
+  noise-augmented full-image rows, 300,000 `shape_context_reconstruction`, 300,000
+  `line_context_reconstruction`, 137,218 `line_context_points`, and 21,184 reviewed
+  `image_context_reconstruction` rows. Grounding and shape/line tasks use their v5.7 pools; the
+  unchanged 13-class image-type task keeps its reviewed v5.3 pool. V5.7 excludes `background` and
+  historical `shape_context_attributes`.
+- Build the real point selection with `scripts/tasks/prepare_real_line_context_points.py` from the
+  active compact human train split. Keep all 122,218 line instances with valid non-empty ordered
+  points without sampling; 112,350 are single-segment and 9,868 are multi-segment. The context
+  builder reloads points from raw truth, removes only consecutive source/quantization duplicates,
+  and combines them with the maintained 15,000-row v9 synthetic multi-segment supplement.
 - Convert current structured detection data with `scripts/tasks/build_sft_from_structured.py`.
   Preserve the same split and source ids, use the v5.0 grounding prompt pool, and do not use the
   historical area-bucket or `y_center` row-major converters for maintained v5.1 outputs.
@@ -192,13 +213,13 @@ task families.
 - When filtering SFT rows, create a timestamped `.bak_*`, report counts, and verify no matching
   rows remain.
 - A field-subset task may combine independently traceable sources when they share the exact same
-  model-facing schema and input contract. For `line_context_points`, archived real rows provide
-  single-path `is_single + points` truth; synthetic balancing rows must be reloaded from
+  model-facing schema and input contract. For current `line_context_points`, active compact raw
+  provides all non-empty human `is_single + points` truth; synthetic balancing rows are reloaded from
   `gt_standard` and admitted only when `is_single` is false and `points` contains multiple path
   segments. Do not add synthetic single-path rows merely to increase volume. Keep source-specific
-  pixel policy: archived real crops stay clean, while synthetic crops always use the maintained
+  pixel policy: human real crops stay clean, while synthetic crops always use the maintained
   synthetic realism profile. Cap the balancing source instead of forcing task-local 1:1 balance;
-  the maintained v5.3 profile selects 15,000 rows with equal quotas for 2/3/4-segment truth.
+  the maintained v5.7 supplement contains 15,000 multi-segment rows.
   Segment-count stratification is row selection only: do not create resolution-stratified or
   multi-scale duplicate views for this task.
 

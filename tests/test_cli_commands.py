@@ -5,11 +5,16 @@ from unittest.mock import patch
 import pytest
 
 from shaft.cli.train import build_parser, main
+from shaft.cli.registry import COMMAND_REGISTRY
 from shaft.config import DatasetSourceConfig, RuntimeConfig
 from tests.support.cli import capture_algorithm_runner
 
 
 pytestmark = pytest.mark.contract
+
+
+def test_training_cli_has_one_command_per_training_domain() -> None:
+    assert COMMAND_REGISTRY.keys() == ["opd", "rl", "sft"]
 
 
 def _valid_runtime_config(*, source_type: str = "jsonl_sft") -> RuntimeConfig:
@@ -37,18 +42,18 @@ def test_main_runs_sft_command() -> None:
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_sft", side_effect=capture_algorithm_runner(captured)):
+        with patch("shaft.cli.common.run_training", side_effect=capture_algorithm_runner(captured)):
             main(["sft", "--config", "dummy.yaml"])
     assert captured["algorithm"] == "sft"
 
 
-def test_main_runs_rlhf_command() -> None:
+def test_main_runs_rl_command() -> None:
     cfg = _valid_runtime_config(source_type="jsonl_dpo")
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_rlhf", side_effect=capture_algorithm_runner(captured)):
-            main(["rlhf", "--config", "dummy.yaml", "--algorithm", "dpo"])
+        with patch("shaft.cli.common.run_training", side_effect=capture_algorithm_runner(captured)):
+            main(["rl", "--config", "dummy.yaml", "--algorithm", "dpo"])
     assert captured["algorithm"] == "dpo"
 
 
@@ -58,9 +63,31 @@ def test_main_runs_grpo_command() -> None:
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_rlhf", side_effect=capture_algorithm_runner(captured)):
-            main(["rlhf", "--config", "dummy.yaml", "--algorithm", "grpo"])
+        with patch("shaft.cli.common.run_training", side_effect=capture_algorithm_runner(captured)):
+            main(["rl", "--config", "dummy.yaml", "--algorithm", "grpo"])
     assert captured["algorithm"] == "grpo"
+
+
+def test_main_runs_opd_command() -> None:
+    cfg = _valid_runtime_config(source_type="jsonl_opd")
+    cfg.eval.enabled = False
+    cfg.model.model_type = "smoke_vlm"
+    cfg.model.model_name_or_path = "smoke-student"
+    cfg.data.max_length = 32
+    cfg.opd.teacher.model_type = "smoke_vlm"
+    cfg.opd.teacher.model_name_or_path = "smoke-teacher"
+    cfg.opd.rollout.max_new_tokens = 4
+    cfg.opd.objective.divergence = "reverse_kl"
+    cfg.train.efficiency.enabled = False
+    captured: dict[str, str] = {}
+
+    with patch("shaft.cli.common.load_config", return_value=cfg):
+        with patch(
+            "shaft.cli.common.run_training",
+            side_effect=capture_algorithm_runner(captured),
+        ):
+            main(["opd", "--config", "dummy.yaml"])
+    assert captured["algorithm"] == "opd"
 
 
 def test_main_defaults_to_sft_when_command_omitted() -> None:
@@ -68,6 +95,6 @@ def test_main_defaults_to_sft_when_command_omitted() -> None:
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_sft", side_effect=capture_algorithm_runner(captured)):
+        with patch("shaft.cli.common.run_training", side_effect=capture_algorithm_runner(captured)):
             main(["--config", "dummy.yaml"])
     assert captured["algorithm"] == "sft"

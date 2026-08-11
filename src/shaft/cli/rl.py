@@ -4,9 +4,9 @@ from .common import add_common_train_args, run_from_args
 from .registry import register_command
 
 
-@register_command("rlhf")
-class RLHFCommand:
-    help = "Run RLHF training (DPO/PPO/GRPO)."
+@register_command("rl")
+class RLCommand:
+    help = "Run reinforcement-learning training (DPO/PPO/GRPO)."
 
     @classmethod
     def configure_parser(cls, parser) -> None:

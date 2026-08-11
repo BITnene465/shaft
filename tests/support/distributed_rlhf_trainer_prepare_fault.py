@@ -48,9 +48,9 @@ def _exercise_trainer_boundary(
     *,
     mode: str,
 ) -> None:
-    import shaft.pipeline.rlhf as rlhf_module
+    import shaft.pipeline.rl as rlhf_module
     from shaft.algorithms import DPOAlgorithm, GRPOAlgorithm, PPOAlgorithm
-    from shaft.pipeline import run_rlhf
+    from shaft.pipeline import run_rl
     from tests.support.pipeline import FakePipelineTrainer, build_fake_model_artifacts
 
     algorithm_types = {
@@ -138,18 +138,18 @@ def _exercise_trainer_boundary(
     metrics = None
     with (
         patch(
-            "shaft.pipeline.rlhf.distributed_training_contract_stage",
+            "shaft.pipeline.rl.distributed_training_contract_stage",
             _tracked_status_stage,
         ),
         patch(
-            "shaft.pipeline.rlhf.build_model_tokenizer_processor",
+            "shaft.pipeline.rl.build_model_tokenizer_processor",
             _fake_build_model,
         ),
         patch.object(algorithm_type, "prepare_trainer", _prepare_with_rank_failure),
         patch(trainer_targets[algorithm], _CollectiveTrainer),
     ):
         try:
-            metrics = run_rlhf(config)
+            metrics = run_rl(config)
         except (RuntimeError, ValueError) as exc:
             if mode == "constructor-boundary":
                 raise

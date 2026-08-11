@@ -58,6 +58,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_model_sequence_policy.py",
         "test_online_eval_aggregation.py",
         "test_online_eval_runner.py",
+        "test_opd.py",
         "test_pipeline_registry.py",
         "test_pipeline_rlhf.py",
         "test_pipeline_sft.py",
@@ -80,6 +81,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_transforms.py",
     ),
     "smoke": (
+        "test_pipeline_opd_smoke.py",
         "test_pipeline_rlhf_smoke.py",
         "test_smoke_train_modes.py",
     ),
@@ -102,6 +104,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_build_sft_from_structured.py",
         "test_build_grounding_layout_sync_structured.py",
         "test_prelabel_line_reconstruction.py",
+        "test_prepare_gt_standard_v5_7.py",
     ),
     "visual": ("test_prediction_visualization.py",),
 }

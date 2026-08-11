@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import errno
 import json
 import os
@@ -10,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 import time
+from urllib.request import urlopen
 
 import numpy as np
 import pytest
@@ -33,6 +35,7 @@ from shaft.training.checkpointing import (
     validate_training_checkpoint_commit,
 )
 from tests.support.configs import write_sft_smoke_config
+from tests.support.opd import write_opd_config
 
 
 pytestmark = pytest.mark.smoke
@@ -54,6 +57,7 @@ def _run_torchrun(
     config_path: Path,
     *extra_args: str,
     timeout: int = 300,
+    command: str = "sft",
 ) -> subprocess.CompletedProcess[str]:
     env = _torchrun_env(repo_root)
     return subprocess.run(
@@ -65,7 +69,7 @@ def _run_torchrun(
             "--nnodes=1",
             "--nproc_per_node=2",
             "scripts/train.py",
-            "sft",
+            command,
             "--config",
             str(config_path),
             *extra_args,
@@ -713,7 +717,6 @@ def test_torchrun_train_eval_smoke(tmp_path: Path, repo_root: Path) -> None:
     )
     completed = _run_torchrun(repo_root, config_path, "--max-steps", "1")
     _assert_torchrun_succeeded(completed)
-
     output = f"{completed.stdout}\n{completed.stderr}"
     assert output.count("progress train started") == 1
     assert "\r" not in output
@@ -730,9 +733,424 @@ def test_torchrun_train_eval_smoke(tmp_path: Path, repo_root: Path) -> None:
     assert efficiency["aggregate"]["optimizer_steps"] == 1
     assert efficiency["aggregate"]["useful_tokens"] > 0
     assert (
-        efficiency["aggregate"]["materialized_tokens"] >= efficiency["aggregate"]["useful_tokens"]
+        efficiency["aggregate"]["materialized_tokens"]
+        >= efficiency["aggregate"]["useful_tokens"]
     )
 
+
+def test_torchrun_opd_updates_student_and_keeps_teacher_frozen(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    config_path = write_opd_config(
+        tmp_path,
+        train_steps=2,
+        save_steps=1,
+        train_size=8,
+        gradient_accumulation_steps=2,
+    )
+    probe_path = tmp_path / "opd_ddp_probe.json"
+    env = _torchrun_env(repo_root)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nnodes=1",
+            "--nproc_per_node=2",
+            "tests/support/distributed_opd_train.py",
+            str(config_path),
+            str(probe_path),
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=300,
+        check=False,
+    )
+    _assert_torchrun_succeeded(completed)
+    probe = json.loads(probe_path.read_text(encoding="utf-8"))
+    assert {
+        key: probe[key]
+        for key in (
+            "all_ranks_student_changed",
+            "all_ranks_teacher_unchanged",
+            "teacher_model_loaded",
+            "teacher_provider",
+            "world_size",
+        )
+    } == {
+        "all_ranks_student_changed": True,
+        "all_ranks_teacher_unchanged": True,
+        "teacher_model_loaded": True,
+        "teacher_provider": "hf_local",
+        "world_size": 2,
+    }
+    assert probe["minimum_rank_student_max_abs_delta"] > 0
+    assert len(probe["rank_traces"]) == 2
+    config = load_config(config_path)
+    validate_training_checkpoint_commit(
+        Path(config.experiment.output_dir) / "checkpoint-2"
+    )
+
+
+@pytest.mark.manual
+@pytest.mark.gpu
+def test_torchrun_opd_four_gpu_external_teacher_objective_telemetry_exact_resume_gate(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    if os.environ.get("SHAFT_RUN_OPD_FOUR_GPU_GATE") != "1":
+        pytest.skip("Set SHAFT_RUN_OPD_FOUR_GPU_GATE=1 for the four-GPU OPD gate.")
+    world_size = 4
+    if torch.cuda.device_count() < world_size:
+        pytest.skip("The OPD four-GPU gate requires four visible CUDA devices.")
+
+    service_dir = tmp_path / "external-teacher-service"
+    service_dir.mkdir()
+    service_config = write_opd_config(
+        service_dir,
+        train_steps=1,
+        train_size=2,
+        use_cpu=True,
+    )
+    service_port = _reserve_loopback_port()
+    service_log_path = tmp_path / "external-teacher-service.log"
+    service_log = service_log_path.open("w", encoding="utf-8")
+    service = subprocess.Popen(
+        [
+            sys.executable,
+            "scripts/serve_opd_teacher.py",
+            "--config",
+            str(service_config),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(service_port),
+        ],
+        cwd=repo_root,
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "1"},
+        text=True,
+        stdout=service_log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        identity = None
+        deadline = time.monotonic() + 120
+        while identity is None:
+            if service.poll() is not None:
+                service_log.flush()
+                raise AssertionError(
+                    "OPD external teacher service exited during startup.\n"
+                    + service_log_path.read_text(encoding="utf-8")
+                )
+            try:
+                with urlopen(  # noqa: S310 - loopback integration service
+                    f"http://127.0.0.1:{service_port}/v1/identity",
+                    timeout=2,
+                ) as response:
+                    if response.status == 200:
+                        identity = json.loads(response.read().decode("utf-8"))
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                raise AssertionError("OPD external teacher did not start within 120s.")
+            if identity is None:
+                time.sleep(0.2)
+
+        train_dir = tmp_path / "four-gpu-external"
+        train_dir.mkdir()
+        config_path = write_opd_config(
+            train_dir,
+            train_steps=2,
+            save_steps=1,
+            save_final_model=True,
+            do_sample=True,
+            train_size=4 * world_size,
+            gradient_accumulation_steps=2,
+            use_cpu=False,
+            distributed_strategy="ddp",
+        )
+        payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        payload["train"]["full_determinism"] = True
+        payload["train"]["efficiency"]["enabled"] = True
+        payload["opd"]["teacher"]["provider"] = "http"
+        payload["opd"]["teacher"]["remote"] = {
+            "endpoint": f"http://127.0.0.1:{service_port}",
+            "artifact_fingerprint": identity["artifact_fingerprint"],
+            "request_timeout_seconds": 120.0,
+            "max_request_bytes": 16 * 1024 * 1024,
+            "max_response_bytes": 16 * 1024 * 1024,
+        }
+        payload["opd"]["objective"] = {
+            "mode": "topk_tail",
+            "divergence": "reverse_kl",
+            "temperature": 1.0,
+            "top_k": 3,
+            "token_chunk_size": 1,
+        }
+        config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = ",".join(str(index) for index in range(world_size))
+        env["OMP_NUM_THREADS"] = "1"
+
+        def run(path: Path, probe_path: Path) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "torch.distributed.run",
+                    "--standalone",
+                    "--nnodes=1",
+                    f"--nproc_per_node={world_size}",
+                    "tests/support/distributed_opd_train.py",
+                    str(path),
+                    str(probe_path),
+                ],
+                cwd=repo_root,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=600,
+                check=False,
+            )
+
+        fresh_probe = tmp_path / "external-fresh-probe.json"
+        fresh = run(config_path, fresh_probe)
+        _assert_torchrun_succeeded(fresh)
+        fresh_output = Path(payload["experiment"]["output_dir"])
+        fresh_checkpoint_one = fresh_output / "checkpoint-1"
+        fresh_checkpoint_two = fresh_output / "checkpoint-2"
+        validate_training_checkpoint_commit(fresh_checkpoint_two)
+
+        resumed_payload = copy.deepcopy(payload)
+        resumed_output = tmp_path / "four-gpu-external-resumed"
+        resumed_payload["experiment"]["output_dir"] = str(resumed_output)
+        resumed_payload["train"]["resume_from_checkpoint"] = str(fresh_checkpoint_one)
+        resumed_config = tmp_path / "four-gpu-external-resumed.yaml"
+        resumed_config.write_text(
+            yaml.safe_dump(resumed_payload, sort_keys=False),
+            encoding="utf-8",
+        )
+        resumed_probe = tmp_path / "external-resumed-probe.json"
+        resumed = run(resumed_config, resumed_probe)
+        _assert_torchrun_succeeded(resumed)
+        resumed_checkpoint_two = resumed_output / "checkpoint-2"
+        validate_training_checkpoint_commit(resumed_checkpoint_two)
+
+        expected_probe = {
+            "all_ranks_student_changed": True,
+            "all_ranks_teacher_unchanged": True,
+            "teacher_model_loaded": False,
+            "teacher_provider": "http",
+            "world_size": world_size,
+        }
+        fresh_probe_payload = json.loads(fresh_probe.read_text(encoding="utf-8"))
+        resumed_probe_payload = json.loads(resumed_probe.read_text(encoding="utf-8"))
+        for probe_payload in (fresh_probe_payload, resumed_probe_payload):
+            assert {
+                key: probe_payload[key] for key in expected_probe
+            } == expected_probe
+            assert probe_payload["minimum_rank_student_max_abs_delta"] > 1e-8
+            assert len(probe_payload["rank_traces"]) == world_size
+        for fresh_trace, resumed_trace in zip(
+            fresh_probe_payload["rank_traces"],
+            resumed_probe_payload["rank_traces"],
+            strict=True,
+        ):
+            fresh_rollout_tail = [
+                entry
+                for entry in fresh_trace["rollout"]
+                if entry["model_version"] == 1
+            ]
+            assert fresh_rollout_tail == resumed_trace["rollout"]
+            fresh_request_ids = {
+                tuple(entry["request_ids"])
+                for entry in fresh_rollout_tail
+            }
+            assert [
+                entry
+                for entry in fresh_trace["teacher"]
+                if tuple(entry["request_ids"]) in fresh_request_ids
+            ] == resumed_trace["teacher"]
+
+        fresh_weights = load_file(str(fresh_checkpoint_two / "model.safetensors"))
+        resumed_weights = load_file(str(resumed_checkpoint_two / "model.safetensors"))
+        assert fresh_weights.keys() == resumed_weights.keys()
+        for name in fresh_weights:
+            torch.testing.assert_close(
+                fresh_weights[name],
+                resumed_weights[name],
+                rtol=0,
+                atol=2e-10,
+                msg=name,
+            )
+        for filename in ("optimizer.pt", "scheduler.pt"):
+            _assert_nested_state_close(
+                torch.load(fresh_checkpoint_two / filename, map_location="cpu", weights_only=True),
+                torch.load(
+                    resumed_checkpoint_two / filename,
+                    map_location="cpu",
+                    weights_only=True,
+                ),
+                atol=2e-10,
+            )
+        fresh_rng = sorted(fresh_checkpoint_two.glob("rng_state*.pth"))
+        resumed_rng = sorted(resumed_checkpoint_two.glob("rng_state*.pth"))
+        assert [path.name for path in fresh_rng] == [path.name for path in resumed_rng]
+        assert len(fresh_rng) == world_size
+        for fresh_path, resumed_path in zip(fresh_rng, resumed_rng, strict=True):
+            _assert_nested_state_equal(
+                torch.load(fresh_path, map_location="cpu", weights_only=False),
+                torch.load(resumed_path, map_location="cpu", weights_only=False),
+            )
+
+        for output_dir in (fresh_output, resumed_output):
+            telemetry = json.loads(
+                (output_dir / "shaft_opd_telemetry.json").read_text(encoding="utf-8")
+            )
+            assert telemetry["world_size"] == world_size
+            assert telemetry["contract"]["teacher_provider"] == "http"
+            assert telemetry["contract"]["objective_mode"] == "topk_tail"
+            assert len(telemetry["rank_frames"]) == world_size
+            assert all(
+                [frame["global_step"] for frame in rank_frames] == [1, 2]
+                for rank_frames in telemetry["rank_frames"]
+            )
+            assert all(
+                frame["update_applied"]
+                and frame["completion_tokens"] > 0
+                and frame["topk_teacher_elements"] > 0
+                and frame["dense_teacher_elements"] == 0
+                and frame["teacher_request_bytes"] > 0
+                and frame["teacher_response_bytes"] > 0
+                and frame["device_optimizer_frame_seconds"] is not None
+                for rank_frames in telemetry["rank_frames"]
+                for frame in rank_frames
+            )
+            progress = json.loads(
+                (output_dir / PROGRESS_SNAPSHOT_FILENAME).read_text(encoding="utf-8")
+            )
+            assert progress["status"] == "succeeded"
+            assert progress["tasks"]["train"]["current"] == 2
+    finally:
+        _terminate_process_groups([service])
+        service_log.close()
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("distributed_strategy", ["fsdp", "deepspeed"])
+def test_torchrun_opd_backend_native_exact_resume_gate(
+    tmp_path: Path,
+    repo_root: Path,
+    distributed_strategy: str,
+) -> None:
+    if os.environ.get("SHAFT_RUN_OPD_SHARDED_GATE") != "1":
+        pytest.skip("Set SHAFT_RUN_OPD_SHARDED_GATE=1 for the OPD sharded gate.")
+    world_size = int(os.environ.get("SHAFT_OPD_SHARDED_WORLD_SIZE", "2"))
+    if world_size < 2:
+        raise ValueError("SHAFT_OPD_SHARDED_WORLD_SIZE must be >= 2.")
+    if torch.cuda.device_count() < world_size:
+        pytest.skip(
+            f"The OPD sharded gate requires {world_size} visible CUDA devices."
+        )
+
+    config_path = write_opd_config(
+        tmp_path,
+        train_steps=2,
+        save_steps=1,
+        save_final_model=True,
+        do_sample=True,
+        train_size=max(8, 2 * world_size),
+        use_cpu=False,
+        distributed_strategy=distributed_strategy,
+    )
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    payload["train"]["efficiency"]["enabled"] = True
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ",".join(str(index) for index in range(world_size))
+    env["OMP_NUM_THREADS"] = "1"
+
+    def run(path: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "torch.distributed.run",
+                "--standalone",
+                "--nnodes=1",
+                f"--nproc_per_node={world_size}",
+                "scripts/train.py",
+                "opd",
+                "--config",
+                str(path),
+            ],
+            cwd=repo_root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=300,
+            check=False,
+        )
+
+    fresh = run(config_path)
+    _assert_torchrun_succeeded(fresh)
+    fresh_output = Path(payload["experiment"]["output_dir"])
+    checkpoint_one = fresh_output / "checkpoint-1"
+    checkpoint_two = fresh_output / "checkpoint-2"
+    assert resolve_resume_checkpoint(
+        checkpoint_two,
+        protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        finetune_mode="full",
+    ) == str(checkpoint_two.resolve())
+
+    resumed_payload = dict(payload)
+    resumed_payload["experiment"] = dict(payload["experiment"])
+    resumed_payload["train"] = dict(payload["train"])
+    resumed_output = tmp_path / f"opd-{distributed_strategy}-resumed"
+    resumed_payload["experiment"]["output_dir"] = str(resumed_output)
+    resumed_payload["train"]["resume_from_checkpoint"] = str(checkpoint_one)
+    resumed_config = tmp_path / f"opd-{distributed_strategy}-resumed.yaml"
+    resumed_config.write_text(
+        yaml.safe_dump(resumed_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+    resumed = run(resumed_config)
+    _assert_torchrun_succeeded(resumed)
+    resumed_checkpoint = resumed_output / "checkpoint-2"
+    assert resolve_resume_checkpoint(
+        resumed_checkpoint,
+        protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        finetune_mode="full",
+    ) == str(resumed_checkpoint.resolve())
+
+    fresh_weights = load_file(str(fresh_output / "best" / "model.safetensors"))
+    resumed_weights = load_file(str(resumed_output / "best" / "model.safetensors"))
+    assert fresh_weights.keys() == resumed_weights.keys()
+    for name in fresh_weights:
+        assert torch.equal(fresh_weights[name], resumed_weights[name]), name
+    telemetry = json.loads(
+        (resumed_output / "shaft_opd_telemetry.json").read_text(encoding="utf-8")
+    )
+    assert telemetry["world_size"] == world_size
+    assert len(telemetry["rank_frames"]) == world_size
+    assert all(
+        [frame["global_step"] for frame in rank_frames] == [1, 2]
+        for rank_frames in telemetry["rank_frames"]
+    )
+    assert all(
+        frame["update_applied"]
+        and frame["completion_tokens"] > 0
+        and frame["device_optimizer_frame_seconds"] is not None
+        for rank_frames in telemetry["rank_frames"]
+        for frame in rank_frames
+    )
 
 @pytest.mark.parametrize("mode", ["missing", "corrupt"])
 def test_efficiency_resume_discards_asymmetric_rank_snapshots_without_hanging(
@@ -1501,5 +1919,35 @@ def _assert_nested_state_equal(expected, actual) -> None:
         assert len(expected) == len(actual)
         for expected_item, actual_item in zip(expected, actual, strict=True):
             _assert_nested_state_equal(expected_item, actual_item)
+        return
+    assert expected == actual
+
+
+def _assert_nested_state_close(expected, actual, *, atol: float) -> None:
+    if isinstance(expected, torch.Tensor):
+        assert isinstance(actual, torch.Tensor)
+        if expected.dtype.is_floating_point:
+            torch.testing.assert_close(expected, actual, rtol=0, atol=atol)
+        else:
+            assert torch.equal(expected, actual)
+        return
+    if isinstance(expected, np.ndarray):
+        assert isinstance(actual, np.ndarray)
+        if np.issubdtype(expected.dtype, np.floating):
+            np.testing.assert_allclose(expected, actual, rtol=0, atol=atol)
+        else:
+            assert np.array_equal(expected, actual)
+        return
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict)
+        assert expected.keys() == actual.keys()
+        for key in expected:
+            _assert_nested_state_close(expected[key], actual[key], atol=atol)
+        return
+    if isinstance(expected, (list, tuple)):
+        assert type(expected) is type(actual)
+        assert len(expected) == len(actual)
+        for expected_item, actual_item in zip(expected, actual, strict=True):
+            _assert_nested_state_close(expected_item, actual_item, atol=atol)
         return
     assert expected == actual

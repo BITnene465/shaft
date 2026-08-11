@@ -22,6 +22,15 @@ def _dedupe_non_empty(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
 
 
+_CORE_SEQUENCE_INPUT_NAMES = (
+    "input_ids",
+    "attention_mask",
+    "labels",
+    "loss_scale",
+    "completion_mask",
+)
+
+
 def _matches_group_prefix(name: str, prefix: str) -> bool:
     normalized_name = str(name).strip()
     normalized_prefix = str(prefix).strip()
@@ -123,8 +132,7 @@ class ProcessorInputPolicy:
         if normalized == "generation":
             return self.generation_padding_side
         raise ValueError(
-            f"Unsupported processor input_mode={input_mode!r}; expected 'training' or "
-            "'generation'."
+            f"Unsupported processor input_mode={input_mode!r}; expected 'training' or 'generation'."
         )
 
 
@@ -184,6 +192,7 @@ class ModelModuleGroups:
 @dataclass(frozen=True)
 class ShaftProcessorTokenLayout:
     processed_boundaries: tuple[int, ...]
+    protected_processed_spans: tuple[tuple[int, int], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.processed_boundaries or self.processed_boundaries[0] != 0:
@@ -196,6 +205,18 @@ class ShaftProcessorTokenLayout:
             )
         ):
             raise ValueError("processed_boundaries must be strictly increasing.")
+        normalized_spans: list[tuple[int, int]] = []
+        previous_stop = 0
+        for raw_start, raw_stop in self.protected_processed_spans:
+            start = int(raw_start)
+            stop = int(raw_stop)
+            if start < 0 or stop <= start or stop > self.processed_token_count:
+                raise ValueError("Protected processor spans must lie inside the token layout.")
+            if normalized_spans and start < previous_stop:
+                raise ValueError("Protected processor spans must be ordered and non-overlapping.")
+            normalized_spans.append((start, stop))
+            previous_stop = stop
+        object.__setattr__(self, "protected_processed_spans", tuple(normalized_spans))
 
     @property
     def rendered_token_count(self) -> int:
@@ -209,6 +230,11 @@ class ShaftProcessorTokenLayout:
         if start < 0 or end <= start or end > self.rendered_token_count:
             raise ValueError(f"Invalid rendered token span: {(start, end)!r}.")
         return self.processed_boundaries[start], self.processed_boundaries[end]
+
+    def intersects_protected_span(self, start: int, stop: int) -> bool:
+        if start < 0 or stop <= start or stop > self.processed_token_count:
+            raise ValueError(f"Invalid processed token span: {(start, stop)!r}.")
+        return any(start < protected_stop and stop > protected_start for protected_start, protected_stop in self.protected_processed_spans)
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,32 +303,319 @@ class ShaftProcessorMediaManifest:
             raise ValueError("Processor image-patch slices do not cover image_patch_count.")
 
 
+@dataclass(frozen=True, slots=True)
+class ShaftProcessorSequenceField:
+    """Model-owned layout for one processor output aligned to prompt tokens.
+
+    ``sequence_axis`` is expressed on the batched processor tensor.  The common
+    collation path never needs to know the field name or tensor rank.
+    """
+
+    name: str
+    sequence_axis: int = 1
+    padding_value: int | float | bool = 0
+    continuation_value: int | float | bool | None = None
+
+    def __post_init__(self) -> None:
+        name = str(self.name).strip()
+        if not name:
+            raise ValueError("Processor sequence field names must not be empty.")
+        if name in {
+            "input_ids",
+            "attention_mask",
+            "labels",
+            "loss_scale",
+            "completion_mask",
+        }:
+            raise ValueError(f"Processor sequence field {name!r} is managed by the core.")
+        sequence_axis = int(self.sequence_axis)
+        if sequence_axis < 1:
+            raise ValueError("Processor sequence_axis must follow the batch axis.")
+        for field_name in ("padding_value", "continuation_value"):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, (bool, int, float)):
+                raise TypeError(f"{field_name} must be a scalar bool/int/float when set.")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "sequence_axis", sequence_axis)
+
+    @property
+    def row_sequence_axis(self) -> int:
+        return self.sequence_axis - 1
+
+    def extract_prompt_row(
+        self,
+        *,
+        value: Any,
+        row_index: int,
+        attention_mask: torch.Tensor,
+        batch_size: int,
+    ) -> torch.Tensor:
+        if not torch.is_tensor(value) or value.ndim <= self.sequence_axis:
+            raise ValueError(
+                f"Processor sequence field {self.name!r} must be a batched tensor with "
+                f"sequence_axis={self.sequence_axis}."
+            )
+        if int(value.shape[0]) != int(batch_size):
+            raise ValueError(
+                f"Processor sequence field {self.name!r} changed batch cardinality."
+            )
+        if int(value.shape[self.sequence_axis]) != int(attention_mask.shape[0]):
+            raise ValueError(
+                f"Processor sequence field {self.name!r} must align with attention_mask."
+            )
+        valid = torch.nonzero(attention_mask.bool(), as_tuple=False).flatten()
+        row = value[int(row_index)]
+        return row.index_select(self.row_sequence_axis, valid.to(device=row.device))
+
+    def select_and_extend(
+        self,
+        row: torch.Tensor,
+        *,
+        prefix_indices: tuple[int, ...],
+        continuation_length: int,
+    ) -> torch.Tensor:
+        continuation_length = int(continuation_length)
+        if continuation_length < 0:
+            raise ValueError("Processor sequence continuation_length must be >= 0.")
+        indices = torch.tensor(prefix_indices, dtype=torch.long, device=row.device)
+        selected = row.index_select(self.row_sequence_axis, indices)
+        if continuation_length == 0:
+            return selected
+        if self.continuation_value is None:
+            raise ValueError(
+                f"Processor sequence field {self.name!r} requires an explicit continuation rule."
+            )
+        extension_shape = list(selected.shape)
+        extension_shape[self.row_sequence_axis] = continuation_length
+        extension = torch.full(
+            extension_shape,
+            self.continuation_value,
+            dtype=selected.dtype,
+            device=selected.device,
+        )
+        return torch.cat((selected, extension), dim=self.row_sequence_axis)
+
+    def extend_batch(self, value: torch.Tensor, *, continuation_length: int) -> torch.Tensor:
+        if not torch.is_tensor(value) or value.ndim <= self.sequence_axis:
+            raise ValueError(
+                f"Processor sequence field {self.name!r} has an invalid batched tensor."
+            )
+        continuation_length = int(continuation_length)
+        if continuation_length <= 0:
+            raise ValueError("Processor sequence continuation_length must be positive.")
+        if self.continuation_value is None:
+            raise ValueError(
+                f"Processor sequence field {self.name!r} requires an explicit continuation rule."
+            )
+        extension_shape = list(value.shape)
+        extension_shape[self.sequence_axis] = continuation_length
+        extension = torch.full(
+            extension_shape,
+            self.continuation_value,
+            dtype=value.dtype,
+            device=value.device,
+        )
+        return torch.cat((value, extension), dim=self.sequence_axis)
+
+    def collate_rows(
+        self,
+        rows: list[torch.Tensor],
+        *,
+        layout: str,
+        padding_side: str,
+    ) -> torch.Tensor:
+        if not rows:
+            raise ValueError(f"Processor sequence field {self.name!r} has no rows.")
+        reference_shape = list(rows[0].shape)
+        axis = self.row_sequence_axis
+        if len(reference_shape) <= axis:
+            raise ValueError(f"Processor sequence field {self.name!r} row rank is invalid.")
+        for row in rows:
+            if not torch.is_tensor(row) or row.ndim != len(reference_shape):
+                raise ValueError(
+                    f"Processor sequence field {self.name!r} rows must share one tensor rank."
+                )
+            shape = list(row.shape)
+            if any(
+                shape[index] != reference_shape[index]
+                for index in range(len(shape))
+                if index != axis
+            ):
+                raise ValueError(
+                    f"Processor sequence field {self.name!r} rows changed non-sequence axes."
+                )
+        normalized_layout = str(layout).strip().lower()
+        if normalized_layout == "varlen":
+            return torch.cat(rows, dim=axis).unsqueeze(0)
+        if normalized_layout != "padded":
+            raise ValueError(f"Unsupported processor sequence layout: {layout!r}.")
+        normalized_padding_side = str(padding_side).strip().lower()
+        if normalized_padding_side not in {"left", "right"}:
+            raise ValueError("padding_side must be 'left' or 'right'.")
+        max_length = max(int(row.shape[axis]) for row in rows)
+        padded: list[torch.Tensor] = []
+        for row in rows:
+            missing = max_length - int(row.shape[axis])
+            if missing <= 0:
+                padded.append(row)
+                continue
+            pad_shape = list(row.shape)
+            pad_shape[axis] = missing
+            pad = torch.full(
+                pad_shape,
+                self.padding_value,
+                dtype=row.dtype,
+                device=row.device,
+            )
+            parts = (pad, row) if normalized_padding_side == "left" else (row, pad)
+            padded.append(torch.cat(parts, dim=axis))
+        return torch.stack(padded, dim=0)
+
+
 @dataclass(frozen=True)
 class ShaftProcessedBatch:
     model_inputs: dict[str, Any]
     batch_size: int
     media_manifest: ShaftProcessorMediaManifest | None = None
+    processor_sequence_fields: tuple[ShaftProcessorSequenceField, ...] = ()
 
     def __post_init__(self) -> None:
         if self.batch_size <= 0:
             raise ValueError("ShaftProcessedBatch.batch_size must be positive.")
         if "input_ids" not in self.model_inputs or "attention_mask" not in self.model_inputs:
-            raise ValueError(
-                "ShaftProcessedBatch requires processor input_ids and attention_mask."
-            )
+            raise ValueError("ShaftProcessedBatch requires processor input_ids and attention_mask.")
         for key in ("input_ids", "attention_mask"):
             value = self.model_inputs[key]
             if not torch.is_tensor(value) or value.ndim < 2:
                 raise ValueError(f"Processor output {key!r} must be a batched tensor.")
             if int(value.shape[0]) != self.batch_size:
-                raise ValueError(
-                    f"Processor output {key!r} batch axis does not match batch_size."
-                )
+                raise ValueError(f"Processor output {key!r} batch axis does not match batch_size.")
         if self.media_manifest is not None:
             if len(self.media_manifest.segments) != self.batch_size:
                 raise ValueError(
                     "Processor media manifest must contain one segment per processor row."
                 )
+        fields = tuple(self.processor_sequence_fields)
+        names = tuple(field.name for field in fields)
+        if len(names) != len(set(names)):
+            raise ValueError("Processor sequence field names must be unique.")
+        attention_mask = self.model_inputs["attention_mask"]
+        for sequence_field in fields:
+            if sequence_field.name not in self.model_inputs:
+                raise ValueError(
+                    f"Declared processor sequence field {sequence_field.name!r} is missing."
+                )
+            for row_index in range(self.batch_size):
+                sequence_field.extract_prompt_row(
+                    value=self.model_inputs[sequence_field.name],
+                    row_index=row_index,
+                    attention_mask=attention_mask[row_index],
+                    batch_size=self.batch_size,
+                )
+        object.__setattr__(self, "processor_sequence_fields", fields)
+
+    def build_processor_sequence_row(
+        self,
+        *,
+        row_index: int,
+        prefix_indices: tuple[int, ...],
+        continuation_length: int,
+    ) -> dict[str, torch.Tensor]:
+        if row_index < 0 or row_index >= self.batch_size:
+            raise ValueError("Processor sequence row_index is out of range.")
+        attention_mask = self.model_inputs["attention_mask"][row_index]
+        prompt_length = int(attention_mask.sum().item())
+        if any(index < 0 or index >= prompt_length for index in prefix_indices):
+            raise ValueError("Processor sequence prefix_indices are out of range.")
+        output: dict[str, torch.Tensor] = {}
+        for sequence_field in self.processor_sequence_fields:
+            prompt_row = sequence_field.extract_prompt_row(
+                value=self.model_inputs[sequence_field.name],
+                row_index=row_index,
+                attention_mask=attention_mask,
+                batch_size=self.batch_size,
+            )
+            output[sequence_field.name] = sequence_field.select_and_extend(
+                prompt_row,
+                prefix_indices=prefix_indices,
+                continuation_length=continuation_length,
+            )
+        return output
+
+    def collate_processor_sequence_rows(
+        self,
+        rows: list[dict[str, torch.Tensor]],
+        *,
+        layout: str,
+        padding_side: str,
+    ) -> dict[str, torch.Tensor]:
+        if not self.processor_sequence_fields:
+            if any(rows):
+                raise ValueError("Processor sequence rows were provided without field declarations.")
+            return {}
+        expected_names = {field.name for field in self.processor_sequence_fields}
+        for row in rows:
+            if set(row) != expected_names:
+                raise ValueError(
+                    "Processor sequence rows must contain every declared field exactly once."
+                )
+        return {
+            field.name: field.collate_rows(
+                [row[field.name] for row in rows],
+                layout=layout,
+                padding_side=padding_side,
+            )
+            for field in self.processor_sequence_fields
+        }
+
+
+@dataclass(frozen=True)
+class ShaftRolloutScoringPlan:
+    """Model inputs plus the exact full-sequence span represented by output logits."""
+
+    model_inputs: dict[str, Any]
+    sequence_length: int
+    logit_start: int
+    logit_count: int
+
+    def __post_init__(self) -> None:
+        sequence_length = int(self.sequence_length)
+        logit_start = int(self.logit_start)
+        logit_count = int(self.logit_count)
+        if sequence_length <= 1:
+            raise ValueError("Rollout scoring requires a sequence with at least two tokens.")
+        if logit_start < 0 or logit_count <= 1:
+            raise ValueError(
+                "Rollout scoring logit span must be non-empty and causally shiftable."
+            )
+        if logit_start + logit_count != sequence_length:
+            raise ValueError("Rollout scoring logits must represent an exact sequence tail.")
+        object.__setattr__(self, "sequence_length", sequence_length)
+        object.__setattr__(self, "logit_start", logit_start)
+        object.__setattr__(self, "logit_count", logit_count)
+
+    def align_completion_mask(
+        self,
+        completion_mask: torch.Tensor,
+        *,
+        logits: torch.Tensor,
+    ) -> torch.Tensor:
+        if not torch.is_tensor(completion_mask) or completion_mask.ndim != 2:
+            raise TypeError("Rollout completion_mask must be a 2-D tensor.")
+        if int(completion_mask.shape[1]) != self.sequence_length:
+            raise ValueError("Rollout completion_mask does not match the full scoring sequence.")
+        if not torch.is_tensor(logits) or logits.ndim != 3:
+            raise TypeError(
+                "Rollout model logits must have shape [batch, sequence, vocabulary]."
+            )
+        if int(logits.shape[0]) != int(completion_mask.shape[0]):
+            raise ValueError("Rollout model logits changed batch cardinality.")
+        if int(logits.shape[1]) != self.logit_count:
+            raise ValueError(
+                "Model did not honor its declared rollout logit-tail contract: "
+                f"expected={self.logit_count}, actual={int(logits.shape[1])}."
+            )
+        return completion_mask[:, self.logit_start :]
 
 
 @dataclass(frozen=True)
@@ -313,18 +626,8 @@ class ProcessorPolicy:
     sample_aligned_model_input_names: tuple[str, ...] = ()
     whole_batch_model_input_names: tuple[str, ...] = ()
     static_model_input_names: tuple[str, ...] = ()
-    assembled_sequence_input_names: tuple[str, ...] = (
-        "input_ids",
-        "attention_mask",
-        "mm_token_type_ids",
-        "labels",
-        "loss_scale",
-        "completion_mask",
-    )
-    unsupported_sequence_input_names: tuple[str, ...] = (
-        "position_ids",
-        "token_type_ids",
-    )
+    processor_sequence_fields: tuple[ShaftProcessorSequenceField, ...] = ()
+    rollout_tail_logits_input_name: str | None = None
 
     def prepare_rollout_image(
         self,
@@ -343,14 +646,40 @@ class ProcessorPolicy:
             "sample_aligned_model_input_names",
             "whole_batch_model_input_names",
             "static_model_input_names",
-            "assembled_sequence_input_names",
-            "unsupported_sequence_input_names",
         )
         for field_name in field_names:
             object.__setattr__(self, field_name, _dedupe_non_empty(getattr(self, field_name)))
+        processor_sequence_fields = tuple(self.processor_sequence_fields)
+        sequence_names = tuple(field.name for field in processor_sequence_fields)
+        if len(sequence_names) != len(set(sequence_names)):
+            raise ValueError("Processor sequence field names must be unique.")
+        if not all(
+            isinstance(field, ShaftProcessorSequenceField)
+            for field in processor_sequence_fields
+        ):
+            raise TypeError(
+                "processor_sequence_fields must contain ShaftProcessorSequenceField values."
+            )
+        object.__setattr__(
+            self,
+            "processor_sequence_fields",
+            processor_sequence_fields,
+        )
+        tail_logits_input_name = (
+            None
+            if self.rollout_tail_logits_input_name is None
+            else str(self.rollout_tail_logits_input_name).strip()
+        )
+        if tail_logits_input_name == "":
+            raise ValueError("rollout_tail_logits_input_name must be non-empty when set.")
+        object.__setattr__(
+            self,
+            "rollout_tail_logits_input_name",
+            tail_logits_input_name,
+        )
 
         declared_layouts: dict[str, str] = {}
-        for field_name in field_names[:3]:
+        for field_name in field_names:
             for input_name in getattr(self, field_name):
                 previous = declared_layouts.setdefault(input_name, field_name)
                 if previous != field_name:
@@ -358,15 +687,93 @@ class ProcessorPolicy:
                         f"Processor model input {input_name!r} is declared by both "
                         f"{previous!r} and {field_name!r}."
                     )
-        sequence_names = set(self.assembled_sequence_input_names) | set(
-            self.unsupported_sequence_input_names
-        )
-        overlap = sorted(sequence_names & declared_layouts.keys())
+        overlap = sorted(set(sequence_names) & declared_layouts.keys())
         if overlap:
             raise ValueError(
                 "Processor model inputs cannot be both sequence-aligned and non-sequence: "
                 f"{overlap}."
             )
+
+    @property
+    def assembled_sequence_input_names(self) -> tuple[str, ...]:
+        return (*_CORE_SEQUENCE_INPUT_NAMES, *(field.name for field in self.processor_sequence_fields))
+
+    def build_rollout_scoring_plan(
+        self,
+        *,
+        prompt_inputs: dict[str, Any],
+        sequences: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> ShaftRolloutScoringPlan:
+        """Extend model-family sequence fields from a prompt to its rollout."""
+
+        prompt_ids = prompt_inputs.get("input_ids")
+        prompt_mask = prompt_inputs.get("attention_mask")
+        for name, value in (
+            ("input_ids", prompt_ids),
+            ("attention_mask", prompt_mask),
+            ("sequences", sequences),
+        ):
+            if not torch.is_tensor(value) or value.ndim != 2:
+                raise TypeError(f"OPD rollout {name} must be a 2-D tensor.")
+        assert torch.is_tensor(prompt_ids)
+        assert torch.is_tensor(prompt_mask)
+        if tuple(prompt_ids.shape) != tuple(prompt_mask.shape):
+            raise ValueError("OPD prompt input_ids and attention_mask shapes must match.")
+        if int(sequences.shape[0]) != int(prompt_ids.shape[0]):
+            raise ValueError("OPD scoring sequences changed prompt batch cardinality.")
+        completion_width = int(sequences.shape[1]) - int(prompt_ids.shape[1])
+        if completion_width <= 0:
+            raise ValueError("OPD scoring inputs require a non-empty completion.")
+        if tuple(attention_mask.shape) != tuple(sequences.shape):
+            raise ValueError("OPD full attention_mask must align with scoring sequences.")
+
+        sequence_fields = {field.name: field for field in self.processor_sequence_fields}
+        declared_non_sequence = {
+            *self.sample_aligned_model_input_names,
+            *self.whole_batch_model_input_names,
+            *self.static_model_input_names,
+        }
+        output: dict[str, Any] = {}
+        for name, value in prompt_inputs.items():
+            if name in _CORE_SEQUENCE_INPUT_NAMES:
+                continue
+            sequence_field = sequence_fields.get(name)
+            if sequence_field is None:
+                if name not in declared_non_sequence and name not in {"use_cache"}:
+                    raise ValueError(
+                        f"Processor policy does not declare the layout of model input {name!r}."
+                    )
+                output[name] = value
+                continue
+            if not torch.is_tensor(value) or value.ndim <= sequence_field.sequence_axis:
+                raise TypeError(f"OPD rollout sequence input {name!r} has an invalid tensor rank.")
+            if int(value.shape[0]) != int(prompt_ids.shape[0]) or int(
+                value.shape[sequence_field.sequence_axis]
+            ) != int(prompt_ids.shape[1]):
+                raise ValueError(f"OPD rollout sequence input {name!r} must align with the prompt.")
+            output[name] = sequence_field.extend_batch(
+                value,
+                continuation_length=completion_width,
+            )
+        output.update(
+            {
+                "input_ids": sequences,
+                "attention_mask": attention_mask,
+                "use_cache": False,
+            }
+        )
+        sequence_length = int(sequences.shape[1])
+        logit_count = sequence_length
+        if self.rollout_tail_logits_input_name is not None:
+            logit_count = completion_width + 1
+            output[self.rollout_tail_logits_input_name] = logit_count
+        return ShaftRolloutScoringPlan(
+            model_inputs=output,
+            sequence_length=sequence_length,
+            logit_start=sequence_length - logit_count,
+            logit_count=logit_count,
+        )
 
     def build_batch(
         self,
@@ -411,9 +818,15 @@ class ProcessorPolicy:
             padding_side=self.input_policy.resolve_padding_side(input_mode),
         ):
             outputs = processor(**kwargs)
+        model_inputs = dict(outputs)
         return ShaftProcessedBatch(
-            model_inputs=dict(outputs),
+            model_inputs=model_inputs,
             batch_size=len(prompt_texts),
+            processor_sequence_fields=tuple(
+                field
+                for field in self.processor_sequence_fields
+                if field.name in model_inputs
+            ),
         )
 
     def estimate_image_cost(
@@ -508,17 +921,30 @@ class ProcessorPolicy:
             raise ValueError("row_indices must not be empty.")
         if any(index < 0 or index >= processed_batch.batch_size for index in row_indices):
             raise ValueError("row_indices contains an out-of-range processor batch row.")
-        missing_sequence_inputs = [
-            key
-            for key in self.unsupported_sequence_input_names
-            if key in processed_batch.model_inputs and key not in sequence_inputs
-        ]
+        policy_sequence_names = {field.name for field in self.processor_sequence_fields}
+        batch_sequence_names = {
+            field.name for field in processed_batch.processor_sequence_fields
+        }
+        raw_sequence_names = policy_sequence_names & processed_batch.model_inputs.keys()
+        if raw_sequence_names != batch_sequence_names:
+            raise ValueError(
+                "Processor sequence outputs must be carried by the processed-batch sequence "
+                "contract."
+            )
+        missing_sequence_inputs = sorted(batch_sequence_names - sequence_inputs.keys())
         if missing_sequence_inputs:
             raise ValueError(
-                "Processor policy must explicitly assemble sequence-aligned model inputs: "
+                "Collation omitted processor sequence fields declared by the processed batch: "
                 f"{missing_sequence_inputs}."
             )
-
+        unknown_sequence_inputs = sorted(
+            set(sequence_inputs) - set(_CORE_SEQUENCE_INPUT_NAMES) - batch_sequence_names
+        )
+        if unknown_sequence_inputs:
+            raise ValueError(
+                "Collation produced sequence fields outside the processor policy: "
+                f"{unknown_sequence_inputs}."
+            )
         assembled: dict[str, Any] = {}
         for key, value in processed_batch.model_inputs.items():
             if key in self.assembled_sequence_input_names or key in sequence_inputs:
@@ -614,6 +1040,7 @@ class ProcessorPolicy:
         canonical_token_ids: list[int],
         processed_boundaries: tuple[int, ...],
         processed_token_count: int,
+        protected_processed_spans: tuple[tuple[int, int], ...] = (),
     ) -> ShaftProcessorTokenLayout:
         if tuple(canonical_token_ids) != rendered_token_ids:
             raise ValueError(
@@ -628,7 +1055,10 @@ class ProcessorPolicy:
             )
         if processed_boundaries[-1] != int(processed_token_count):
             raise ValueError("Processor token layout does not cover the full processed token row.")
-        return ShaftProcessorTokenLayout(processed_boundaries)
+        return ShaftProcessorTokenLayout(
+            processed_boundaries,
+            protected_processed_spans=protected_processed_spans,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -711,9 +1141,7 @@ class SequenceExecutionPolicy:
             torch_dtype=torch_dtype,
             distributed_strategy=distributed_strategy,
             torch_compile=torch_compile,
-            capability_signature=(
-                f"{type(self).__module__}.{type(self).__qualname__}",
-            ),
+            capability_signature=(f"{type(self).__module__}.{type(self).__qualname__}",),
         )
 
     def validate_runtime(
@@ -874,17 +1302,14 @@ class ShaftAuxiliaryLossTerm:
             or self.name != normalized_name
             or self.name != self.name.lower()
         ):
-            raise ValueError(
-                "Auxiliary loss term name must be a canonical lowercase string."
-            )
+            raise ValueError("Auxiliary loss term name must be a canonical lowercase string.")
         if not torch.is_tensor(self.value) or self.value.numel() != 1:
             raise ValueError("Auxiliary loss term value must be a scalar tensor.")
         if not math.isfinite(coefficient) or coefficient < 0.0:
             raise ValueError("Auxiliary loss term coefficient must be finite and >= 0.")
         if normalized_reduction != "optimizer_frame_mean":
             raise ValueError(
-                "Unsupported auxiliary loss reduction; expected "
-                "'optimizer_frame_mean'."
+                "Unsupported auxiliary loss reduction; expected 'optimizer_frame_mean'."
             )
         object.__setattr__(self, "name", normalized_name)
         object.__setattr__(self, "coefficient", coefficient)
@@ -909,46 +1334,33 @@ class ShaftEvalAuxiliaryStatistic:
         if not normalized_name:
             raise ValueError("Eval auxiliary statistic name must not be empty.")
         if not normalized_coefficient_key:
-            raise ValueError(
-                "Eval auxiliary statistic coefficient_key must not be empty."
-            )
+            raise ValueError("Eval auxiliary statistic coefficient_key must not be empty.")
         if (
             not isinstance(self.coefficient_key, str)
             or self.coefficient_key != normalized_coefficient_key
             or self.coefficient_key != self.coefficient_key.lower()
         ):
             raise ValueError(
-                "Eval auxiliary statistic coefficient_key must be a canonical "
-                "lowercase string."
+                "Eval auxiliary statistic coefficient_key must be a canonical lowercase string."
             )
         if not math.isfinite(coefficient) or coefficient < 0.0:
-            raise ValueError(
-                "Eval auxiliary statistic coefficient must be finite and >= 0."
-            )
+            raise ValueError("Eval auxiliary statistic coefficient must be finite and >= 0.")
         normalized_components: dict[str, torch.Tensor] = {}
         batch_size: int | None = None
         for component_name, value in self.components.items():
             normalized_component_name = str(component_name).strip()
             if not normalized_component_name:
-                raise ValueError(
-                    "Eval auxiliary statistic component names must not be empty."
-                )
+                raise ValueError("Eval auxiliary statistic component names must not be empty.")
             if not torch.is_tensor(value) or value.ndim < 1:
-                raise ValueError(
-                    "Eval auxiliary statistic components must be batch-first tensors."
-                )
+                raise ValueError("Eval auxiliary statistic components must be batch-first tensors.")
             current_batch_size = int(value.shape[0])
             if batch_size is None:
                 batch_size = current_batch_size
             elif current_batch_size != batch_size:
-                raise ValueError(
-                    "Eval auxiliary statistic components must share one batch size."
-                )
+                raise ValueError("Eval auxiliary statistic components must share one batch size.")
             normalized_components[normalized_component_name] = value
         if not normalized_components:
-            raise ValueError(
-                "Eval auxiliary statistic must contain at least one component."
-            )
+            raise ValueError("Eval auxiliary statistic must contain at least one component.")
         object.__setattr__(self, "name", normalized_name)
         object.__setattr__(self, "coefficient_key", normalized_coefficient_key)
         object.__setattr__(self, "coefficient", coefficient)
@@ -980,8 +1392,7 @@ class ShaftEvalAuxiliaryMetric:
             or self.coefficient_key != self.coefficient_key.lower()
         ):
             raise ValueError(
-                "Eval auxiliary metric coefficient_key must be a canonical "
-                "lowercase string."
+                "Eval auxiliary metric coefficient_key must be a canonical lowercase string."
             )
         if not torch.is_tensor(self.value) or self.value.numel() != 1:
             raise ValueError("Eval auxiliary metric value must be a scalar tensor.")
@@ -1035,8 +1446,7 @@ class TrainingObjectivePolicy:
     ) -> tuple[ShaftEvalAuxiliaryMetric, ...]:
         if statistics:
             raise ValueError(
-                f"{type(self).__name__} does not implement eval auxiliary statistic "
-                "finalization."
+                f"{type(self).__name__} does not implement eval auxiliary statistic finalization."
             )
         return ()
 
@@ -1049,23 +1459,16 @@ def validate_auxiliary_weight_names(
 
     if model_adapter is None:
         if weights:
-            raise ValueError(
-                "SFT auxiliary loss weights require a resolved model adapter."
-            )
+            raise ValueError("SFT auxiliary loss weights require a resolved model adapter.")
         return ()
     names_resolver = getattr(model_adapter, "auxiliary_loss_names", None)
     if not callable(names_resolver):
         if weights:
-            raise TypeError(
-                "The resolved model adapter does not declare auxiliary_loss_names()."
-            )
+            raise TypeError("The resolved model adapter does not declare auxiliary_loss_names().")
         return ()
     raw_names = tuple(names_resolver())
     if any(
-        not isinstance(name, str)
-        or not name
-        or name != name.strip()
-        or name != name.lower()
+        not isinstance(name, str) or not name or name != name.strip() or name != name.lower()
         for name in raw_names
     ) or len(set(raw_names)) != len(raw_names):
         raise ValueError(
@@ -1132,7 +1535,9 @@ class ModelGroup:
         basename = normalized.rsplit("/", 1)[-1]
         return any(
             candidate == basename or candidate == normalized
-            for candidate in (str(item).strip().lower() for item in self.model_ids if str(item).strip())
+            for candidate in (
+                str(item).strip().lower() for item in self.model_ids if str(item).strip()
+            )
         )
 
 
@@ -1153,7 +1558,9 @@ class ModelMeta:
     training_objective_policy: TrainingObjectivePolicy = field(
         default_factory=TrainingObjectivePolicy
     )
-    peft_policy: PeftPolicy = field(default_factory=lambda: DefaultPeftPolicy(target_modules=["all-linear"]))
+    peft_policy: PeftPolicy = field(
+        default_factory=lambda: DefaultPeftPolicy(target_modules=["all-linear"])
+    )
     sharding_policy: ModelShardingPolicy = field(default_factory=ModelShardingPolicy)
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
@@ -1192,11 +1599,7 @@ class ModelMeta:
             str(value).strip().lower()
             for value in (
                 *self.hf_model_types,
-                *(
-                    item
-                    for group in self.model_groups
-                    for item in group.hf_model_types
-                ),
+                *(item for group in self.model_groups for item in group.hf_model_types),
             )
             if str(value).strip()
         }
@@ -1231,13 +1634,19 @@ class ModelMeta:
         resolved_template = str(template_type).strip().lower() if template_type else None
         if not resolved_template:
             resolved_template = (
-                matched.template if matched is not None and matched.template else self.default_template
+                matched.template
+                if matched is not None and matched.template
+                else self.default_template
             )
         capabilities = (
-            matched.capabilities if matched is not None and matched.capabilities is not None else self.capabilities
+            matched.capabilities
+            if matched is not None and matched.capabilities is not None
+            else self.capabilities
         )
         module_groups = (
-            matched.module_groups if matched is not None and matched.module_groups is not None else self.module_groups
+            matched.module_groups
+            if matched is not None and matched.module_groups is not None
+            else self.module_groups
         )
         processor_policy = (
             matched.processor_policy
@@ -1260,7 +1669,9 @@ class ModelMeta:
             else self.training_objective_policy
         )
         peft_policy = (
-            matched.peft_policy if matched is not None and matched.peft_policy is not None else self.peft_policy
+            matched.peft_policy
+            if matched is not None and matched.peft_policy is not None
+            else self.peft_policy
         )
         sharding_policy = (
             matched.sharding_policy
@@ -1287,9 +1698,7 @@ class ModelMeta:
             peft_policy=peft_policy,
             sharding_policy=sharding_policy,
             default_experts_implementation=(
-                None
-                if matched is None
-                else matched.default_experts_implementation
+                None if matched is None else matched.default_experts_implementation
             ),
             requires=_dedupe_non_empty(tuple(requires)),
             additional_saved_files=_dedupe_non_empty(tuple(additional_saved_files)),
@@ -1327,9 +1736,7 @@ class ModelMeta:
                 policy=adapter.inference_policy,
             )
 
-        requested_template = (
-            str(template_type).strip().lower() if template_type else None
-        )
+        requested_template = str(template_type).strip().lower() if template_type else None
         candidate_groups: tuple[ModelGroup | None, ...] = (
             tuple(self.model_groups) if self.model_groups else (None,)
         )
@@ -1568,9 +1975,7 @@ class ShaftModelAdapter:
         self,
         statistics: tuple[ShaftEvalAuxiliaryStatistic, ...],
     ) -> tuple[ShaftEvalAuxiliaryMetric, ...]:
-        return self.training_objective_policy.finalize_sft_eval_auxiliary_statistics(
-            statistics
-        )
+        return self.training_objective_policy.finalize_sft_eval_auxiliary_statistics(statistics)
 
     def build_processor_batch(
         self,
@@ -1607,6 +2012,19 @@ class ShaftModelAdapter:
             image,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
+        )
+
+    def build_rollout_scoring_plan(
+        self,
+        *,
+        prompt_inputs: dict[str, Any],
+        sequences: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> ShaftRolloutScoringPlan:
+        return self.processor_policy.build_rollout_scoring_plan(
+            prompt_inputs=prompt_inputs,
+            sequences=sequences,
+            attention_mask=attention_mask,
         )
 
     def estimate_processor_image_cost(

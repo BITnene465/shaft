@@ -1,6 +1,7 @@
 # shaft（重构中）
 
-Shaft 是一个 `HF-first` 的多模态训练与推理框架。当前主目标是把 `Qwen3VL + SFT` 主链做稳，同时保留面向 RLHF、更多模型族与推理后端的扩展骨架。
+Shaft 是一个 `HF-first` 的多模态训练与推理框架。训练入口按 `SFT / RL / OPD` 三个并列域组织；当前
+生产主线仍是 Qwen 多模态 SFT，RL 与 on-policy distillation 按各自能力门禁逐步验收。
 
 ## 快速开始
 
@@ -8,7 +9,7 @@ Shaft 是一个 `HF-first` 的多模态训练与推理框架。当前主目标�
 uv venv --python 3.11 --prompt shaft
 source .venv/bin/activate
 uv pip install -e .
-python scripts/train.py sft --config configs/train/banana_sft_4b.yaml
+python scripts/train.py sft --config configs/train/sft_4b.yaml
 ```
 
 按用途安装扩展依赖：
@@ -35,11 +36,22 @@ uv pip install -e ".[serve]"
 ### 训练
 
 ```bash
-python scripts/train.py sft --config configs/train/banana_sft_4b.yaml
-python scripts/train.py rlhf --config configs/train/dpo_4b.yaml --algorithm dpo
-python scripts/train.py rlhf --config configs/train/ppo_4b.yaml --algorithm ppo
-python scripts/train.py rlhf --config configs/train/grpo_4b.yaml --algorithm grpo
+python scripts/train.py sft --config configs/train/sft_4b.yaml
+python scripts/train.py rl --config configs/train/dpo_4b.yaml --algorithm dpo
+python scripts/train.py rl --config configs/train/ppo_4b.yaml --algorithm ppo
+python scripts/train.py rl --config configs/train/grpo_4b.yaml --algorithm grpo
+python scripts/train.py opd --config /path/to/opd.yaml
 ```
+
+OPD 可组合 `hf_local / vllm` rollout 与 `hf_local / http` teacher。独立 teacher 服务入口：
+
+```bash
+python scripts/serve_opd_teacher.py --config /path/to/teacher.yaml --port 8100
+```
+
+具体配置、vLLM server 启动方式和验收边界见
+[`docs/architecture.md`](docs/architecture.md)、[`docs/config_reference.md`](docs/config_reference.md) 与
+[`docs/scripts.md`](docs/scripts.md)。
 
 ### 推理
 
@@ -70,7 +82,7 @@ python scripts/export.py merge-peft \
 
 - `scripts/*.py` 只做薄包装入口。
 - 真实 CLI 解析与命令调度在 `src/shaft/cli`。
-- 当前训练入口按 `sft / rlhf` 分流，推理与导出分别走独立 CLI。
+- 当前训练入口只保留 `sft / rl / opd` 三个 training domain；RL 的唯一 CLI 是 `rl`。
 
 ## 配置示例
 
@@ -78,7 +90,7 @@ python scripts/export.py merge-peft \
 
 ```yaml
 data:
-  media_snapshot_id: banana-v5.0-re2-media-v1
+  media_snapshot_id: example-media-v1
   batching:
     grouping: none
     cardinality: fixed
@@ -144,7 +156,7 @@ Qwen VL SFT 可启用有界、在线的成本感知批次：
 
 ```yaml
 data:
-  media_snapshot_id: banana-v5.0-re2-media-v1
+  media_snapshot_id: example-media-v1
   batching:
     grouping: bounded_cost
     cardinality: token_budget
@@ -166,8 +178,8 @@ train:
 `token_budget` 时是上限 `B`。在该 `packing=none` 路径中一个 pack 就是一条样本；planner 根据真实 padded
 token 与 vision 总预算为每个 rank 选择 `1..B` 个 pack，
 并让同一 microstep 的 rank 成本尽量接近。mixing 的 draw multiset 不丢失、不复制，HF 继续负责固定 GA、
-optimizer、scheduler 和 checkpoint。re/re2 当前把 `B` 配成 2，使用 8 rank、GA4，即每个 optimizer step
-处理 32–64 条 logical samples；loss 按该 optimizer frame 内跨 rank 的真实有效 token 归一化。
+optimizer、scheduler 和 checkpoint。例如 `B=2`、8 rank、GA4 时，每个 optimizer step 处理 32–64 条
+logical samples；loss 按该 optimizer frame 内跨 rank 的真实有效 token 归一化。
 
 成本按 buffer 即时估算，图像只读 header，并使用容量受限的 LRU。多 rank 启动校验得到的首个 plan 会被
 正式 sampler 直接复用；为了在任何 forward 前原子验证完整 GA frame，首个 forward 前的成本调用上界为
@@ -184,8 +196,9 @@ callback 和模型/adapter、optimizer/scheduler、RNG 保存成功后，rank 0 
 DataLoader 预取推进的 live cursor；该状态作为 manifest extension 绑定 versioned batch contract、planner
 spec 与 duration/GA/optimizer/scheduler contract。
 `cost_cache_size` 只影响 host LRU，不阻止 exact resume。
-当前 planned batching 只开放 SFT + step duration + DDP，eval 保持普通 padded fixed batch。Qwen3VL 与
-HF `qwen3_5` dense/MoE（Qwen3.5/Qwen3.6；后两者仅为 tiny-upstream validated）image SFT 已接通
+当前 planned batching 只开放 SFT + step duration，eval 保持普通 padded fixed batch。DDP 支持完整的已登记
+planned 组合；FSDP/DeepSpeed 只开放 `bounded_cost + fixed + none + padded`。Qwen3VL 与 HF `qwen3_5`
+dense/MoE（Qwen3.5/Qwen3.6）的 image SFT 已接通
 `grouping=length + cardinality=fixed + packing.mode=greedy + layout=varlen`：planner 在
 有界窗口内按真实 processor 后长度分组，把多个完整 logical segment 装入固定数量的 physical packs；
 CUDA 执行要求 FlashAttention 2、bf16/fp16 与 DDP；Qwen3.5/3.6 hybrid attention 还要求
@@ -202,6 +215,11 @@ Qwen3.5/3.6 MoE 的 padded SFT 已接入模型拥有的 router-balancing objecti
 batch-local auxiliary loss，`eval_loss` 只统计 token-normalized CE，dataset-global router balance 单独记为
 `eval_aux/router_global_balance`。MoE LoRA 显式配置 `target_parameters: [auto]` 后，通过 PEFT 覆盖 fused routed
 experts 与 router；该字段默认空，不会由普通 `target_modules: [auto]` 隐式启用。
+
+Qwen3.5/3.6 的 MTP speculative head 当前不受支持：Shaft 不加载、训练、保存、合并或部署 `mtp.*`，
+也不提供 MTP loss/speculative-serving contract。Shaft 产物仍完整支持标准 autoregressive target-model
+推理；不得仅根据上游 config 中的 `mtp_num_hidden_layers` 判断 MTP 可用。
+
 通常无需改 router coefficient；确需实验性覆写时使用下列 SFT-only 接口，未设置时仍读取模型
 `router_aux_loss_coef`，完整语义见 `docs/config_reference.md`：
 
@@ -213,7 +231,7 @@ algorithm:
       router_aux_loss: 0.002
 ```
 
-要求 `peft>=0.18.1`、`lora_dropout=0` 且不能使用 DoRA/QLoRA。Qwen3.5/3.6 当前两卡 tiny upstream
+要求 `peft>=0.18.1`、`lora_dropout=0` 且不能使用 DoRA/QLoRA。Qwen3.5/3.6 MoE 当前 tiny-upstream
 release gate 已验证 DDP、FSDP LoRA 和 ZeRO-3 full 的 fresh/resume/export；Qwen3VL
 `Qwen3-VL-30B-A3B-Instruct` 已进一步通过真实 BF16 FSDP LoRA 两步 fresh/checkpoint resume、router/expert/
 vision update 和标准 PEFT reload 门禁，峰值约 38.7GiB allocated/40.8GiB reserved 每卡。该证据不等价于
@@ -263,6 +281,9 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - `PPO`（受限能力，禁止 resume，`save_strategy` 必须为 `no`；最终导出不受影响）
 - `GRPO`（当前复用 `jsonl_sft` 作为 prompt-target 数据；数据计划可与 TRL grouped-generation sampler
   通过无状态位置索引组合）
+- `OPD`（prompt-only fully on-policy direct-loss distillation；支持 `hf_local / vllm` rollout、
+  `hf_local / http` teacher、full/chunk/top-k-tail objective，以及 DDP/FSDP/DeepSpeed checkpoint/export；
+  发布模型与规模边界见专项架构文档）
 - 评估输入可用 `eval.min_pixels/max_pixels` 设置默认像素预算，并通过
   `eval.datasets.<name>.min_pixels/max_pixels` 覆盖单个数据集；SFT 的 teacher-forced loss 与在线生成共享
   同一解析结果。processor 的训练/生成 padding 由模型 policy 统一选择，不需要在 pipeline 中重复配置。
@@ -292,8 +313,10 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - `src/shaft/data`：数据源、增强、mixing、dataset、collator
 - `src/shaft/model`：模型族元信息、HF 加载、PEFT 包装、processor/inference/peft policy
 - `src/shaft/template`：chat template 与 decode 约定
-- `src/shaft/algorithms`：SFT/DPO/PPO/GRPO trainer 装配
-- `src/shaft/pipeline`：`ShaftSFTPipeline` / `ShaftRLHFPipeline`
+- `src/shaft/algorithms`：SFT 与既有 RL trainer 装配
+- `src/shaft/rl`：DPO/PPO/GRPO runtime registry；算法差异不进入公共 RL pipeline
+- `src/shaft/opd`：OPD prompt-only data、rollout/teacher execution registry、direct loss、trainer 与 resume policy
+- `src/shaft/pipeline`：SFT / RL / OPD 三域 pipeline 与 training-domain registry
 - `src/shaft/training`：trainer、optimizer、scheduler、loss、checkpoint 规则
 - `src/shaft/infer`：`ShaftInferEngine`、`ShaftInferPipeline`、codec
 - `src/shaft/export`：HF 兼容导出工具链
@@ -313,7 +336,6 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - [docs/architecture.md](docs/architecture.md)
 - [docs/module_reference.md](docs/module_reference.md)
 - [docs/config_reference.md](docs/config_reference.md)
-- [docs/development_workflow.md](docs/development_workflow.md)
 - [docs/extension_guide.md](docs/extension_guide.md)
 - [docs/testing.md](docs/testing.md)
 - [docs/infer.md](docs/infer.md)
@@ -349,10 +371,10 @@ uv run pytest -q -m manual
 
 ## 当前说明
 
-- 当前正式训练主链是 `qwen3vl`；`qwen35vl` / `qwen36vl` dense 与 MoE 目前均为 tiny-upstream validated
-  experimental 能力，真实 27B/35B 权重的生产验收仍列在 [docs/todo.md](docs/todo.md)。
-  `smoke_vlm` 只用于测试。
+- 当前正式训练主链是 `qwen3vl`。Qwen3VL 30B-A3B 与 Qwen3.6-27B 已有短程真实权重证据，但不能外推为
+  dense 32B、35B MoE、full-parameter 容量或长程收敛矩阵；未完成项见
+  [docs/20260811_todo.md](docs/20260811_todo.md)。`smoke_vlm` 只用于测试。
 - 训练和保存遵循 HF / PEFT / TRL 标准能力。
 - 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
-- 结构化任务离线评估子系统尚未完成。
-- PPO 暂停项见 [docs/ppo_todo.md](docs/ppo_todo.md)。
+- 独立离线 eval bench 已从主线切除；当前只维护训练内在线 eval 与共享 codec/metrics。
+- PPO 暂停项与恢复生产能力所需验收见 [docs/20260811_todo.md](docs/20260811_todo.md)。

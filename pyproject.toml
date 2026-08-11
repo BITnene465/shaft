@@ -50,6 +50,8 @@ rlhf = [
   "datasets>=4.7.0",
 ]
 serve = [
+  "fastapi>=0.116.0",
+  "uvicorn[standard]>=0.35.0",
   "vllm==0.19.1; sys_platform == 'linux'",
 ]
 qwen-next = [
@@ -61,7 +63,21 @@ distributed = [
 ]
 
 [tool.uv.extra-build-dependencies]
-flash-attn = ["torch"]
+flash-attn = [
+  { requirement = "torch", match-runtime = true },
+  "ninja",
+  "packaging",
+  "psutil",
+]
+causal-conv1d = [
+  { requirement = "torch", match-runtime = true },
+  "ninja",
+  "packaging",
+]
+
+[tool.uv.extra-build-variables]
+flash-attn = { FLASH_ATTENTION_FORCE_BUILD = "TRUE" }
+causal-conv1d = { CAUSAL_CONV1D_FORCE_BUILD = "TRUE" }
 
 [tool.setuptools]
 package-dir = {"" = "src"}

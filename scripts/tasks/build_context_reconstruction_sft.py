@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 import math
 import os
@@ -16,11 +15,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageOps
 
 from shaft.codec.coordinates import quantize_qwen_bbox, quantize_qwen_coordinate
 from shaft.data.context_attribute_contract import validate_shape_parameters
+from shaft.data.synthetic_realism import (
+    SYNTHETIC_REALISM_PROFILE as SYNTHETIC_PIXEL_PROFILE,
+    apply_synthetic_realism_augmentation as _apply_synthetic_pixel_augmentation,
+    sample_synthetic_realism_augmentation as _sample_synthetic_pixel_augmentation,
+)
 from shaft.prompting import load_prompt_pool
 
 
@@ -36,14 +39,6 @@ CONTEXT_PADDING_BUCKETS = (
     ("large", 0.25, 1.00, 2.50),
     ("extreme", 0.05, 2.50, 4.00),
 )
-SYNTHETIC_PIXEL_PROFILE = "synthetic_realism_v1"
-PIXEL_OPERATION_WEIGHTS = {
-    "resample_roundtrip": 0.35,
-    "gaussian_blur": 0.20,
-    "gaussian_noise": 0.20,
-    "jpeg_compression": 0.25,
-}
-PIXEL_OPERATION_ORDER = tuple(PIXEL_OPERATION_WEIGHTS)
 
 
 @dataclass(frozen=True)
@@ -231,196 +226,6 @@ def _choose_bucket(
         if draw < cumulative:
             return bucket
     return buckets[-1]
-
-
-def _weighted_sample_without_replacement(
-    rng: random.Random,
-    weights: dict[str, float],
-    *,
-    count: int,
-) -> list[str]:
-    available = dict(weights)
-    selected: list[str] = []
-    for _ in range(min(count, len(available))):
-        total = sum(available.values())
-        draw = rng.random() * total
-        cumulative = 0.0
-        choice = next(iter(available))
-        for name, weight in available.items():
-            cumulative += weight
-            if draw < cumulative:
-                choice = name
-                break
-        selected.append(choice)
-        del available[choice]
-    return selected
-
-
-def _sample_synthetic_pixel_augmentation(
-    *,
-    task: str,
-    sample_id: str,
-    seed: int,
-    target_short_span: int,
-    image_width: int,
-    image_height: int,
-) -> dict[str, Any]:
-    rng = random.Random(f"{seed}:synthetic-pixel:{task}:{sample_id}")
-    if target_short_span < 80:
-        severity = "mild"
-        stack_depth = 1
-    elif target_short_span < 200:
-        severity = str(
-            _choose_bucket(rng, (("mild", 0.70, 0.0, 0.0), ("moderate", 0.30, 0.0, 0.0)))[0]
-        )
-        stack_depth = int(
-            _choose_bucket(rng, ((1, 0.40, 0.0, 0.0), (2, 0.50, 0.0, 0.0), (3, 0.10, 0.0, 0.0)))[0]
-        )
-    else:
-        severity = str(
-            _choose_bucket(
-                rng,
-                (
-                    ("mild", 0.45, 0.0, 0.0),
-                    ("moderate", 0.40, 0.0, 0.0),
-                    ("strong", 0.15, 0.0, 0.0),
-                ),
-            )[0]
-        )
-        depth_buckets = {
-            "mild": ((1, 0.15, 0.0, 0.0), (2, 0.55, 0.0, 0.0), (3, 0.30, 0.0, 0.0)),
-            "moderate": ((1, 0.20, 0.0, 0.0), (2, 0.60, 0.0, 0.0), (3, 0.20, 0.0, 0.0)),
-            "strong": ((1, 0.45, 0.0, 0.0), (2, 0.55, 0.0, 0.0)),
-        }
-        stack_depth = int(_choose_bucket(rng, depth_buckets[severity])[0])
-
-    selected = _weighted_sample_without_replacement(
-        rng,
-        PIXEL_OPERATION_WEIGHTS,
-        count=stack_depth,
-    )
-    selected.sort(key=PIXEL_OPERATION_ORDER.index)
-    short_edge = min(image_width, image_height)
-    operations: list[dict[str, Any]] = []
-    for name in selected:
-        if name == "resample_roundtrip":
-            ratio_ranges = {
-                "mild": (0.82, 0.96),
-                "moderate": (0.62, 0.85),
-                "strong": (0.42, 0.68),
-            }
-            kernels = {
-                "mild": ("BICUBIC", "LANCZOS"),
-                "moderate": ("BILINEAR", "BICUBIC", "LANCZOS"),
-                "strong": ("BILINEAR", "BICUBIC"),
-            }
-            low, high = ratio_ranges[severity]
-            operations.append(
-                {
-                    "name": name,
-                    "scale_down_ratio": round(rng.uniform(low, high), 6),
-                    "down_kernel": rng.choice(kernels[severity]),
-                    "up_kernel": rng.choice(kernels[severity]),
-                }
-            )
-        elif name == "gaussian_blur":
-            ranges = {
-                "mild": (max(0.25, short_edge * 0.00020), max(0.55, short_edge * 0.00045)),
-                "moderate": (max(0.55, short_edge * 0.00045), max(1.10, short_edge * 0.00090)),
-                "strong": (max(1.00, short_edge * 0.00085), max(1.75, short_edge * 0.00140)),
-            }
-            low, high = ranges[severity]
-            operations.append({"name": name, "radius": round(rng.uniform(low, high), 6)})
-        elif name == "gaussian_noise":
-            sigma_ranges = {"mild": (1.0, 3.0), "moderate": (3.0, 7.0), "strong": (7.0, 12.0)}
-            low, high = sigma_ranges[severity]
-            operations.append(
-                {
-                    "name": name,
-                    "sigma_255": round(rng.uniform(low, high), 6),
-                    "seed": rng.getrandbits(63),
-                }
-            )
-        elif name == "jpeg_compression":
-            quality_ranges = {"mild": (82, 95), "moderate": (62, 84), "strong": (42, 68)}
-            low, high = quality_ranges[severity]
-            subsampling = rng.choice((0, 1)) if severity == "mild" else rng.choice((1, 2))
-            operations.append(
-                {
-                    "name": name,
-                    "quality": rng.randint(low, high),
-                    "subsampling": subsampling,
-                }
-            )
-    if not operations:
-        raise RuntimeError("Synthetic pixel augmentation must contain at least one operation.")
-    return {
-        "profile": SYNTHETIC_PIXEL_PROFILE,
-        "severity": severity,
-        "operations": operations,
-        "dimensions_unchanged": True,
-        "input_size": [image_width, image_height],
-        "output_size": [image_width, image_height],
-    }
-
-
-def _resampling(name: str) -> Any:
-    namespace = getattr(Image, "Resampling", Image)
-    return getattr(namespace, name)
-
-
-def _apply_synthetic_pixel_augmentation(
-    image: Image.Image,
-    augmentation: dict[str, Any],
-) -> Image.Image:
-    if augmentation.get("profile") != SYNTHETIC_PIXEL_PROFILE:
-        raise ValueError(f"Unsupported synthetic pixel profile: {augmentation.get('profile')!r}")
-    current = image.convert("RGB")
-    for operation in augmentation.get("operations") or []:
-        name = operation.get("name")
-        if name == "resample_roundtrip":
-            width, height = current.size
-            ratio = float(operation["scale_down_ratio"])
-            down_size = (
-                max(1, min(width, int(round(width * ratio)))),
-                max(1, min(height, int(round(height * ratio)))),
-            )
-            updated = current.resize(down_size, _resampling(str(operation["down_kernel"]))).resize(
-                (width, height),
-                _resampling(str(operation["up_kernel"])),
-            )
-        elif name == "gaussian_blur":
-            updated = current.filter(ImageFilter.GaussianBlur(radius=float(operation["radius"])))
-        elif name == "gaussian_noise":
-            array = np.asarray(current, dtype=np.float32)
-            noise = np.random.default_rng(int(operation["seed"])).normal(
-                0.0,
-                float(operation["sigma_255"]),
-                size=array.shape,
-            )
-            updated = Image.fromarray(np.clip(array + noise, 0, 255).astype(np.uint8), mode="RGB")
-        elif name == "jpeg_compression":
-            with io.BytesIO() as buffer:
-                current.save(
-                    buffer,
-                    format="JPEG",
-                    quality=int(operation["quality"]),
-                    subsampling=int(operation["subsampling"]),
-                )
-                buffer.seek(0)
-                with Image.open(buffer) as decoded:
-                    updated = decoded.convert("RGB")
-        else:
-            current.close()
-            raise ValueError(f"Unsupported synthetic pixel operation: {name!r}")
-        current.close()
-        current = updated
-    if current.size != image.size:
-        current.close()
-        raise ValueError(
-            f"Synthetic pixel augmentation changed image size: {current.size} != {image.size}"
-        )
-    return current
 
 
 def _ensure_extent(
@@ -645,6 +450,20 @@ def _geometry_bbox(
                 for point_key in ("point", "start", "mid", "end"):
                     if point_key in corner:
                         add_point(corner[point_key])
+        splits = parameters.get("splits")
+        if isinstance(splits, list):
+            for split in splits:
+                if not isinstance(split, dict):
+                    raise ValueError(f"Invalid card split: {split!r}")
+                split_corners = split.get("split_corners")
+                if not isinstance(split_corners, list):
+                    raise ValueError(f"Invalid card split corners: {split!r}")
+                for corner in split_corners:
+                    if not isinstance(corner, dict):
+                        raise ValueError(f"Invalid card split corner: {corner!r}")
+                    for point_key in ("point", "start", "mid", "end"):
+                        if point_key in corner:
+                            add_point(corner[point_key])
         if isinstance(parameters.get("body_bbox"), list):
             body_bbox = _bbox(parameters["body_bbox"])
             xs.extend((body_bbox[0], body_bbox[2]))
@@ -743,6 +562,21 @@ def _shape_parameters(
                 )
                 for corner in result[key]
             ]
+    splits = result.get("splits")
+    if isinstance(splits, list):
+        for split in splits:
+            if not isinstance(split, dict) or not isinstance(split.get("split_corners"), list):
+                raise ValueError(f"Invalid card split: {split!r}")
+            split["split_corners"] = [
+                _quantize_corner(
+                    corner,
+                    left=left,
+                    top=top,
+                    crop_width=crop_width,
+                    crop_height=crop_height,
+                )
+                for corner in split["split_corners"]
+            ]
     if isinstance(result.get("body_bbox"), list):
         result["body_bbox"] = _quantize_crop_bbox(
             result["body_bbox"],
@@ -782,18 +616,20 @@ def _line_parameters(
     for segment_index, segment in enumerate(segments):
         if not isinstance(segment, list) or not segment:
             raise ValueError(f"Invalid line point segment at index {segment_index}: {segment!r}")
-        converted.append(
-            [
-                _quantize_crop_point(
-                    point,
-                    left=left,
-                    top=top,
-                    crop_width=crop_width,
-                    crop_height=crop_height,
-                )
-                for point in segment
-            ]
-        )
+        quantized: list[list[int]] = []
+        for point in segment:
+            converted_point = _quantize_crop_point(
+                point,
+                left=left,
+                top=top,
+                crop_width=crop_width,
+                crop_height=crop_height,
+            )
+            if not quantized or converted_point != quantized[-1]:
+                quantized.append(converted_point)
+        if len({tuple(point) for point in quantized}) < 2:
+            raise ValueError(f"Line point segment collapses after Qwen quantization: {segment!r}")
+        converted.append(quantized)
     result["points"] = converted
     return result
 
@@ -910,6 +746,23 @@ def _normalize_archived_line_points(value: Any) -> list[list[list[float]]]:
     return [normalize_segment(segment) for segment in value]
 
 
+def _normalize_real_line_points(value: Any) -> tuple[list[list[list[float]]], int]:
+    segments = _normalize_archived_line_points(value)
+    normalized: list[list[list[float]]] = []
+    removed = 0
+    for segment in segments:
+        deduplicated: list[list[float]] = []
+        for point in segment:
+            if deduplicated and point == deduplicated[-1]:
+                removed += 1
+                continue
+            deduplicated.append(point)
+        if len({tuple(point) for point in deduplicated}) < 2:
+            raise ValueError(f"Real line segment collapses after deduplication: {segment!r}")
+        normalized.append(deduplicated)
+    return normalized, removed
+
+
 def _load_archived_full_image_map(spec: TaskSpec) -> dict[str, str]:
     manifest_path = spec.source_image_manifest
     if manifest_path is None:
@@ -991,7 +844,16 @@ def _load_selections(
             source_json = str(extra.get("source_json") or "")
             source_image = str(extra.get("source_image") or "")
             stem = Path(source_json).stem
-            if spec.source_kind in {"real", "real_weak", "archived_point"} and stem in excluded_ids:
+            if (
+                spec.source_kind
+                in {
+                    "real",
+                    "real_weak",
+                    "real_point",
+                    "archived_point",
+                }
+                and stem in excluded_ids
+            ):
                 excluded += 1
                 continue
             parameters = None
@@ -1022,14 +884,12 @@ def _load_selections(
                 for key, expected in required_provenance.items():
                     if raw_weak_label.get(key) != expected:
                         raise ValueError(
-                            f"Invalid real weak provenance {key}: "
-                            f"{spec.selection_path}:{line_no}"
+                            f"Invalid real weak provenance {key}: {spec.selection_path}:{line_no}"
                         )
                 for key in ("schema_version", "model_id", "batch_id", "created_at_utc"):
                     if not isinstance(raw_weak_label.get(key), str) or not raw_weak_label[key]:
                         raise ValueError(
-                            f"Missing real weak provenance {key}: "
-                            f"{spec.selection_path}:{line_no}"
+                            f"Missing real weak provenance {key}: {spec.selection_path}:{line_no}"
                         )
                 weak_label = json.loads(json.dumps(raw_weak_label))
             elif spec.source_kind == "archived_point":
@@ -1539,9 +1399,13 @@ def _build_row(
                     "archived_real_context_points"
                     if spec.source_kind == "archived_point"
                     else (
-                        "api_weak_real_context"
-                        if spec.source_kind == "real_weak"
-                        else "reviewed_raw_context"
+                        "human_real_context_points"
+                        if spec.source_kind == "real_point"
+                        else (
+                            "api_weak_real_context"
+                            if spec.source_kind == "real_weak"
+                            else "reviewed_raw_context"
+                        )
                     )
                 )
             )
@@ -1589,6 +1453,11 @@ def _build_row(
     elif spec.label == "line":
         counts["line_multi_segment"] += int(len(target_parameters.get("points") or []) > 1)
         counts["line_is_single_false"] += int(target_parameters.get("is_single") is False)
+        source_point_count = sum(len(segment) for segment in source_parameters.get("points") or [])
+        target_point_count = sum(len(segment) for segment in target_parameters.get("points") or [])
+        counts["quantized_consecutive_duplicate_points_removed"] += (
+            source_point_count - target_point_count
+        )
     elif spec.label == "image":
         counts[f"image_type_{target_parameters.get('image_type', 'missing')}"] += 1
     return _json_dumps(structured), _json_dumps(sft), counts
@@ -1670,23 +1539,43 @@ def _build_real_source(
     source_json, source_image = source_key
     source_json_path = spec.source_root / source_json
     payload = json.loads(source_json_path.read_text(encoding="utf-8"))
-    layout = payload.get("instances")
-    if not isinstance(layout, list):
-        raise ValueError(f"Invalid raw source: {source_json_path}")
+    if spec.source_kind == "real_point":
+        size = payload.get("size")
+        layout = payload.get("layout")
+        if (
+            not isinstance(size, list)
+            or len(size) != 2
+            or not all(_is_number(value) for value in size)
+            or not isinstance(layout, list)
+        ):
+            raise ValueError(f"Invalid compact raw source: {source_json_path}")
+        annotated_size = tuple(map(int, size))
+    else:
+        layout = payload.get("instances")
+        if not isinstance(layout, list):
+            raise ValueError(f"Invalid raw source: {source_json_path}")
+        annotated_size = (payload.get("image_width"), payload.get("image_height"))
     image_path = _source_image_path(spec, selections[0])
     with Image.open(image_path) as opened:
-        image_width, image_height = opened.size
-        source = opened.convert("RGB")
-    annotated_size = (payload.get("image_width"), payload.get("image_height"))
-    if all(_is_number(item) for item in annotated_size) and tuple(map(int, annotated_size)) != (
-        image_width,
-        image_height,
-    ):
-        source.close()
-        raise ValueError(
-            f"Image size mismatch for {source_json_path}: "
-            f"{(image_width, image_height)} != {annotated_size}"
+        expected_size = (
+            tuple(map(int, annotated_size))
+            if all(_is_number(item) for item in annotated_size)
+            else None
         )
+        candidate = opened
+        if expected_size is not None and opened.size != expected_size:
+            candidate = ImageOps.exif_transpose(opened)
+        try:
+            image_width, image_height = candidate.size
+            if expected_size is not None and candidate.size != expected_size:
+                raise ValueError(
+                    f"Image size mismatch for {source_json_path}: "
+                    f"{candidate.size} != {expected_size}"
+                )
+            source = candidate.convert("RGB")
+        finally:
+            if candidate is not opened:
+                candidate.close()
     rows: list[tuple[str, str]] = []
     counts: Counter[str] = Counter()
     try:
@@ -1698,7 +1587,18 @@ def _build_real_source(
                 image_width=image_width,
                 image_height=image_height,
             )
-            if spec.source_kind == "real_weak":
+            duplicate_points_removed = 0
+            if spec.source_kind == "real_point":
+                raw_parameters = instance.get("parameters")
+                raw_points = (
+                    raw_parameters.get("points") if isinstance(raw_parameters, dict) else None
+                )
+                points, duplicate_points_removed = _normalize_real_line_points(raw_points)
+                source_parameters = {
+                    "is_single": len(points) == 1,
+                    "points": points,
+                }
+            elif spec.source_kind == "real_weak":
                 if not isinstance(selection.parameters, dict) or not selection.parameters:
                     raise ValueError(
                         f"Missing selected weak parameters: {source_json_path}:{source_index}"
@@ -1726,6 +1626,7 @@ def _build_real_source(
             )
             rows.append((structured, sft))
             counts.update(row_counts)
+            counts["real_consecutive_duplicate_points_removed"] += duplicate_points_removed
             counts["source_bbox_drift"] += int(drift)
             counts["source_index_remap"] += int(source_index != selection.instance_index)
     finally:
@@ -1893,6 +1794,8 @@ def _write_readme(
     has_archived_point_source = any(
         source.source_kind == "archived_point" for source in source_specs
     )
+    has_real_point_source = any(source.source_kind == "real_point" for source in source_specs)
+    is_point_subset = spec.name == "line_context_points"
     pixel_policy = (
         f"every synthetic crop uses one to three stacked, size-preserving operations from "
         f"`{SYNTHETIC_PIXEL_PROFILE}`; real image crops are not synthetically degraded"
@@ -1900,26 +1803,36 @@ def _write_readme(
         else "none (real image crops are not synthetically degraded)"
     )
     truth_policy = (
-        "ordered real source-image bbox/linestrip truth is recovered from the archived point "
-        "selection and clean full-image manifest; synthetic multi-segment truth is independently "
-        "reloaded from `gt_standard`"
-        if has_archived_point_source and has_synthetic_source
+        "ordered human points are reloaded from active compact raw truth; synthetic "
+        "multi-segment truth is independently reloaded from `gt_standard`"
+        if has_real_point_source and has_synthetic_source
         else (
-            "ordered source-image bbox/linestrip truth is recovered from the archived point "
-            "selection; the clean full bitmap is restored through the archived grounding "
-            "full-image manifest"
-            if has_archived_point_source
+            "ordered human points are reloaded from active compact raw truth"
+            if has_real_point_source
             else (
-                "target parameters are API weak-label truth snapshotted in `selection/train.jsonl`"
-                if spec.source_kind == "real_weak"
-                else "target truth is reloaded from source"
+                "ordered real source-image bbox/linestrip truth is recovered from the archived "
+                "point selection and clean full-image manifest; synthetic multi-segment truth is "
+                "independently reloaded from `gt_standard`"
+                if has_archived_point_source and has_synthetic_source
+                else (
+                    "ordered source-image bbox/linestrip truth is recovered from the archived "
+                    "point selection; the clean full bitmap is restored through the archived "
+                    "grounding full-image manifest"
+                    if has_archived_point_source
+                    else (
+                        "target parameters are API weak-label truth snapshotted in "
+                        "`selection/train.jsonl`"
+                        if spec.source_kind == "real_weak"
+                        else "target truth is reloaded from source"
+                    )
+                )
             )
         )
     )
     target_policy = (
         "the line geometry subset `is_single + points` only; no inferred style, color, or "
         "arrow-endpoint fields; geometry uses crop-local Qwen `0..999`"
-        if has_archived_point_source
+        if is_point_subset
         else (
             "compact shape attribute subset; no control points or geometry fields"
             if spec.source_kind == "real_weak"
@@ -1927,21 +1840,30 @@ def _write_readme(
         )
     )
     sampling_policy = (
-        "use archived point train rows after canonical test exclusion, then add only synthetic "
-        "`is_single=false` targets with more than one path segment; deterministically cap the "
-        "synthetic subset with equal quotas across observed segment-count strata; no "
-        "synthetic single-path targets are admitted and no resize/multi-scale view expansion "
-        "is performed"
-        if has_archived_point_source and has_synthetic_source
+        "keep every active human line with valid non-empty points without sampling, then add the "
+        "maintained capped synthetic multi-segment subset; empty human points are not synthesized "
+        "and no resize/multi-scale view expansion is performed"
+        if has_real_point_source and has_synthetic_source
         else (
-            "use archived point train rows only, after excluding every source in the canonical "
-            "current test manifest; archived validation rows are not promoted to training"
-            if has_archived_point_source
+            "keep every active human line with valid non-empty points without sampling"
+            if has_real_point_source
             else (
-                "keep every non-rectangle row and deterministically stratify rectangle rows to at "
-                f"most {shape_attribute_max_rectangle_fraction:.0%} of the final task dataset"
-                if spec.source_kind == "real_weak"
-                else "use the complete maintained selection snapshot"
+                "use archived point train rows after canonical test exclusion, then add only "
+                "synthetic `is_single=false` targets with more than one path segment; "
+                "deterministically cap the synthetic subset across observed segment counts"
+                if has_archived_point_source and has_synthetic_source
+                else (
+                    "use archived point train rows only, after excluding every source in the "
+                    "canonical current test manifest"
+                    if has_archived_point_source
+                    else (
+                        "keep every non-rectangle row and deterministically stratify rectangle "
+                        "rows to at most "
+                        f"{shape_attribute_max_rectangle_fraction:.0%} of the final task dataset"
+                        if spec.source_kind == "real_weak"
+                        else "use the complete maintained selection snapshot"
+                    )
+                )
             )
         )
     )
@@ -2195,6 +2117,51 @@ def _task_specs(args: argparse.Namespace) -> dict[str, TaskSpec]:
     synthetic_root = Path(args.synthetic_root)
     raw_root = Path(args.raw_root)
     archive_root = Path(args.archive_root)
+    if args.line_point_synthetic_only:
+        line_point_spec = TaskSpec(
+            name="line_context_points",
+            label="line",
+            selection_path=Path(args.line_point_synthetic_selection),
+            source_root=synthetic_root,
+            prompt_path=Path(args.line_point_prompt_pool),
+            source_kind="synthetic_point_multi",
+            selection_limit=args.line_point_synthetic_limit,
+        )
+    elif args.line_point_real_selection:
+        line_point_spec = TaskSpec(
+            name="line_context_points",
+            label="line",
+            selection_path=Path(args.line_point_real_selection),
+            source_root=raw_root,
+            prompt_path=Path(args.line_point_prompt_pool),
+            source_kind="real_point",
+            additional_sources=(
+                TaskSourceSpec(
+                    selection_path=Path(args.line_point_synthetic_selection),
+                    source_root=synthetic_root,
+                    source_kind="synthetic_point_multi",
+                    selection_limit=args.line_point_synthetic_limit,
+                ),
+            ),
+        )
+    else:
+        line_point_spec = TaskSpec(
+            name="line_context_points",
+            label="line",
+            selection_path=Path(args.line_point_selection),
+            source_root=archive_root,
+            prompt_path=Path(args.line_point_prompt_pool),
+            source_kind="archived_point",
+            source_image_manifest=Path(args.line_point_full_image_manifest),
+            additional_sources=(
+                TaskSourceSpec(
+                    selection_path=Path(args.line_point_synthetic_selection),
+                    source_root=synthetic_root,
+                    source_kind="synthetic_point_multi",
+                    selection_limit=args.line_point_synthetic_limit,
+                ),
+            ),
+        )
     return {
         "shape_context_reconstruction": TaskSpec(
             name="shape_context_reconstruction",
@@ -2228,23 +2195,7 @@ def _task_specs(args: argparse.Namespace) -> dict[str, TaskSpec]:
             prompt_path=Path(args.shape_attribute_prompt_pool),
             source_kind="real_weak",
         ),
-        "line_context_points": TaskSpec(
-            name="line_context_points",
-            label="line",
-            selection_path=Path(args.line_point_selection),
-            source_root=archive_root,
-            prompt_path=Path(args.line_point_prompt_pool),
-            source_kind="archived_point",
-            source_image_manifest=Path(args.line_point_full_image_manifest),
-            additional_sources=(
-                TaskSourceSpec(
-                    selection_path=Path(args.line_point_synthetic_selection),
-                    source_root=synthetic_root,
-                    source_kind="synthetic_point_multi",
-                    selection_limit=args.line_point_synthetic_limit,
-                ),
-            ),
-        ),
+        "line_context_points": line_point_spec,
     }
 
 
@@ -2277,6 +2228,14 @@ def main() -> None:
         default="data/archive2/point_arrow/structured/train.jsonl",
     )
     parser.add_argument(
+        "--line-point-real-selection",
+        help=(
+            "Source-identity selection of active compact raw line instances with non-empty "
+            "points. When provided, all selected real rows are kept before the synthetic "
+            "multi-segment supplement."
+        ),
+    )
+    parser.add_argument(
         "--line-point-full-image-manifest",
         default="data/archive2/grounding_layout/structured/train.jsonl",
     )
@@ -2294,6 +2253,14 @@ def main() -> None:
         default=15_000,
         help=(
             "Maximum synthetic multi-segment line rows, balanced across observed segment counts."
+        ),
+    )
+    parser.add_argument(
+        "--line-point-synthetic-only",
+        action="store_true",
+        help=(
+            "Build line_context_points only from the synthetic multi-segment selection. "
+            "This avoids requiring the optional archived real-point source."
         ),
     )
     parser.add_argument(
@@ -2345,6 +2312,8 @@ def main() -> None:
         parser.error("workers and chunksize must be positive")
     if args.line_point_synthetic_limit <= 0:
         parser.error("line-point-synthetic-limit must be positive")
+    if args.line_point_synthetic_only and args.line_point_real_selection:
+        parser.error("line-point-synthetic-only and line-point-real-selection are exclusive")
     if args.limit is not None and args.limit <= 0:
         parser.error("limit must be positive")
     if args.min_crop_size < 1:

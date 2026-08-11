@@ -165,7 +165,10 @@
   编译和渲染，SFT `prompt_args` 保持 JSON 类型进入同一 planning-safe transform。
 - Arrow build-time record validator 与非空 validation fingerprint 是不可拆分的 API contract；二者必须同时
   提供或同时省略，防止 cache hit 绕过新校验。train execution fingerprint 还组合规范化 record store 与
-  `media_snapshot_id`，不能只绑定 sample 数量和 transform。
+  `media_snapshot_id`，不能只绑定 sample 数量和 transform。Arrow source fingerprint 绑定 cache format、
+  canonical path、dataset/schema、文件大小与 `mtime_ns`；不绑定 filesystem-local `ctime_ns`，否则内容与
+  mtime 相同的多节点 rsync replica 会被误判为不同数据。多节点本地副本仍须保持相同 canonical path、用
+  rsync 保留 mtime，并在启动前独立核对 JSONL SHA256；禁止以“同大小并恢复旧 mtime”的方式原地改写 source。
 - `data.batching` 依次声明 grouping、cardinality、packing 与 layout。四者没有覆盖优先级。
   `ShaftLengthBatchGrouping` 只排序有界候选，`ShaftGreedySequencePacker` 只组合完整 logical segments，
   `ShaftVarlenBatchLayout` 只组装计划后的 tensor；Qwen 的 attention/M-RoPE/media 语义归模型
@@ -185,11 +188,12 @@
 - 真实 API 弱监督 shape 属性使用独立 `shape_context_attributes` dataset/task；它复用 v5.3 contextual
   crop/proposal 输入合同，但 target 有意省略 geometry，不能并入完整 `shape_context_reconstruction`。
 - line 点监督使用独立 `line_context_points` dataset/task；它同样复用 v5.3 contextual crop/proposal
-  输入合同，但 target 只允许完整 line DSL 的 `is_single + points` 子集。真实单叉的 source bbox 与有序
-  linestrip 来自归档 point structured，clean full-image 通过归档 grounding manifest 恢复；合成补充
-  数据只从 `gt_standard` 选择 `is_single=false` 且有多个 segment 的分叉线，按segment数量确定性封顶
-  抽样，并使用 `synthetic_realism_v1`。该抽样不创建resize/multi-scale副本。训练主链仍只消费标准
-  `jsonl_sft`，不得在 collator 中解释 source provenance、混入合成单叉或补造缺失 line 属性。
+  输入合同，但 target 只允许完整 line DSL 的 `is_single + points` 子集。当前真实源是 active compact
+  raw 中全部非空 `parameters.points`，不采样；合成补充只保留 v9 中维护的 15,000 条多分支线，并使用
+  `synthetic_realism_v1`。真实 crop 保持 clean，两类源都不创建 resize/multi-scale 副本。训练主链仍
+  只消费标准 `jsonl_sft`，不得在 collator 中解释 source provenance、混入合成单叉或补造缺失 line 属性。
+- line 非几何属性属于完整 `line_context_reconstruction` 合同，不存在独立的
+  `line_attribute_recovery` dataset/task 或 prompt pool；预标注失败恢复策略不得提升为训练任务。
 - synthetic shape/line 的 `synthetic_realism_v1` 也只属于离线 data builder：每条 crop 必须有1–3个
   尺寸不变的像素扰动，参数写入 `extra.pixel_augmentation`；训练、pipeline 和 collator 不重复推导该策略。
   task-local `selection/train.jsonl` 只保存源实例身份，属性与几何真值仍回查 source truth。
@@ -263,6 +267,7 @@
 - `ShaftInferencePolicy`
 - `QwenVLInferencePolicy`
 - `ShaftProcessedBatch`
+- `ShaftProcessorSequenceField`
 - `ShaftProcessorTokenLayout`
 - `ShaftProcessorCostEstimate`
 - `ShaftSequenceExecutionContract`
@@ -281,15 +286,30 @@ policy 通过 `auxiliary_loss_names()` 声明可由配置覆写的稳定 term na
 全部稀疏层且 expert 维度一致；eval 由全局
 expert counts/probability sums 生成独立 router balance metric，不能把 per-batch aux 平均混入 `eval_loss`。
 
-`ShaftProcessedBatch` 保存一次 batch processor 调用的完整输出，不把允许字段限制为 Qwen 当前使用的
-键。`ProcessorPolicy` 同时声明 processor 构造参数、pixel-budget forwarding、token-layout 规则、训练
+Qwen3.5/3.6 的 MTP speculative head 当前不是已注册的 `TrainingObjectivePolicy` 或 model capability。
+`Qwen35VLLoader/Qwen36VLLoader` 复用 Transformers 标准 Qwen3.5/3.6 model class，因此上游 `mtp.*` 权重
+不会进入运行时 model state，也不会进入 full checkpoint、PEFT adapter 或 merge/export 结果。Shaft 不提供
+MTP loss、MTP checkpoint provenance、MTP artifact validation 或 speculative server contract；不得在
+trainer/collator/export 中加入临时复制逻辑来伪装支持。普通 target-model forward/generate 不依赖 MTP，
+所以该限制是部署加速能力边界，不是模型质量或数据语义限制。
+
+`ShaftProcessedBatch` 保存一次 batch processor 调用的完整输出，并携带本 batch 实际出现的
+`ShaftProcessorSequenceField` resolved contract，不把允许字段限制为 Qwen 当前使用的键。sequence field
+声明字段名、batched tensor 中的 token 轴、padding 值与 continuation 扩展值；template 只返回保留的
+processed-prefix indices，统一 collator 据此处理 SFT target、DPO pair、OPD prompt/rollout 与 varlen，不再
+维护 `mm_token_type_ids` 等模型字段白名单。原始 processor 输出、resolved batch contract 与 collated
+sequence inputs 必须完全一致，否则在 forward 前失败。
+
+`ProcessorPolicy` 同时声明 processor 构造参数、pixel-budget forwarding、token-layout 规则、训练
 输入的复制/重排、精确 image-cost estimation 和版本化 `cost_semantics_signature()`。该 signature 必须
 绑定 estimator 读取的全部 processor 状态；内置 `identity` 要求 rendered tokens 与
 processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
-显式处理 `mm_token_type_ids` 标记的多模态 token run。其他模型族必须通过 registry 注册自己的 policy，
-不得让 collator 或通用 template 猜测模型字段、batch axis 或 token expansion。processor 新增
-`position_ids/token_type_ids` 等 sequence-aligned 字段时，默认策略会显式拒绝，直到模型 policy 定义
-如何随 target 拼接、padding 或 DPO pair 扩展。其它字段也必须进入 policy 的
+显式处理 `mm_token_type_ids` 标记的多模态 token run，并把不可截断 media run 写进 token layout 的
+protected spans。其他模型族必须通过 registry 注册自己的 policy，不得让 collator 或通用 template 猜测
+模型字段、batch/token axis 或 token expansion。processor 新增 `position_ids/token_type_ids` 等
+sequence-aligned 字段时，默认策略会显式拒绝，直到模型 policy 定义如何随 target 拼接、padding、varlen、
+OPD rollout 或 DPO pair 扩展；不能用常数扩展的字段应提供模型专用 `ShaftProcessorSequenceField` 子类。
+其它字段也必须进入 policy 的
 `sample_aligned_model_input_names / whole_batch_model_input_names / static_model_input_names` 之一；未声明
 字段会在训练装配时失败，避免升级 processor 后静默误用第 0 维。
 
@@ -359,7 +379,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - 模型装配固定为三相：`prepare_model_build()` 只做 shard/require/load-guard 与 adapter 预检，
   `invoke_model_loader()` 是 HF/DeepSpeed loader collective owner；`finalize_model_build()` 做完整 artifact
   SHA closure、remote-code identity 与 adapter 后验，其中 checkpointable 本地 HF closure 拥有独立的
-  长超时 Gloo consensus。SFT/RLHF 给 prepare/finalize 套 all-rank failure convergence；raw loader 必须裸
+  长超时 Gloo consensus。SFT/RL 给 prepare/finalize 套 all-rank failure convergence；raw loader 必须裸
   调用，不能嵌套在 status envelope。普通 infer/export 继续调用
   `build_model_tokenizer_processor()`，由兼容 wrapper 顺序串联三相。
 - `ModelModuleGroups` 负责声明模型族的结构分组：
@@ -514,9 +534,13 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 相关文件：
 
 - `src/shaft/pipeline/sft.py`
-- `src/shaft/pipeline/rlhf.py`
+- `src/shaft/pipeline/rl.py`
+- `src/shaft/pipeline/opd.py`
+- `src/shaft/pipeline/domains.py`
 - `src/shaft/pipeline/training_args.py`
 - `src/shaft/pipeline/registry.py`
+- `src/shaft/rl/`
+- `src/shaft/opd/`
 
 ### 职能
 
@@ -526,19 +550,52 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 ### 关键类
 
 - `ShaftSFTPipeline`
-- `ShaftRLHFPipeline`
+- `ShaftRLPipeline`
+- `ShaftOPDPipeline`
+- `TrainingDomainRegistry`
 
 ### 关键函数
 
 - `run_sft()`
-- `run_rlhf()`
+- `run_rl()`
+- `run_opd()`
+- `run_training_domain()`
 - `build_hf_training_args()`
 - `register_pipeline()`
+
+RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline` / `run_rl()`。旧
+`pipeline/rlhf.py`、`ShaftRLHFPipeline/run_rlhf` 与 `shaft_rlhf` registry key 已删除，避免第二入口。
 
 ### 开发边界
 
 - 允许：组件装配、resume/save 时序、回调装配
 - 禁止：硬编码模型族模板、解析 JSONL、实现 loss 公式
+
+### RL 与 OPD 域边界
+
+- `src/shaft/rl` 注册 DPO/PPO/GRPO runtime 与各自 resume policy；公共 RL pipeline 和
+  `training.resume_contract` 不再按 RL 算法名选择 dataset、collator、trainer、objective 或恢复字段。
+- `src/shaft/opd` 独立持有 `OPDRecord/OPDDataset/OPDCollator`、direct distribution loss、
+  `ShaftOPDTrainer` 与 resume policy。公共 `training.resume_contract` 只提供注册协议，不导入 OPD 实现。
+- `OPDExecutionRegistry` 独立解析 `rollout backend` 与 `teacher provider`，生成加载前可验证的
+  `OPDExecutionPlan` 和 trainer 消费的 `OPDExecutionRuntime`。`ShaftOPDTrainer` 不直接调用本地
+  `generate()` 或持有 teacher module 特例；新增执行实现不得修改 trainer/pipeline 分支。
+- rollout 当前注册 `HFLocalOPDRolloutBackend / VLLMOPDRolloutBackend`；teacher 当前注册
+  `LocalHFOPDTeacherProvider / HTTPRemoteOPDTeacherProvider`。`OPDTeacherArtifactPlan` 决定 provider 是否
+  装配本地模型，pipeline 不按 provider 名判断。
+- `OPDRolloutRequest` 同时携带 tokenizer-only、媒体占位符未展开的 generation prompt，以及本地 processor
+  展开后的 scoring prompt。vLLM 只消费前者，返回 prompt 必须严格等于后者。
+- `OPDObjectiveRegistry` 持有 `full_vocab / topk_tail` 的 projection、distribution validation 与 loss；
+  provider 不按 objective mode 分支。`token_chunk_size` 沿 flattened completion-position 轴切分。
+- `OPDTelemetryMonitor` 持有 OPD optimizer-frame 的唯一 phase state；wall timing、deferred CUDA events、
+  teacher transfer 和 checkpoint history 都由同一 monitor 提交，异常窗口不进入历史。
+- student 模型仍复用公共 model/finetune/optimizer/export 机制；teacher 不进入 student optimizer、checkpoint
+  或 export。local teacher 在 FSDP/DeepSpeed 下复用 TRL backend-native frozen-model preparation；HTTP
+  teacher 不进入训练 process group。
+- OPD collator 只调用一次 processor，并通过 template 的 `build_prompt_plan/build_prompt_row` 做结构化 prompt
+  截断；模型族的 completion sequence-field 扩展与 tail-logits 参数由 `ProcessorPolicy` 声明。
+- `ShaftOPDTrainer` 在每个 microbatch 汇总 DP 全局 numerator/denominator，并在同一 GA window 内重标已有梯度，
+  保证 clipping/optimizer step 看到的是全局 completion-token mean，而不是 microbatch mean 的平均。
 
 ## 7. `loss_scale`
 
@@ -698,8 +755,8 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
     checkpoint
   - GRPO checkpoint 额外按真实 rank-local epoch microstep 几何验证 TRL generation buffer phase。完整
     grouped epoch 的末端天然是安全边界；step save、部分 epoch save 和 resume checkpoint 都使用 shortened
-    accumulation 后的实际 microstep cursor 校验，不能只比较 `global_step * GA`。vLLM sampled rollout 的
-    engine/server RNG 尚未持久化，因此 vLLM 训练当前禁止 checkpoint 与 resume，只允许最终模型导出
+    accumulation 后的实际 microstep cursor 校验，不能只比较 `global_step * GA`。GRPO 的 vLLM sampled
+    rollout engine/server RNG 尚未持久化，因此该训练路径当前禁止 checkpoint 与 resume，只允许最终模型导出
   - `ShaftTrainInputContract` 是 training 层从 logical sample 到模型输入的 exact-resume 真源。它组合
     DataCenter execution identity、train Dataset 类及其 effective runtime methods、Pillow runtime、model
     plan、model-owned processor policy、完整 tokenizer artifact 与 wrapper/backend package identity、
@@ -729,7 +786,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
     `per_device_train_batch_size`、DP world size 与 GA 派生精确 physical-pack 计数，token-budget 模式派生
     min/max pack range，
     sampler spec 与 metadata 必须和它严格一致
-  - `shaft_batching_run_metadata.json` 是 SFT/RLHF 共用的 resolved batching/audit 运行摘要，包含
+  - `shaft_batching_run_metadata.json` 是 SFT/RL 共用的 resolved batching/audit 运行摘要，包含
     versioned canonical `batch_contract`、其 fingerprint、grouping/cardinality/packing/layout、topology、
     buffer/cache/budgets、可选的 `planner_spec_fingerprint` 与 canonical `train_input_contract`；其中 cache
     只供性能审计，不进入 exact contract。root export 清理必须保留，W&B `shaft_batching` 只镜像同一 payload
@@ -750,7 +807,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `ShaftSFTTrainer.evaluate()` 在训练生命周期内把 eval 当作纯观察者：调用标准 HF evaluate 前后保存并
   恢复 Python、NumPy、Torch CPU 与当前 rank CUDA RNG。这样 persistent eval DataLoader 的首次 iterator
   创建不会因 uninterrupted/resume 生命周期不同而改变后续训练随机序列；独立 eval 调用保持标准行为。
-- `training/reproducibility.py` 是训练启动 seed 的共享边界。SFT/RLHF pipeline 在 dataset/model/PEFT 装配
+- `training/reproducibility.py` 是训练启动 seed 的共享边界。SFT/RL/OPD pipeline 在 dataset/model/PEFT 装配
   前调用；普通模式使用 HF `set_seed`，full determinism 使用 `enable_full_determinism`，Trainer 后续仍
   保持上游标准初始化。
 - `utils/semantic_identity.py` 是 model/input/resume/plugin implementation identity 的唯一编码边界。它绑定
@@ -772,7 +829,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
   callable/component digest 绑定 live declared MRO/constructor，并单独绑定 constructor 读取的 live global
   helper，而非只记录 module/qualname。所有 rank 必须在 constructor 前一致，
   `local_rank/process_index/device` 等合法 rank-local 字段不能进入该指纹。
-- `pipeline.execution.finalize_training_outputs()` 是 SFT/RLHF 训练结束保存的共享边界：先做全 rank readiness，
+- `pipeline.execution.finalize_training_outputs()` 是 SFT/RL 训练结束保存的共享边界：先做全 rank readiness，
   再在 status envelope 外调用可能拥有 FSDP/DeepSpeed collective 的 `save_model()`；export layout 校验、
   `save_state()` 与 root prune 随后作为 rank-local 阶段统一收敛异常。最终 status collective 同时承担结束同步，
   不再在可能失败的 rank-local I/O 后放置裸 barrier。`best_export_dir` 在 readiness 内解析为规范化绝对路径，
@@ -1093,7 +1150,8 @@ deadline/cancellation 时在工作开始前 fail closed。`ShaftInferPipeline.ru
 - `src/shaft/cli/train.py`
 - `src/shaft/cli/common.py`
 - `src/shaft/cli/sft.py`
-- `src/shaft/cli/rlhf.py`
+- `src/shaft/cli/rl.py`
+- `src/shaft/cli/opd.py`
 - `src/shaft/cli/infer.py`
 - `src/shaft/cli/export.py`
 - `src/shaft/cli/registry.py`
@@ -1107,7 +1165,8 @@ deadline/cancellation 时在工作开始前 fail closed。`ShaftInferPipeline.ru
 ### 关键类
 
 - `SFTCommand`
-- `RLHFCommand`
+- `RLCommand`
+- `OPDCommand`
 - `CommandSpec`
 
 ### 关键函数

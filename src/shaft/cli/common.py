@@ -15,16 +15,10 @@ from shaft.observability import (
 from shaft.training.distributed import destroy_process_group_if_initialized
 
 
-def run_sft(config: RuntimeConfig) -> dict[str, Any]:
-    from shaft.pipeline import run_sft as _run_sft
+def run_training(config: RuntimeConfig) -> dict[str, Any]:
+    from shaft.pipeline.domains import run_training_domain
 
-    return _run_sft(config)
-
-
-def run_rlhf(config: RuntimeConfig) -> dict[str, Any]:
-    from shaft.pipeline import run_rlhf as _run_rlhf
-
-    return _run_rlhf(config)
+    return run_training_domain(config)
 
 
 def _as_bool(text: str) -> bool:
@@ -181,12 +175,7 @@ def run_from_args(
     try:
         with bind_log_context(algorithm=config.algorithm.name):
             logger.info("[startup] start training (algorithm=%s)...", config.algorithm.name)
-            if config.algorithm.name == "sft":
-                metrics = run_sft(config)
-            elif config.algorithm.name in {"dpo", "ppo", "grpo"}:
-                metrics = run_rlhf(config)
-            else:
-                raise ValueError(f"Unsupported algorithm={config.algorithm.name!r}.")
+            metrics = run_training(config)
         logger.info("[done] train metrics: %s", metrics)
         return metrics
     finally:

@@ -373,7 +373,7 @@ planned commit extension 还要求 metadata 的 planner fingerprint 与实际 ca
 
 本轮 generic planner/state/callback 使用新版本并替换 bounded v3 双轨内核。已有
 `shaft-bounded-batching-v3`、`ShaftBoundedBatchingCallback`、旧 batch-contract，以及缺少 canonical generic
-callback 的 checkpoint **不做 exact resume 或隐式迁移**；此前 re/re2/v5.1 训练若要继承模型权重，使用
+callback 的 checkpoint **不做 exact resume 或隐式迁移**。旧训练若只需要继承模型权重，应通过
 init-from-checkpoint 开新 schedule。只有经独立 replay 证明的迁移器未来才可开放，不能仅靠类名 alias
 假装兼容。
 
@@ -383,8 +383,9 @@ init-from-checkpoint 开新 schedule。只有经独立 replay 证明的迁移器
 图片的 aggregate encoder-work guard，两者不是同一字段。
 
 aggregate budget 必须能容纳 processor 允许的最大单样本。Qwen patch-size 16、
-`max_pixels=4,000,000` 可能产生约 15,625 个 pre-merge patches，因此 re/re2 使用 16,384。该 guard 防止
-多个大图合批，不应用 8,192 之类低于合法单样本的值误杀数据。
+`max_pixels=4,000,000` 可能产生约 15,625 个 pre-merge patches；常见向上取整值是 16,384。具体值应由
+processor policy 与像素预算推导，而不是复制某次实验配置。该 guard 用于防止多个大图合批，不应低于
+processor 允许的合法单样本成本。
 
 ## 8. 测试契约
 
@@ -422,45 +423,13 @@ aggregate budget 必须能容纳 processor 允许的最大单样本。Qwen patch
 - capability negative matrix：3-axis positions、未 reset scalar positions、`use_cache=True`、非空 past、
   FA2/FLA/causal-conv 实际回退、错误 dtype/device/concrete config、SmokeVLM 和未知模型。
 
-GPU canary 是 release gate，不能用 CPU smoke 冒充。2026-07-13 已在 CUDA 1、2 上用标准 HF tiny
-`Qwen3VLForConditionalGeneration` 完成 2-rank DDP + FlashAttention 2 + bf16 的完整 vision/DeepStack
-forward/backward、eval、checkpoint 与 checkpoint-1 resume。连续与恢复训练的 model bytes、optimizer、
-scheduler、两 rank RNG 和 committed planning manifest 一致；`trainer_state.json` 仅因输出目录不同而保留
-不同的 `best_model_checkpoint` 路径。
+GPU canary 是 release gate，不能用 CPU smoke 代替。当前门禁覆盖 Qwen3VL greedy-varlen 的真实权重
+fresh/resume/export/reload，以及 FSDP/DeepSpeed 下 bounded-cost fixed padded 的 checkpoint/resume。sharded
+planned batching 仍只对该组合开放，不能外推到 token-budget、length、packing、varlen、RL、context
+parallel 或发布规模长训练。
 
-2026-07-14 又在 CUDA 0、1 上用真实 Qwen3.6 processor 与 tiny `Qwen3_5ForConditionalGeneration`
-完成 2-rank DDP + FlashAttention 2 + FLA + causal-conv 的 greedy varlen 多模态 forward/backward、两步训练、
-checkpoint、checkpoint-1 exact resume、HF save/export 与 telemetry snapshot 恢复。packed 与 standalone
-hybrid-language hidden state parity、完整 vision forward 和 lm-head gradient 均通过；全程未操作
-`gpu-holder`。
-
-同日最终 release gate 在不可变源码状态下统一覆盖三组模型契约：
-
-| gate | 执行布局 | 发布验收 |
-|---|---|---|
-| 真实 Qwen3VL-4B PEFT | 2-rank greedy varlen | fresh/resume、planning completion、telemetry restore、标准 PEFT + processor reload/forward |
-| tiny upstream Qwen3.5/3.6 dense | 2-rank padded/varlen | fresh/resume、模型/optimizer/scheduler/RNG 等价、full HF + processor reload/forward |
-| tiny upstream Qwen3.5/3.6 MoE | 2-rank padded/varlen | objective、router/expert 更新、fresh/resume、DDP/FSDP/ZeRO-3 保存导出；仅为 tiny capability gate |
-
-统一命令选择 3 个 opt-in integration gate。第一项是 Qwen3VL 真实权重发布链证据；第二项仅证明
-Qwen3.5/3.6 dense tiny-upstream capability。MoE 已从早期架构骨架回归提升为 tiny capability gate，覆盖
-optimizer/router/expert 和 backend-native checkpoint topology，但仍未覆盖真实 35B 权重、目标硬件容量、
-长程数值、显存或吞吐，因此保持 experimental，不得据此声明生产支持。
-
-2026-08-09 完成 sharded planned batching 专项验收：
-
-- CPU/focused 覆盖 rank-local sampler draw 守恒、无 rank 重叠、等 microstep 数、DataLoader 不产生
-  `BatchSamplerShard`，以及 FSDP/DeepSpeed 能力矩阵与未支持组合拒绝。
-- CUDA 0、1 分别完成 2-rank FSDP full-shard 与 DeepSpeed ZeRO-3 的 bounded-cost fixed padded fresh、
-  checkpoint、interrupt/resume；连续与恢复后的 sample stream、model、optimizer、scheduler、RNG 与 planning
-  state 等价。
-- 真实 8-rank DeepSpeed ZeRO-3 canary 使用同一 global microstep 同时覆盖 8,250 LLM tokens 的 heavy-text
-  draw 与 7,696 vision patches 的 heavy-vision draw，local cardinality=1、global draws=8，完成 optimizer
-  step 和 committed checkpoint；marker 解析为 8 个 model shards、8 个 optimizer shards，run-root resolver
-  与 planning generation 校验通过。全程未操作 `gpu-holder`。
-
-这组证据证明的是既有 bounded-cost planner 的 sharded runtime/checkpoint integration，不是新 grouping
-算法，也不外推到 token-budget、length、packing、varlen、RLHF、context parallel 或真实 27B 长训练稳定性。
+可执行 suite、环境变量与当前发布门禁以 [testing.md](testing.md) 为准；每次验收的设备、模型、命令和结果
+保存在 [development_log.md](development_log.md)，不在设计文档重复维护日期化证据。
 
 ## 9. Varlen layout
 

@@ -291,7 +291,7 @@ class ShaftSFTPipeline:
             if algorithm_name != "sft":
                 raise ValueError(
                     f"ShaftSFTPipeline only supports sft, got {algorithm_name!r}. "
-                    "Use ShaftRLHFPipeline for DPO/PPO."
+                    "Use ShaftRLPipeline for DPO/PPO/GRPO."
                 )
             config.algorithm.params = normalize_sft_algorithm_params(
                 config.algorithm.params

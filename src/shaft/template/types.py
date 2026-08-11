@@ -37,6 +37,20 @@ def _message_image_count(messages: list[dict[str, Any]]) -> int:
 
 
 @dataclass(frozen=True)
+class ShaftTemplatePromptPlan:
+    prompt_text: str
+    rendered_prefix_token_ids: tuple[int, ...] = ()
+    truncatable_prefix_spans: tuple[tuple[int, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class ShaftTemplatePromptRow:
+    input_ids: Any
+    attention_mask: Any
+    processed_prefix_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class ShaftTemplateSupervisionPlan:
     prompt_text: str
     target_text: str
@@ -58,7 +72,7 @@ class ShaftTemplateSupervisedRow:
     input_ids: Any
     labels: Any
     attention_mask: Any
-    mm_token_type_ids: Any | None = None
+    processed_prefix_indices: tuple[int, ...]
     loss_scale: Any | None = None
 
 
@@ -129,6 +143,30 @@ class Template(ABC):
         loss_scale_name: str,
     ) -> ShaftTemplateSupervisionPlan:
         raise NotImplementedError
+
+    def build_prompt_plan(
+        self,
+        *,
+        item: dict[str, Any],
+        renderer: "ShaftChatRenderer",
+    ) -> ShaftTemplatePromptPlan:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement structured prompt planning."
+        )
+
+    def build_prompt_row(
+        self,
+        *,
+        plan: ShaftTemplatePromptPlan,
+        tokenizer: Any,
+        processed_batch: "ShaftProcessedBatch",
+        row_index: int,
+        prefix_token_layout: "ShaftProcessorTokenLayout | None",
+        max_length: int | None = None,
+    ) -> ShaftTemplatePromptRow:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement structured prompt rows."
+        )
 
     @abstractmethod
     def estimate_supervision_cost(

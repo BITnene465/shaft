@@ -46,13 +46,13 @@ def _expect_before_interceptor_failure(root: Path, *, algorithm: str) -> None:
         point = "pipeline.sft.run"
         expected_stage = "sft-before-interceptors"
     elif algorithm == "rlhf":
-        import shaft.pipeline.rlhf as pipeline_module
+        import shaft.pipeline.rl as pipeline_module
 
         config.algorithm.name = "dpo"
-        entrypoint = pipeline_module.run_rlhf
-        pipeline_class = pipeline_module.ShaftRLHFPipeline
-        point = "pipeline.rlhf.run"
-        expected_stage = "rlhf-before-interceptors"
+        entrypoint = pipeline_module.run_rl
+        pipeline_class = pipeline_module.ShaftRLPipeline
+        point = "pipeline.rl.run"
+        expected_stage = "rl-before-interceptors"
     else:
         raise AssertionError(f"Unsupported test algorithm: {algorithm!r}.")
 

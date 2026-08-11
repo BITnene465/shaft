@@ -42,9 +42,6 @@ ARROW_HEAD_PROMPT = (
 ARROW_END_PROMPT = (
     ROOT / "configs" / "prompts" / "pools" / "line_arrow_end_type_recovery.v5.3.yaml"
 )
-ATTRIBUTE_PROMPT = (
-    ROOT / "configs" / "prompts" / "pools" / "line_attribute_recovery.v5.3.yaml"
-)
 TARGET_LABELS = {"arrow", "line"}
 RECONSTRUCTION_VARIANTS = (
     "main",
@@ -498,7 +495,6 @@ def select_reconstruction_attributes(
     reconstruction: dict[str, Any],
     *,
     source_label: str,
-    attribute_recovery: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     attempts = reconstruction.get("attempts") or []
     candidates = attempts or [reconstruction.get("selected") or {}]
@@ -518,16 +514,6 @@ def select_reconstruction_attributes(
                 "reference_is_single": raw_parameters.get("is_single"),
                 "reference_points": raw_parameters.get("points"),
             }
-    recovery_selected = (attribute_recovery or {}).get("selected") or {}
-    if recovery_selected.get("contract_valid"):
-        return {
-            "parameters": json.loads(json.dumps(recovery_selected["prediction"])),
-            "source": "focused_attribute_recovery",
-            "variant": recovery_selected.get("variant"),
-            "attempt_index": None,
-            "reference_is_single": None,
-            "reference_points": None,
-        }
     return None
 
 
@@ -870,69 +856,6 @@ def infer_forced_end_arrow(
     return {"task": "forced_end_arrow_recovery", "selected": selected, "attempts": [selected]}
 
 
-def infer_attribute_recovery(
-    *,
-    prompt: ShaftPromptTemplate,
-    record: dict[str, Any],
-    image_url: str,
-    endpoint: str,
-    served_model: str,
-    timeout_s: float,
-) -> dict[str, Any]:
-    attempts = []
-    for request_attempt in range(1, 4):
-        raw_text = ""
-        finish_reason = None
-        latency_ms = 0.0
-        request_error = None
-        try:
-            raw_text, finish_reason, latency_ms = call_vllm(
-                endpoint=endpoint,
-                served_model=served_model,
-                image_url=image_url,
-                system_prompt=prompt.system_prompt,
-                user_prompt=prompt.render(
-                    {"proposal_bbox_2d": record["proposal_bbox_2d"]}
-                )
-                + prior_text(str(record["source_label"]), "reconstruction"),
-                max_tokens=512,
-                timeout_s=timeout_s,
-            )
-        except Exception as exc:  # noqa: BLE001
-            request_error = repr(exc)
-        decoded = decode_with_codec("json_any", raw_text) if raw_text else None
-        parsed = decoded.parsed if decoded is not None and decoded.valid else None
-        parameters, errors = normalize_attribute_parameters(
-            parsed,
-            source_label=str(record["source_label"]),
-        )
-        attempt = {
-            "variant": prompt.variant_id,
-            "prompt_id": prompt.prompt_id,
-            "request_attempt": request_attempt,
-            "raw_text": raw_text,
-            "raw_sha256": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
-            "raw_prediction": parsed,
-            "prediction": parameters,
-            "json_valid": bool(decoded is not None and decoded.valid),
-            "partial": bool(decoded is not None and decoded.partial),
-            "decode_error": decoded.error_type if decoded is not None else request_error,
-            "contract_errors": errors,
-            "contract_valid": not errors,
-            "finish_reason": finish_reason,
-            "latency_ms": round(latency_ms, 3),
-            "request_error": request_error,
-        }
-        attempts.append(attempt)
-        if not errors:
-            break
-        if request_attempt < 3:
-            time.sleep(request_attempt)
-    valid = [attempt for attempt in attempts if attempt["contract_valid"]]
-    selected = valid[0] if valid else attempts[-1]
-    return {"task": "attribute_recovery", "selected": selected, "attempts": attempts}
-
-
 def endpoint_cost(first: list[Any], second: list[Any]) -> float:
     return math.dist((float(first[0]), float(first[1])), (float(second[0]), float(second[1])))
 
@@ -982,14 +905,12 @@ def fuse_heads(
     arrow_head_recovery: dict[str, Any] | None = None,
     arrow_head_recovery_full_image: dict[str, Any] | None = None,
     forced_end_arrow_recovery: dict[str, Any] | None = None,
-    attribute_recovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reconstruction_selected = reconstruction["selected"]
     points_selected = points["selected"]
     attribute_selection = select_reconstruction_attributes(
         reconstruction,
         source_label=str(record["source_label"]),
-        attribute_recovery=attribute_recovery,
     )
     if attribute_selection is None:
         return {"status": "unresolved", "reason": "no_contract_valid_reconstruction"}
@@ -1102,7 +1023,6 @@ def infer_one(
     points_prompts: dict[str, ShaftPromptTemplate],
     arrow_head_prompts: dict[str, ShaftPromptTemplate],
     arrow_end_prompt: ShaftPromptTemplate,
-    attribute_prompt: ShaftPromptTemplate,
     min_pixels: int,
     max_pixels: int,
     max_tokens: int,
@@ -1126,22 +1046,6 @@ def infer_one(
         served_model=served_model,
         max_tokens=max_tokens,
         timeout_s=timeout_s,
-    )
-    initial_attribute_selection = select_reconstruction_attributes(
-        reconstruction,
-        source_label=str(record["source_label"]),
-    )
-    attribute_recovery = (
-        infer_attribute_recovery(
-            prompt=attribute_prompt,
-            record=record,
-            image_url=image_url,
-            endpoint=endpoint,
-            served_model=served_model,
-            timeout_s=timeout_s,
-        )
-        if initial_attribute_selection is None
-        else None
     )
     reconstruction_parameters = (
         (reconstruction.get("selected") or {}).get("prediction") or {}
@@ -1244,7 +1148,6 @@ def infer_one(
         arrow_head_recovery,
         arrow_head_recovery_full_image,
         forced_end_arrow_recovery,
-        attribute_recovery,
     )
     payload = {
         "schema_version": 1,
@@ -1260,7 +1163,6 @@ def infer_one(
         },
         "image_request": image_request.to_dict(),
         "reconstruction": reconstruction,
-        "attribute_recovery": attribute_recovery,
         "arrow_head_recovery": arrow_head_recovery,
         "arrow_head_recovery_full_image": arrow_head_recovery_full_image,
         "forced_end_arrow_recovery": forced_end_arrow_recovery,
@@ -1279,9 +1181,6 @@ def infer_one(
         "geometry_high_risk_fallback": fusion.get("geometry_high_risk_fallback", False),
         "topology_disagreement": fusion.get("topology_disagreement", False),
         "reconstruction_attempts": len(reconstruction["attempts"]),
-        "attribute_recovery_attempts": (
-            len(attribute_recovery["attempts"]) if attribute_recovery else 0
-        ),
         "arrow_head_recovery_attempts": (
             len(arrow_head_recovery["attempts"]) if arrow_head_recovery else 0
         ),
@@ -1348,14 +1247,11 @@ def infer(args: argparse.Namespace) -> None:
     points_prompts = prompt_variants(args.points_prompt)
     arrow_head_prompts = prompt_variants(args.arrow_head_prompt)
     arrow_end_prompts = prompt_variants(args.arrow_end_prompt)
-    attribute_prompts = prompt_variants(args.attribute_prompt)
     missing_variants = set(RECONSTRUCTION_VARIANTS) - set(reconstruction_prompts)
     missing_variants |= set(POINTS_VARIANTS) - set(points_prompts)
     missing_variants |= set(ARROW_HEAD_VARIANTS) - set(arrow_head_prompts)
     if "main" not in arrow_end_prompts:
         missing_variants.add("arrow_end:main")
-    if "main" not in attribute_prompts:
-        missing_variants.add("attribute:main")
     if missing_variants:
         raise RuntimeError(f"missing prompt variants: {sorted(missing_variants)}")
     pending = [record for record in records if not result_complete(result_path(args.output_root, record["target_id"]))]
@@ -1372,7 +1268,6 @@ def infer(args: argparse.Namespace) -> None:
             points_prompts=points_prompts,
             arrow_head_prompts=arrow_head_prompts,
             arrow_end_prompt=arrow_end_prompts["main"],
-            attribute_prompt=attribute_prompts["main"],
             min_pixels=args.min_pixels,
             max_pixels=args.max_pixels,
             max_tokens=args.max_tokens,
@@ -1392,9 +1287,6 @@ def infer(args: argparse.Namespace) -> None:
             )
             counters["topology_disagreement"] += int(bool(result.get("topology_disagreement")))
             counters["reconstruction_retry"] += int(result.get("reconstruction_attempts", 1) > 1)
-            counters["attribute_recovery"] += int(
-                result.get("attribute_recovery_attempts", 0) > 0
-            )
             counters["arrow_head_recovery"] += int(
                 result.get("arrow_head_recovery_attempts", 0) > 0
             )
@@ -2209,7 +2101,6 @@ def build_parser() -> argparse.ArgumentParser:
     infer_parser.add_argument("--points-prompt", type=Path, default=POINTS_PROMPT)
     infer_parser.add_argument("--arrow-head-prompt", type=Path, default=ARROW_HEAD_PROMPT)
     infer_parser.add_argument("--arrow-end-prompt", type=Path, default=ARROW_END_PROMPT)
-    infer_parser.add_argument("--attribute-prompt", type=Path, default=ATTRIBUTE_PROMPT)
     infer_parser.add_argument("--workers", type=int, default=256)
     infer_parser.add_argument("--min-pixels", type=int, default=200704)
     infer_parser.add_argument("--max-pixels", type=int, default=2000000)
@@ -2242,7 +2133,6 @@ def main() -> None:
         "points_prompt",
         "arrow_head_prompt",
         "arrow_end_prompt",
-        "attribute_prompt",
     ):
         value = getattr(args, key, None)
         if isinstance(value, Path) and not value.is_absolute():

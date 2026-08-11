@@ -26,7 +26,7 @@ eval:
 """
     config_path = write_config_yaml(tmp_path, payload)
 
-    with pytest.raises(ValueError, match="GRPO currently expects jsonl_sft data"):
+    with pytest.raises(ValueError, match="requires one of.*jsonl_sft"):
         load_config(config_path)
 
 

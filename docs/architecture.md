@@ -50,11 +50,11 @@ flowchart TD
     Scripts["scripts/*.py<br/>薄包装入口"]
     CLI["src/shaft/cli<br/>命令解析与调度"]
     Config["config<br/>schema / loader / normalize / catalog"]
-    Pipeline["pipeline<br/>SFT / RLHF 编排"]
+    Pipeline["pipeline<br/>SFT / RL / OPD 域编排"]
     Data["data<br/>source / transform / mixing / dataset / collator"]
     Model["model<br/>loader / adapter / policy / finetune"]
     Template["template<br/>chat template / decode protocol"]
-    Algorithms["algorithms<br/>SFT / DPO / PPO trainer 装配"]
+    Algorithms["algorithms + rl + opd<br/>trainer runtime / rollout / objective"]
     Training["training<br/>trainer / loss / optimizer / scheduler / checkpoint"]
     Codec["codec<br/>shared decode / parse repair"]
     Infer["infer<br/>engine / pipeline"]
@@ -95,9 +95,9 @@ flowchart TD
 | `data` | 数据元信息、数据源、记录结构、增强、mixing、dataset、collator | `ShaftDatasetMeta`、`ShaftDataCenter`、`BaseDataSource`、`build_data_source()` | optimizer/loss、训练阶段调度、任务级语义判断 |
 | `model` | 模型族元信息、HF 加载、PEFT 包装、processor/inference/peft policy、冻结执行计划 | `ModelMeta`、`ModelModuleGroups`、`ShaftModelAdapter`、`build_model_tokenizer_processor()` | 数据路径处理、训练循环、推理 stage 编排 |
 | `template` | 消息规范化、chat template、decode 约定、训练 supervision plan | `TemplateMeta`、`Template`、`build_template()` | 图像处理、任务后处理、generation 参数决策 |
-| `algorithms` | 构建 SFT/DPO/PPO/GRPO trainer 与算法专属辅助对象 | `SFTAlgorithm`、`DPOAlgorithm`、`PPOAlgorithm`、`GRPOAlgorithm` | 读取数据文件、控制 pipeline、硬编码模型族 |
-| `pipeline` | 训练主链编排和阶段调度 | `ShaftSFTPipeline`、`ShaftRLHFPipeline`、`run_sft()`、`run_rlhf()` | 任务语义、数据格式解析、模型专属 patch |
-| `training` | Trainer 包装、loss/optimizer/scheduler、checkpoint 规则 | `ShaftSFTTrainer`、`ShaftDPOTrainer`、`ShaftPPOTrainer`、`build_optimizer()`、`build_scheduler()` | 配置加载、数据读取、导出发布 |
+| `algorithms` / `rl` / `opd` | SFT trainer spec、DPO/PPO/GRPO runtime，以及独立 OPD data/rollout/loss/trainer | `RLRuntime`、`ShaftOPDTrainer`、`opd_distribution_loss()` | 中央 CLI 路由、复制公共模型加载/optimizer/export 机制 |
+| `pipeline` | training-domain registry 与三个域的阶段编排 | `ShaftSFTPipeline`、`ShaftRLPipeline`、`ShaftOPDPipeline`、`run_training_domain()` | 数据格式解析、模型专属 patch、按算法名拼装 RL trainer |
+| `training` | Trainer 公共机制、optimizer/scheduler、checkpoint 与可注册 resume policy | `ShaftSFTTrainer`、`register_training_resume_policy()`、`build_optimizer()`、`build_scheduler()` | 读取 `opd.*` 数据语义、配置加载、导出发布 |
 | `codec` | 文本到规范结构的共享解码、JSON 修复与部分解析 | `decode_with_codec()`、`register_codec()` | 指标计算、业务编排、训练循环 |
 | `infer` | 单阶段推理执行、多阶段上下文传递 | `InferEngineConfig`、`ShaftInferEngine`、`ShaftInferPipeline` | 训练逻辑、离线任务 DSL、私有 codec 体系 |
 | `export` | HF 目录检查、PEFT merge、导出校验 | `inspect_hf_artifact()`、`validate_hf_artifact()`、`merge_peft_adapter()` | 自定义产物格式、发布平台适配 |
@@ -118,10 +118,10 @@ sequenceDiagram
     participant Algo as shaft.algorithms
     participant Trainer as shaft.training
 
-    Script->>CLI: sft / rlhf
+    Script->>CLI: sft / rl / opd
     CLI->>Config: load_config()
     Config-->>CLI: RuntimeConfig
-    CLI->>Pipeline: run_sft() / run_rlhf()
+    CLI->>Pipeline: training-domain registry dispatch
     Pipeline->>Model: build_model_tokenizer_processor()
     Pipeline->>Data: ShaftDataCenter.build_dataset_bundle()
     Pipeline->>Algo: algorithm.prepare_trainer(...)
@@ -139,12 +139,24 @@ sequenceDiagram
 - 数据元信息：`ShaftDatasetMeta`
 - 模型：`build_model_tokenizer_processor()`
 - SFT 编排：`ShaftSFTPipeline`
-- RLHF 编排：`ShaftRLHFPipeline`
+- RL 编排：`ShaftRLPipeline`（DPO/PPO/GRPO 差异由 `src/shaft/rl` runtime registry 持有；唯一入口为
+  `run_rl`）
   - 当前支持：
     - `DPO`
     - `PPO`
     - `GRPO`
   - 其中 `GRPO` 复用 `jsonl_sft` 作为 prompt-target 数据契约，并通过共享 `codec` + 内置 reward registry 构建 reward functions
+- OPD 编排：`ShaftOPDPipeline`
+  - 独立 `jsonl_opd` prompt-only 输入、HF/vLLM student rollout、本地/HTTP 冻结 teacher 与
+    completion-token direct loss。
+  - rollout backend 与 teacher provider 由 OPD 域内 registry 解析；execution plan 在模型加载前检查
+    exact-resume capability，trainer 只消费统一 runtime contract。
+  - template prompt-plan 负责严格前缀截断；model policy 负责 rollout sequence fields 与可选 tail-logits
+    forward contract；trainer 负责 optimizer-window 全局 token normalization。
+  - objective registry 持有 full-vocab/chunk/top-k-tail 语义；OPD telemetry 独立记录 rollout、score、
+    objective、optimizer 与 CUDA event，不复用 SFT supervised-token schema。
+  - DDP/FSDP/DeepSpeed 复用 HF/Accelerate checkpoint/export；不导入 TRL experimental OPD/GKD trainer，
+    也不进入 RL runtime；unsupported layout 在 normalize 阶段 fail closed。
 - HF 参数映射：`build_hf_training_args()`
   - 负责把 `train.distributed.strategy` 映射到 HF `TrainingArguments.fsdp/fsdp_config/deepspeed`
 - checkpoint 规则：
@@ -173,11 +185,18 @@ SFT/DPO 的多模态监督采用单次 processor 契约：
    所需的模型输入复制/重排。GRPO 绕过 SFT collator 时，pipeline 也只能把 policy 的
    `prepare_rollout_image()` 作为通用 callable 注入 dataset；data 层不能导入某个模型族的 resize utility。
    每个非 sequence 字段必须显式声明为 sample-aligned、whole-batch media 或 static；未知字段不透传。
-4. Qwen VL policy 使用 `mm_token_type_ids` 折叠图像 token expansion；identity policy 要求 processed
-   tokens 与 rendered tokens 完全一致。任何无法证明的字段重排或 token 对齐都必须 fail fast。
-5. `template` 只消费 `ShaftProcessedBatch` 与精确 layout 生成 labels/loss scale；DPO 的 chosen/rejected
+4. processor 输出的附加 token-aligned 字段由 policy 注册为 `ShaftProcessorSequenceField`，统一声明字段名、
+   token 轴、padding 值和 continuation 扩展值。`ShaftProcessedBatch` 保存本次实际出现的 resolved contract；
+   template row 只返回保留的 processed-prefix indices，SFT/DPO/OPD collator 通过同一合同完成截断、target/
+   rollout 扩展、padding 或 varlen 拼接，通用层不认识任何模型字段名。缺少 continuation 规则、字段只在部分
+   合同出现或 collator 丢字段时均 fail fast。
+5. Qwen VL policy 使用 `mm_token_type_ids` 折叠图像 token expansion，并把 media token run 写入
+   `ShaftProcessorTokenLayout.protected_processed_spans`；identity policy 要求 processed tokens 与 rendered
+   tokens 完全一致。template 只看受保护 span，不读取 Qwen token type。任何无法证明的字段重排或 token
+   对齐都必须 fail fast。
+6. `template` 只消费 `ShaftProcessedBatch` 与精确 layout 生成 labels/loss scale；DPO 的 chosen/rejected
    共享同一 prompt plan、layout 和视觉处理结果。
-6. `ProcessorInputPolicy` 显式声明 training/right 与 generation/left padding；caller 只声明 input mode，
+7. `ProcessorInputPolicy` 显式声明 training/right 与 generation/left padding；caller 只声明 input mode，
    不再传递裸 `padding_side`。`EvalInputPolicy` 在 config 层按 dataset override、eval default、data fallback
    的优先级解析 pixel budget；teacher-forced loss 与 online generation 共享同一个 resolved policy。
 
@@ -362,7 +381,7 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   - `fsdp`: PyTorch/HF FSDP
   - `deepspeed`: DeepSpeed ZeRO
 - `pipeline/training_args.py` 是分片策略进入 HF Trainer 的唯一入口。
-- SFT / RLHF pipeline 必须先构建并持有 `TrainingArguments`，再加载模型。这样 DeepSpeed
+- SFT / RL / OPD pipeline 必须先构建并持有 `TrainingArguments`，再加载模型。这样 DeepSpeed
   ZeRO-3 的 HF runtime config 能在 `from_pretrained` 前生效，避免大模型先按每 rank 完整模型加载。
 - 当 `strategy` 不是 `deepspeed` 时，`pipeline/training_args.py` 会清理 HF/Accelerate 的
   DeepSpeed 全局状态，避免同一 Python 进程内先后运行不同训练策略时串配置。
@@ -396,6 +415,45 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   再生成 dataset-global `eval_aux/router_global_balance`。`ShaftEvalAuxiliaryStatistic.coefficient_key` 必须显式
   关联训练 term，raw metric 在 model finalizer 完成后才由 Trainer 生成加权诊断；禁止按 eval metric 名推断
   关联，也禁止 override 改写 raw metric。因此指标不随 eval batch 切分改变，`eval_loss` 仍是 CE-only。
+
+### 5.4.2 OPD 执行合同
+
+OPD 是独立训练域，不是 RL trainer 的分支。pipeline 只装配 resolved plan，具体实现由三个 registry
+分别解析：
+
+```text
+ShaftOPDPipeline
+├── rollout backend       hf_local | vllm
+├── teacher provider      hf_local | http
+├── objective             full_vocab | topk_tail
+├── OPD telemetry
+└── HF/Accelerate backend ddp | fsdp | deepspeed
+```
+
+- `OPDRolloutRequest` 同时保存 tokenizer-only、媒体占位符未展开的
+  `generation_prompt_token_ids`，以及本地 processor 展开后的 `prompt_token_ids`。vLLM 接收前者和有序原始
+  媒体，返回的展开 prompt 必须逐 token 等于后者；禁止通过 decode/re-tokenize 修补漂移。
+- `OPDTeacherScoreRequest` 只携带 forward tensor、completion mask 和稳定请求身份。provider 统一返回
+  `OPDTeacherDistribution`：要么是 dense logits，要么是 top-k token/log-prob 与精确 tail mass。trainer
+  不读取 HTTP、HF output 或 vLLM 私有类型。
+- `http` teacher 通过 `/v1/identity` 证明 protocol、model/tokenizer/processor-policy/artifact 身份，通过
+  `/v1/score` 交换有界 safetensors body。密钥只从环境变量读取；训练配置必须绑定不可变 artifact
+  fingerprint。独立服务入口是 `scripts/serve_opd_teacher.py`。
+- `vllm` rollout 包装 TRL `VLLMGeneration`。backend 必须在 distributed wrapper 施加前绑定 canonical
+  student；每个 optimizer model version 恰好同步一次权重。同一 GA window 不重复同步，optimizer 更新后
+  不得复用旧 completion。普通 OpenAI-compatible server 没有训练权重同步合同，不能冒充 on-policy backend。
+- `full_vocab` 支持 `forward_kl/reverse_kl/jsd`；`token_chunk_size` 只沿 completion-token 轴分块，不能改变
+  全局 numerator/denominator。`topk_tail` 把 teacher top-k 与剩余 vocabulary 组成 K+1 个概率 bucket，tail
+  mass 必须参与 loss；`K == vocab_size` 时应与 full-vocab 等价。
+- OPD telemetry 独立记录 prompt/completion token、vision patches、rollout/teacher/objective/backward/
+  optimizer wall time、CUDA event device time、HTTP bytes 与 distribution 元素数。wall 与 device timing
+  是不同口径；frame 只在 optimizer attempt 结束后 commit，异常窗口直接丢弃。
+- DDP 使用 committed manifest；FSDP/DeepSpeed 使用 backend-native checkpoint。resume contract 绑定
+  execution implementation/version、request-seed 算法、teacher identity、distribution/objective、telemetry
+  protocol 和训练 topology。当前没有跨 step rollout buffer；未来若引入，cursor/state 必须一并持久化。
+- 当前 OPD 只开放 `grouping=none + cardinality=fixed + packing=none + layout=padded`，不支持 eval、packing
+  或 varlen。已有门禁证明协议、DDP/FSDP/DeepSpeed fresh/resume/export 与真实 Qwen vLLM 主链；独立 Qwen
+  HTTP teacher GPU 部署、发布 Qwen sharded 容量和大词表内存/吞吐 A/B 仍是专项待办。
 
 ### 5.5 冻结边界
 
@@ -560,8 +618,8 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - `ShaftDataCenter`
 - `ModelMeta` / `ShaftModelAdapter`
 - `TemplateMeta` / `Template`
-- `ShaftSFTPipeline` / `ShaftRLHFPipeline`
-- `ShaftSFTTrainer` / `ShaftDPOTrainer` / `ShaftPPOTrainer`
+- `ShaftSFTPipeline` / `ShaftRLPipeline` / `ShaftOPDPipeline`
+- `ShaftSFTTrainer` / `ShaftDPOTrainer` / `ShaftPPOTrainer` / `ShaftOPDTrainer`
 - `InferEngineConfig` / `ShaftInferEngine` / `ShaftInferPipeline`
 - `inspect_hf_artifact()` / `validate_hf_artifact()` / `merge_peft_adapter()`
 
@@ -575,8 +633,9 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 ## 9. 当前明确受限的能力
 
 - PPO 仍是受限能力，不能视为完整生产功能。
-- 当前正式 Qwen 多模态训练主线是 `qwen3vl`；新一代兼容注册项 `qwen35vl`/`qwen36vl` 的 dense/MoE
-  仍是 tiny-upstream validated experimental 能力，`smoke_vlm` 仅用于测试。
+- 当前正式 Qwen 多模态训练主线是 `qwen3vl`。`qwen36vl` dense 已有 Qwen3.6-27B 短程真实权重训练记录；
+  `qwen35vl` 与新一代 MoE 的完整后端矩阵仍是 experimental，主要证据来自 tiny upstream gate。
+  `smoke_vlm` 仅用于测试。
 - Qwen3.5/3.6 MoE padded SFT 的接口和 tiny upstream release gate 已完成；真实 35B 权重的显存、吞吐、
   长程数值稳定性和目标集收敛尚未验证，不能从 tiny gate 推导生产容量。
 - 结构化任务评估当前支持轻量在线 metric；完整离线评测工作台不属于当前主线能力。
@@ -625,5 +684,4 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - [docs/training_batch_planning_design.md](training_batch_planning_design.md)
 - [docs/export.md](export.md)
 - [docs/extension_guide.md](extension_guide.md)
-- [docs/development_workflow.md](development_workflow.md)
 - [docs/testing.md](testing.md)

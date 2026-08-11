@@ -172,7 +172,7 @@ class PPORecord(_OrderedImageRecord):
         self.extra = dict(extra or {})
 
 
-class _BaseVisionDataset(Dataset):
+class ShaftVisionDatasetBase(Dataset):
     def __init__(
         self,
         records: Sequence[Any] | dict[str, Sequence[Any]],
@@ -275,7 +275,7 @@ class _BaseVisionDataset(Dataset):
         return resolved
 
 
-class SFTDataset(_BaseVisionDataset):
+class SFTDataset(ShaftVisionDatasetBase):
     def __init__(
         self,
         records: Sequence[SFTRecord] | dict[str, Sequence[SFTRecord]],
@@ -400,7 +400,7 @@ class GRPODataset(Dataset):
         }
 
 
-class DPODataset(_BaseVisionDataset):
+class DPODataset(ShaftVisionDatasetBase):
     def __init__(
         self,
         records: Sequence[DPORecord] | dict[str, Sequence[DPORecord]],
@@ -447,7 +447,7 @@ class DPODataset(_BaseVisionDataset):
         return self._apply_online_transforms(sample)
 
 
-class PPODataset(_BaseVisionDataset):
+class PPODataset(ShaftVisionDatasetBase):
     def __init__(
         self,
         records: Sequence[PPORecord] | dict[str, Sequence[PPORecord]],

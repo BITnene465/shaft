@@ -130,9 +130,9 @@ uv pip install -e ".[serve]"
 训练：
 
 ```bash
-python scripts/train.py sft --config configs/train/train_sft_4b.yaml
-python scripts/train.py rlhf --config configs/train/train_dpo_4b.yaml --algorithm dpo
-python scripts/train.py rlhf --config configs/train/train_ppo_4b.yaml --algorithm ppo
+python scripts/train.py sft --config configs/train/sft_4b.yaml
+python scripts/train.py rl --config configs/train/dpo_4b.yaml --algorithm dpo
+python scripts/train.py rl --config configs/train/ppo_4b.yaml --algorithm ppo
 ```
 
 推理：
@@ -342,9 +342,11 @@ python3 -m compileall src/shaft tests
 - 新增算法 / pipeline：
   - `tests/test_pipeline_sft.py`
   - `tests/test_pipeline_rlhf.py`
+  - OPD 使用 `tests/test_opd.py` 与 `tests/test_pipeline_opd_smoke.py`
 - 新增在线 eval / codec：
   - `tests/test_codec.py`
-  - `tests/test_online_eval.py`
+  - `tests/test_online_eval_runner.py`
+  - `tests/test_online_eval_aggregation.py`
 - 新增导出能力：
   - `tests/test_export_tools.py`
   - `tests/test_export_cli.py`

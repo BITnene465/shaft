@@ -11,6 +11,8 @@ from .registry import (
 )
 from .rendering import ShaftChatRenderer
 from .types import (
+    ShaftTemplatePromptPlan,
+    ShaftTemplatePromptRow,
     ShaftSupervisionCostEstimate,
     ShaftTemplateSupervisionPlan,
     ShaftTemplateSupervisedRow,
@@ -23,6 +25,8 @@ __all__ = [
     "ShaftChatRenderer",
     "ShaftSupervisionCostEstimate",
     "ShaftTemplateSupervisionPlan",
+    "ShaftTemplatePromptPlan",
+    "ShaftTemplatePromptRow",
     "ShaftTemplateSupervisedRow",
     "Template",
     "TemplateMeta",

@@ -125,9 +125,12 @@ degradation levels.
 
 Validation and VLM test data should remain clean full-image only.
 
-Historical v5.2 synthetic layout detection remains a separate replay source named
-`grounding_layout_sync`. Do not run the real layout multiscale augmentation profile on it or merge
-its files into `grounding_layout`. The v5.3 training mix intentionally excludes this source.
+Synthetic layout detection remains a separate replay source named `grounding_layout_sync`. Do not
+run the real layout multiscale augmentation profile on it or merge its files into
+`grounding_layout`. The maintained v5.7 source materializes one full-image
+`synthetic_realism_v1` view per V9 train id: every row must contain Gaussian noise and may stack
+resample round-trip, blur, or JPEG compression, while image dimensions and bbox coordinates remain
+unchanged. It has no clean row and is train-only.
 
 ## Canonical Order Needs GT Validation
 
@@ -297,6 +300,44 @@ transparent/no fill unless there is an independent visible fill different from t
 Do not silently turn model-generated weak labels into validation or benchmark data. They can be
 useful for beta training, but formal eval should remain on human-maintained validation/benchmark
 sources unless the user explicitly requests a weak-label eval experiment.
+
+## V5.7 Synthetic And Historical Real Attribute Domains Are Different
+
+Do not infer a single reconstruction value domain from isolated examples in the annotation PDF.
+The v9 synthetic `gt_standard` source uses `shape.fill.type=uniform|complex`,
+`shape.effect.type=none|exist`, nested line `fill` / `border`, and `image_type=N/A`. Under the
+current v5.7 contract, both shape and line collapse any visual gradient or other non-uniform fill
+to exactly `{\"type\":\"complex\"}`. Never output gradient type, direction, endpoint colors, or
+stops for either task. The historical v5.3 real shape attribute task may still contain transparent
+fill, directional gradients, and distinct shadow/glow values, but it is not part of v5.7 training
+and must not be used to expand the current output domain. A complex line fill is valid current
+supervision; do not delete or reinterpret it as an unsupported arrow gradient.
+
+This is a versioned contract, not a claim that explicit gradients will never be supported. The
+current training data is valid and must not be rebuilt merely because a future version may add a
+richer gradient schema. Introduce that schema as an explicit new-version migration across data,
+prompts, codec, evaluation, and rendering; do not retroactively mark current `complex` targets as
+wrong.
+
+Keep these as explicit task contracts. Never pair a new prompt with old v5.3 shape-attribute
+targets, register the historical task in a v5.7 mix, rewrite synthetic `N/A` image type to `other`,
+or mix legacy `fill_color`/`has_border` line targets into the v5.7 nested schema.
+
+The v9 image display schema also allows `clip_shape=none` and polygon clips such as
+`regular_hexagon`; `oval` may carry an explicitly empty `corners` list. These are valid source
+records, not malformed rectangles. They remain outside the 13-class `image_type` task while the
+synthetic source reports `image_type=N/A`.
+
+For v9 line truth, `corner_style` belongs to any bent `straight` line, including shape-style solid
+arrows. Do not reject it merely because `line_style != path`. Curved segments are different: the
+v5.7 contract requires exactly four representative points per segment, so source rows with 3, 5,
+6, or 7 curved points must be excluded from reconstruction selection rather than silently
+resampled into invented geometry.
+
+Card `splits[].split_corners` are model-facing geometry. Context builders must include them when
+expanding the geometry coverage box and quantize them into the same full contextual-crop `0..999`
+space as outer `corners`; preserving their original pixel coordinates creates a mixed-coordinate
+target even when the rest of the card looks valid.
 
 ## Schema-Valid Requires Exact Nested Keys
 

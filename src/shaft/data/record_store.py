@@ -13,15 +13,35 @@ import uuid
 
 from .dataset import DPORecord, PPORecord, SFTRecord
 
-RecordT = TypeVar("RecordT", SFTRecord, DPORecord, PPORecord)
+RecordT = TypeVar("RecordT")
 
-# Bump whenever normalized record schema or row-building semantics change.
-_CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v4"
+# Bump whenever normalized record schema, row-building semantics, or source
+# snapshot identity changes.
+_CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v5"
 _JSON_FIELDS = {"image_paths", "messages", "prompt_args", "extra"}
-_RECORD_TYPES = {
-    record_type.__name__: record_type
-    for record_type in (SFTRecord, DPORecord, PPORecord)
-}
+_RECORD_TYPES: dict[str, type[Any]] = {}
+
+
+def register_record_type(record_type: type[RecordT]) -> type[RecordT]:
+    """Register a dataclass record for Arrow store reconstruction.
+
+    Data-domain extensions own their record schema and register it at import time;
+    the generic record store must not import every algorithm-specific data module.
+    """
+
+    if not isinstance(record_type, type):
+        raise TypeError("record_type must be a class.")
+    fields(record_type)
+    name = str(record_type.__name__).strip()
+    existing = _RECORD_TYPES.get(name)
+    if existing is not None and existing is not record_type:
+        raise ValueError(f"Duplicate Arrow record type {name!r}.")
+    _RECORD_TYPES[name] = record_type
+    return record_type
+
+
+for _builtin_record_type in (SFTRecord, DPORecord, PPORecord):
+    register_record_type(_builtin_record_type)
 
 
 def _import_pyarrow():
@@ -61,9 +81,11 @@ def _source_fingerprint(
     digest.update(b"\0")
     digest.update(str(validation_fingerprint).encode("utf-8"))
     digest.update(b"\0")
-    digest.update(
-        f"{stat.st_size}:{stat.st_mtime_ns}:{stat.st_ctime_ns}".encode("utf-8")
-    )
+    # ctime is filesystem-local metadata: an rsync/copy can preserve content,
+    # size, and mtime across training nodes, but cannot preserve ctime. Including
+    # it makes equivalent local replicas publish different distributed data
+    # contracts. Size + mtime still invalidate the normal mutable-file cache.
+    digest.update(f"{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8"))
     return digest.hexdigest()
 
 

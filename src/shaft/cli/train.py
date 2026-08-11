@@ -3,7 +3,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import rlhf as _rlhf  # noqa: F401
+from . import rl as _rl  # noqa: F401
+from . import opd as _opd  # noqa: F401
 from . import sft as _sft  # noqa: F401
 from .registry import COMMAND_REGISTRY
 

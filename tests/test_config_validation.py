@@ -1148,7 +1148,7 @@ algorithm:
     unit: steps
     value: 2
 """,
-            "supports algorithm.name='sft' only",
+            "profile enables planned batching",
         ),
         (
             "",

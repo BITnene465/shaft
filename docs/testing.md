@@ -140,7 +140,7 @@ Qwen 训练 release gate 需要本地 `models/Qwen3-VL-2B-Instruct`、`models/Qw
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE=1 \
   uv run pytest -q tests/test_integration_qwen_standard.py \
-  -k '2b_two_rank_fp16 or two_rank_train_save_and_exact_resume_release_gate or two_rank_lora_varlen_and_export_release_gate or sharded_backend_release_gate'
+  -k '2b_two_rank_fp16 or two_rank_train_save_and_exact_resume_release_gate or multi_rank_lora_varlen_and_export_release_gate or sharded_backend_release_gate'
 ```
 
 它覆盖真实 Qwen3VL-2B FP16 AMP + FP32-load padded LoRA 的 8-step fresh、checkpoint-4→step-8 exact
@@ -154,6 +154,72 @@ processor+model forward。exact-resume gate 比较模型/adapter、optimizer、s
   交叉验证后可由 2-rank runtime 完整恢复的 telemetry workload/span；wall-clock efficiency 字段不参与
   bitwise 比较。所有 gate 显式启用
 `full_determinism`。资源守护进程只负责让卡，不得由测试或操作人停止、重启、发送信号或修改配置。
+
+greedy-varlen packing 的相同 release gate 可扩为四卡；验证器会从 checkpoint efficiency transaction 读取
+world size，不允许用固定两 rank 的恢复器误验多 rank snapshot：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE=1 \
+  SHAFT_QWEN_PACKING_WORLD_SIZE=4 uv run pytest -q \
+  tests/test_integration_qwen_standard.py::\
+test_qwen3vl_multi_rank_lora_varlen_and_export_release_gate -s
+```
+
+OPD 的发布权重门禁使用真实 Qwen3VL-2B student 与 Qwen3VL-4B frozen teacher，和 SFT gate 分开显式执行：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 SHAFT_RUN_QWEN_OPD_RELEASE_GATE=1 \
+  uv run pytest -q tests/test_integration_qwen_standard.py::\
+test_qwen3vl_opd_release_weights_single_and_two_rank_exact_resume_gate -s
+```
+
+该门禁先用两张有序图片执行单卡 BF16 LoRA generate/score/backward、非零 adapter 更新与 PEFT validate，
+再用单图执行两卡 DDP、GA=2 的两步 fresh 和 checkpoint-1→step-2 resume。验收逐项比较 adapter、optimizer、
+scheduler、每 rank RNG、Trainer state 与最终 export，并使用 sampled rollout 验证 generation RNG 恢复。
+该门禁已于 2026-08-11 在 CUDA 0、1 上通过。CPU tiny/两进程 Gloo 证据仍不能替代它；后续重跑也必须
+等待两张卡无用户训练进程，禁止抢占训练任务或操作 `gpu-holder`。单卡子进程只暴露第一张卡，外层 pytest
+和双卡 DDP 子进程暴露两张卡，避免误入单进程 DataParallel。
+
+OPD 的 vLLM server 与 sharded backend 使用两个独立 manual gate：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 SHAFT_RUN_QWEN_OPD_VLLM_GATE=1 \
+  uv run pytest -q tests/test_integration_qwen_standard.py::\
+test_qwen3vl_opd_vllm_server_rollout_release_gate
+
+CUDA_VISIBLE_DEVICES=0,1 SHAFT_RUN_OPD_SHARDED_GATE=1 \
+  uv run pytest -q tests/test_smoke_distributed.py \
+  -k 'opd_backend_native_exact_resume_gate'
+```
+
+vLLM gate 在 CUDA1 启动真实 Qwen3VL-2B TRL server，在 CUDA0 装配 2B LoRA student 与 4B local teacher，
+覆盖 weight sync、未展开/展开多模态 prompt 对齐、rollout、score、backward 和 telemetry。sharded gate 分别
+覆盖两卡 FSDP 与 DeepSpeed ZeRO-3 tiny fresh/resume/export，并验证每 rank OPD telemetry 连续历史。
+两者只终止自身启动的进程组，禁止操作 `gpu-holder`。
+
+完整四卡验收使用三种互补拓扑：
+
+```bash
+# 4-rank DDP student + 真实 HTTP teacher；top-k-tail/chunk、telemetry、fresh/resume
+CUDA_VISIBLE_DEVICES=0,1,2,3 SHAFT_RUN_OPD_FOUR_GPU_GATE=1 \
+  uv run pytest -q tests/test_smoke_distributed.py::\
+test_torchrun_opd_four_gpu_external_teacher_objective_telemetry_exact_resume_gate -s
+
+# 4-rank FSDP 与 4-rank ZeRO-3，分别执行 fresh/resume/export
+CUDA_VISIBLE_DEVICES=0,1,2,3 SHAFT_RUN_OPD_SHARDED_GATE=1 \
+  SHAFT_OPD_SHARDED_WORLD_SIZE=4 uv run pytest -q \
+  tests/test_smoke_distributed.py::test_torchrun_opd_backend_native_exact_resume_gate -s
+
+# CUDA0-2: 3-rank DDP Qwen student/local teacher；CUDA3: 独立 TRL vLLM server
+CUDA_VISIBLE_DEVICES=0,1,2,3 SHAFT_RUN_QWEN_OPD_VLLM_GATE=1 \
+  SHAFT_OPD_VLLM_TRAIN_WORLD_SIZE=3 SHAFT_OPD_VLLM_TRAIN_GPUS=0,1,2 \
+  SHAFT_OPD_VLLM_SERVER_GPU=3 uv run pytest -q \
+  tests/test_integration_qwen_standard.py::\
+test_qwen3vl_opd_vllm_server_rollout_release_gate -s
+```
+
+第一条的 HTTP teacher 服务在 CPU 上运行，证明训练进程不加载 teacher；它不是“Qwen teacher GPU 独立部署”
+的容量证据。三条门禁和四卡 packing gate 均已于 2026-08-11 在 CUDA0–3 通过。
 
 MoE 是同一 release-gate 组内的独立 experimental capability gate，另外验证：DDP padded LoRA 与 DDP
 varlen full、FSDP padded fused-parameter LoRA、DeepSpeed

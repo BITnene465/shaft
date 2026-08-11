@@ -25,19 +25,20 @@
 
 用途：
 - 统一训练入口
-- 当前支持 `sft` 与 `rlhf` 子命令
+- 当前训练入口严格对应三个 domain：`sft`、`rl` 与 `opd`；不保留第二套 `rlhf` CLI
 
 常用形式：
 
 ```bash
-python scripts/train.py sft --config configs/train/banana_sft_4b.yaml
-python scripts/train.py rlhf --config configs/train/dpo_4b.yaml
+python scripts/train.py sft --config configs/train/sft_4b.yaml
+python scripts/train.py rl --config configs/train/dpo_4b.yaml --algorithm dpo
+python scripts/train.py opd --config /path/to/opd.yaml
 ```
 
 兼容写法：
 
 ```bash
-python scripts/train.py --config configs/train/banana_sft_4b.yaml
+python scripts/train.py --config configs/train/sft_4b.yaml
 ```
 
 说明：
@@ -69,6 +70,46 @@ python scripts/infer.py \
 说明：
 - `--inputs` 是 JSON 字符串
 - 输出会打印为 JSON
+
+### `scripts/serve_opd_teacher.py`
+
+用途：启动一个 immutable local-HF OPD teacher 的版本化 HTTP 服务。服务端配置必须选择
+`opd.teacher.provider=hf_local`；训练端使用另一份 `provider=http` 配置并固定服务发布的 artifact SHA-256。
+
+```bash
+SHAFT_TEACHER_TOKEN='...' \
+python scripts/serve_opd_teacher.py \
+  --config /path/to/opd_teacher_server.yaml \
+  --host 0.0.0.0 \
+  --port 8100 \
+  --api-key-env SHAFT_TEACHER_TOKEN
+```
+
+训练端对应配置：
+
+```yaml
+opd:
+  teacher:
+    provider: http
+    model_type: qwen3vl
+    remote:
+      endpoint: http://teacher-host:8100
+      artifact_fingerprint: <64-char-sha256-from-server-identity>
+      api_key_env: SHAFT_TEACHER_TOKEN
+```
+
+服务只暴露 `/v1/identity` 与 `/v1/score`，请求/响应使用有界 safetensors envelope。服务端和训练端从环境
+变量读取 token，不应把密钥写入 YAML。
+
+OPD 使用独立 vLLM server rollout 时，先启动与 student base artifact 相同的 TRL 服务，再在训练配置设置
+`opd.rollout.backend=vllm` 和匹配的 `opd.rollout.vllm.server_port/group_port`：
+
+```bash
+CUDA_VISIBLE_DEVICES=1 trl vllm-serve \
+  --model /path/to/student \
+  --host 127.0.0.1 \
+  --port 8000
+```
 
 ### `scripts/export.py`
 
@@ -179,25 +220,31 @@ uv run python scripts/tasks/build_grounding_structured.py \
 ### `scripts/tasks/build_grounding_layout_sync_structured.py`
 
 用途：
-- 从 `regulated_layout_dataset_v8_20260709/gt_standard` 构建独立的合成 detection 数据集
-- 只读取源数据的 `train.txt`，显式排除 `val.txt`
-- 每个源图只保留一条 clean full-image 视图，不做 resize、crop、blur、noise 或 padding
+- 从 `regulated_layout_dataset_v9_20260802/gt_standard` 构建独立的合成 detection 数据集
+- 读取审计后的 train split，显式排除 `val.txt`
+- 每个源图生成一条全尺寸 `synthetic_realism_v1` 视图；每条必须包含 Gaussian noise，且可叠加
+  resample round-trip、Gaussian blur 或 JPEG compression，不保留 clean 视图
 - 输出任务名固定为 `grounding_layout_sync`，不写入或合并到真实 `grounding_layout`
 
 构建命令：
 
 ```bash
 uv run python scripts/tasks/build_grounding_layout_sync_structured.py \
-  --dataset-root data/regulated_layout_dataset_v8_20260709 \
+  --dataset-root data/regulated_layout_dataset_v9_20260802 \
+  --split-file data/reconstruction_v5_7_selection/clean_train.txt \
   --output-root data/grounding_layout_sync \
-  --workers 8 \
+  --workers 40 \
+  --chunksize 4 \
+  --seed 42 \
+  --png-compress-level 1 \
   --clean
 ```
 
 关键行为：
 - 读取 `gt_standard` 的 `shape/icon/image/line`，源 `arrow` 统一为 `line`
 - 过滤面积达到画布 90% 的 synthetic background shape 和退化 bbox
-- structured/SFT 直接引用源 PNG，不复制 117 GB 图片
+- 增强后 RGB 像素写入 task-local PNG；structured/SFT 不得直接引用 clean source PNG
+- 像素增强保持原图宽高，bbox 坐标和 grounding target 不变；增强计划按 sample ID 和 seed 确定
 - 只生成 train；正式 eval 仍使用真实 benchmark
 
 ### `scripts/tasks/build_sft_from_structured.py`
@@ -214,9 +261,9 @@ uv run python scripts/tasks/build_sft_from_structured.py \
   --data-root data \
   --task grounding_layout \
   --task grounding_layout_sync \
-  --prompt-config grounding_layout=configs/prompts/pools/grounding_layout.v5.3.yaml \
-  --prompt-config grounding_layout_sync=configs/prompts/pools/grounding_layout.v5.3.yaml \
-  --workers 8 \
+  --prompt-config grounding_layout=/path/to/grounding_layout_prompt_pool.yaml \
+  --prompt-config grounding_layout_sync=/path/to/grounding_layout_sync_prompt_pool.yaml \
+  --workers 40 \
   --clean
 ```
 
@@ -267,7 +314,7 @@ uv run python scripts/tasks/build_region_reconstruction_sft.py \
 - 为每个实例生成一个确定性的宽松 contextual crop，并以近似一阶段
   `prompt_args.proposal_bbox_2d` 指定目标
 - 生成 `shape_context_reconstruction`、`line_context_reconstruction`、
-  `image_context_reconstruction`、真实弱监督 `shape_context_attributes`，以及归档真实线点子任务
+  `image_context_reconstruction`、真实弱监督 `shape_context_attributes`，以及真实/合成线点子任务
   `line_context_points` 的 task-local PNG、structured/SFT、README 与 build summary
 
 正式构建命令：
@@ -290,12 +337,31 @@ uv run python scripts/tasks/build_context_reconstruction_sft.py \
   --clean
 ```
 
-从归档 point-arrow selection 与归档 grounding clean full-image 恢复 line 点几何子任务：
+先从 active compact raw 选择全部非空真实 line points：
+
+```bash
+uv run python scripts/tasks/prepare_real_line_context_points.py \
+  --raw-root data/raw \
+  --train-split data/raw/splits/grounding_layout.train.txt \
+  --output data/reconstruction_v5_7_selection/line_points_real/train.jsonl \
+  --workers 40 \
+  --clean
+```
+
+再生成真实 points，并合并维护的 15,000 条合成多分支数据：
 
 ```bash
 uv run python scripts/tasks/build_context_reconstruction_sft.py \
+  --raw-root data/raw \
+  --synthetic-root data/regulated_layout_dataset_v9_20260802 \
+  --line-point-real-selection \
+    data/reconstruction_v5_7_selection/line_points_real/train.jsonl \
+  --line-point-synthetic-selection \
+    data/reconstruction_v5_7_selection/line_points/train.jsonl \
+  --line-point-synthetic-limit 15000 \
+  --line-point-prompt-pool /path/to/line_context_points_prompt_pool.yaml \
   --tasks line_context_points \
-  --workers 8 \
+  --workers 40 \
   --chunksize 8 \
   --clean
 ```
@@ -317,18 +383,17 @@ uv run python scripts/tasks/build_context_reconstruction_sft.py \
   `border.fill`、`fill.effect` 等 prompt 合同之外的字段进入 `target_text`
 - 属性任务默认保留全部非矩形，并按 border/fill/effect strata 确定性下采样矩形，使矩形最多占最终数据的
   50%；`--shape-attribute-max-rectangle-fraction` 可显式调整该上限
-- `line_context_points` 不复用历史 tight crop：真实单叉从归档 point selection 读取 source bbox 与有序
-  `source_linestrip`，再通过归档 grounding `view_type=full_image` 行恢复 clean 原图；为补齐分叉监督，
-  同一任务还从 `line_context_reconstruction` selection 对应的 `gt_standard` 真值中只筛
-  `is_single=false` 且 `points` 含多个 segment 的合成线。两类 source 都重新生成 v5.3
+- `line_context_points` 不复用历史 tight crop：真实数据从 active compact raw 回查 bbox 与有序
+  `parameters.points`，保留全部非空 line，不做采样；为补齐分叉监督，同一任务还从 v9
+  `gt_standard` 真值中加入维护的 15,000 条 `is_single=false` 合成多分支线。两类 source 都重新生成
   proposal/context crop；target 严格只有 `is_single + points`，合成单叉不会进入该任务，也不得补造
   样式、颜色或箭头端点属性
-- 合成多叉默认由 `--line-point-synthetic-limit 15000` 封顶，并按2/3/4 segment确定性等额抽样各5,000
-  条；这里的分层只作用于结构选样，不生成分层 resize 或多尺度副本，每个入选实例仍只有一张crop
+- 空 points 不进入任务；真实 source 中相邻重复点和 Qwen 量化后产生的相邻重复点只在派生 target 中
+  清理，不删除对应实例。真实/合成每个入选实例都只有一张 crop，不生成多尺度副本
 - `line_context_points` 中真实 crop 保持 clean；合成多叉 crop 强制使用 `synthetic_realism_v1`，不能因其
-  与归档真实数据共处一个 task 而跳过像素域扰动
-- 归档 point train 中与当前 test manifest 重叠的 source 整体排除；归档 val 不提升为 train；历史
-  `arrow` 只在 source provenance 中保留，model-facing label 始终规范化为 `line`
+  与真实数据共处一个 task 而跳过像素域扰动
+- 真实 selection 只读取 active train split，并再次排除当前 test manifest；model-facing label 始终为
+  `line`
 - real image 训练排除 `data/raw/splits/vlm.test.json`；validation 明确为空
 - 先写同盘 staging，task 完整成功后原子发布；发布根目录权限固定为 `0755`
 - 默认最大 crop aspect ratio 为 `60`；PNG 尺寸保持原 crop 尺寸，训练时再由配置的 Qwen pixel budget 处理

@@ -607,7 +607,6 @@ class ShaftVarlenBatchLayout:
         contexts: Sequence[ShaftBatchContext | dict[str, Any] | None],
         input_ids: Sequence[torch.Tensor],
         labels: Sequence[torch.Tensor],
-        mm_token_type_ids: Sequence[torch.Tensor | None],
         loss_scales: Sequence[torch.Tensor | None],
         ignore_index: int,
         max_sequence_length: int | None,
@@ -618,7 +617,6 @@ class ShaftVarlenBatchLayout:
         fields = {
             "contexts": contexts,
             "labels": labels,
-            "mm_token_type_ids": mm_token_type_ids,
             "loss_scales": loss_scales,
         }
         for name, values in fields.items():
@@ -676,16 +674,14 @@ class ShaftVarlenBatchLayout:
 
         normalized_inputs: list[torch.Tensor] = []
         normalized_labels: list[torch.Tensor] = []
-        normalized_mm: list[torch.Tensor | None] = []
         normalized_scales: list[torch.Tensor | None] = []
         segments: list[ShaftVarlenSegmentLayout] = []
         cursor = 0
-        for row_index, (context, token_row, label_row, mm_row, scale_row) in enumerate(
+        for row_index, (context, token_row, label_row, scale_row) in enumerate(
             zip(
                 resolved_contexts,
                 input_ids,
                 labels,
-                mm_token_type_ids,
                 loss_scales,
                 strict=True,
             )
@@ -695,8 +691,6 @@ class ShaftVarlenBatchLayout:
             length = int(token_row.shape[0])
             if not torch.is_tensor(label_row) or tuple(label_row.shape) != (length,):
                 raise ValueError("Varlen labels must align with their input row.")
-            if mm_row is not None and tuple(mm_row.shape) != (length,):
-                raise ValueError("Varlen mm_token_type_ids must align with input rows.")
             if scale_row is not None and tuple(scale_row.shape) != (length,):
                 raise ValueError("Varlen loss_scale must align with input rows.")
             labels_copy = label_row.clone()
@@ -706,7 +700,6 @@ class ShaftVarlenBatchLayout:
                 scale_copy[0] = 0
             normalized_inputs.append(token_row)
             normalized_labels.append(labels_copy)
-            normalized_mm.append(mm_row)
             normalized_scales.append(scale_copy)
             segments.append(
                 ShaftVarlenSegmentLayout(
@@ -738,13 +731,6 @@ class ShaftVarlenBatchLayout:
             "input_ids": torch.cat(normalized_inputs, dim=0).unsqueeze(0),
             "labels": torch.cat(normalized_labels, dim=0).unsqueeze(0),
         }
-        if any(row is not None for row in normalized_mm):
-            if not all(row is not None for row in normalized_mm):
-                raise ValueError("Varlen mm_token_type_ids must be present for every row.")
-            sequence_inputs["mm_token_type_ids"] = torch.cat(
-                [row for row in normalized_mm if row is not None],
-                dim=0,
-            ).unsqueeze(0)
         if any(row is not None for row in normalized_scales):
             if not all(row is not None for row in normalized_scales):
                 raise ValueError("Varlen loss_scale must be present for every row.")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import pickle
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -23,6 +24,7 @@ from shaft.data.sources import (
     load_jsonl_ppo_records,
     load_jsonl_sft_records,
 )
+from shaft.data.record_store import _source_fingerprint
 
 
 def test_new_message_format_extracts_target_and_drops_tail_assistant(tmp_path: Path) -> None:
@@ -88,6 +90,35 @@ def test_jsonl_loader_builds_and_reuses_memory_mapped_arrow_store(tmp_path: Path
     refreshed = load_jsonl_sft_records(jsonl, dataset_name="demo", cache_dir=cache_dir)
     assert refreshed.cache_path != first.cache_path
     assert len(refreshed) == 2
+
+
+def test_record_source_fingerprint_ignores_ctime_only_changes() -> None:
+    class SourceReplica:
+        def __init__(self, *, ctime_ns: int) -> None:
+            self.ctime_ns = ctime_ns
+
+        def resolve(self) -> Path:
+            return Path("/replicated/data/train.jsonl")
+
+        def stat(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                st_size=1024,
+                st_mtime_ns=123456789,
+                st_ctime_ns=self.ctime_ns,
+            )
+
+    first = _source_fingerprint(
+        SourceReplica(ctime_ns=111),  # type: ignore[arg-type]
+        dataset_name="demo",
+        record_type=SFTRecord,
+    )
+    second = _source_fingerprint(
+        SourceReplica(ctime_ns=222),  # type: ignore[arg-type]
+        dataset_name="demo",
+        record_type=SFTRecord,
+    )
+
+    assert second == first
 
 
 def test_sft_jsonl_and_dataset_preserve_ordered_multi_image_rows(tmp_path: Path) -> None:

@@ -61,6 +61,12 @@ exact state-key 验证由通用 builder 统一处理。
   flattened vision rows、模型专属 sequence fields 或不同 media 参数时必须注册模型专用 policy。
 - processor 的完整输出必须保留在 `ShaftProcessedBatch` 中。不要在 collator 增加
   `pixel_values/image_grid_thw/...` 白名单，也不要假设所有 tensor 的第 0 维都是 sample batch。
+- processor 新增 token-aligned 输出时，必须在模型 policy 中登记 `ShaftProcessorSequenceField`，明确
+  batched token axis、padding 与 continuation 规则。SFT/DPO/OPD/varlen 共同消费这一个声明；不得在
+  template row 或 collator 增加字段属性。常数 continuation 不适用时，实现模型专用 field 子类并覆盖
+  extension/collation 行为；不允许用错误的补零兜底。
+- token layout 还必须用 `protected_processed_spans` 标识不可被结构化 prefix truncation 删除的 media run；
+  template 不得根据模型 token-type 字段猜测 media。
 - policy 必须把 processor 的非 sequence 输出分别登记为 sample-aligned、whole-batch media 或 static；
   未声明字段会 fail fast。模型/processor 升级后新增输出时，应先确认其轴语义再更新 policy 和 DPO 测试。
 - pixel-budget 支持只由 `ProcessorPolicy` 声明；通用 policy 默认不假设 processor 接受该参数。
@@ -155,17 +161,17 @@ exact state-key 验证由通用 builder 统一处理。
 
 ### 5.1 必改位置
 
-- `src/shaft/algorithms/<algo>.py`
-- `src/shaft/algorithms/registry.py`
-- `src/shaft/config/runtime.py`
-- `src/shaft/config/algorithm.py`
-- `src/shaft/config/normalize.py`
-- `src/shaft/pipeline/sft.py` 或 `src/shaft/pipeline/rlhf.py`
+- 在 `src/shaft/config/algorithm.py` 注册 algorithm profile，声明唯一 training domain。
+- RL 域的新算法在 `src/shaft/rl/<algo>.py` 实现 runtime contract，并在 `src/shaft/rl/registry.py` 注册。
+- 新的一级训练域才新增 `src/shaft/pipeline/<domain>.py` 和独立业务包，并注册到
+  `src/shaft/pipeline/domains.py`。
+- 不得为了新增算法修改 SFT、RL 或 OPD pipeline 内部并增加算法名分支。
 
 ### 5.2 选择落点
 
 - `sft` 类算法：进入 `ShaftSFTPipeline`
-- `dpo/ppo` 类 RLHF 算法：进入 `ShaftRLHFPipeline`
+- `dpo/ppo/grpo` 类 RL 算法：进入 `ShaftRLPipeline`
+- teacher/student on-policy distillation：进入独立 `ShaftOPDPipeline`
 
 ### 5.3 原则
 
@@ -174,6 +180,19 @@ exact state-key 验证由通用 builder 统一处理。
   readiness consensus 后、status envelope 外调用 `spec.build()`
 - 算法专属强类型配置优先放到 schema 中
 - 不要在算法层处理模型族模板细节
+
+### 5.4 扩展 OPD 执行组件
+
+- 新 student 生成实现注册为 `OPDRolloutBackend`；新 teacher scoring 实现注册为
+  `OPDTeacherProvider`。两者是独立的 trainer 执行轴，不得在 `ShaftOPDTrainer` 增加 backend 名称分支。
+- 当前 rollout registry 已支持 `hf_local` 与 `vllm`，teacher registry 已支持 `hf_local` 与 `http`。
+  新 provider 必须完整拥有 artifact/server identity、资源物化、student 输入兼容性和 checkpoint state，
+  不能只注册 scorer。是否装载本地 teacher 由 `OPDTeacherArtifactPlan` 决定，不得在
+  `ShaftOPDPipeline` 增加 provider 名称分支。
+- 实现必须声明 exact-resume 能力。依赖外部 RNG、异步请求或 rollout buffer 的实现，在 state/cursor/request
+  seed 尚未进入 checkpoint 协议前必须保持不支持 checkpoint。
+- 模型族输入差异继续归 `ShaftModelAdapter -> ProcessorPolicy`；backend/provider 不允许按模型名复制
+  `pixel_values`、grid 或 sequence-field 逻辑。
 
 ## 6. 新增推理后端
 
@@ -360,7 +379,7 @@ loss、梯度、optimizer/scheduler、随机数状态、数据游标或 Trainer 
   反向影响训练轨迹。当前框架尚未提供 trajectory-affecting plugin `state_dict/load_state_dict` 的版本化恢复协议。
 - pipeline 必须把 manager 中的实际插件实例交给 `ShaftTrainingResumeContract`，不能根据配置名重新实例化一份
   仅用于 fingerprint 的对象。插件顺序、实现、closure/声明状态与 neutral marker 都属于 contract。
-- SFT/RLHF pipeline 的 `before` interceptor 是独立的 rank-local readiness 阶段：所有 rank 成功后才会进入
+- SFT/RL/OPD pipeline 的 `before` interceptor 是独立的 rank-local readiness 阶段：所有 rank 成功后才会进入
   collective-owning pipeline body。插件不得在 `before` 中自行调用 distributed collective，也不得给零参数
   pipeline 注入 `args/kwargs`；rank-local 异常会由该阶段收敛到所有 rank。`after` 只在 target 成功返回后执行。
 
@@ -406,7 +425,8 @@ rank `before` 失败，证明 peer 不进入后续 collective。neutral Trainer 
 ### 新在线 eval metric / codec 共享层
 
 - `tests/test_codec.py`
-- `tests/test_online_eval.py`
+- `tests/test_online_eval_runner.py`
+- `tests/test_online_eval_aggregation.py`
 - `tests/test_pipeline_sft.py`
 
 ### 新导出能力
@@ -415,7 +435,17 @@ rank `before` 失败，证明 peer 不进入后续 collective。neutral Trainer 
 - `tests/test_export_cli.py`
 - 必要时加 checkpoint 兼容测试
 
-## 15. 功能完成后的全局收口
+## 15. 开发与功能收口流程
+
+所有 feature 使用同一流程，不再维护独立开发流程文档：
+
+1. 明确需求、模块边界和不在本轮处理的范围。
+2. 先新增或修改保护公开行为的测试，再实现代码。
+3. 同步架构、配置、模块或用户入口文档；重复 bug 和语义事故写入 `development_log.md`。
+4. 先跑 focused 回归；涉及主链装配时再跑对应 smoke/integration，提交前至少执行默认 framework suite。
+5. 做项目级收口 review，确认状态真源、层级归属、临时桥接、测试和文档均已收敛。
+
+常用命令与 suite 边界以 `testing.md` 为唯一真源；仓库级代码风格、资源和提交约束以 `AGENTS.md` 为准。
 
 - 一个 feature 基本完成后，不要直接提交。
 - 先做一次“项目级别的收口 review”，重点看：

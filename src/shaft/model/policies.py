@@ -18,6 +18,7 @@ from .types import (
     ShaftProcessedBatch,
     ShaftProcessorMediaManifest,
     ShaftProcessorCostEstimate,
+    ShaftProcessorSequenceField,
     ShaftProcessorTokenLayout,
 )
 
@@ -121,8 +122,7 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
             raise ValueError("Qwen VL image rows must align with the processor batch.")
         if int(image_grid_thw.shape[0]) != sum(row_image_counts):
             raise ValueError(
-                "Qwen VL image grid count does not match the images supplied per "
-                "processor row."
+                "Qwen VL image grid count does not match the images supplied per processor row."
             )
         if pixel_values.ndim < 1:
             raise ValueError("Qwen VL pixel_values must expose a leading image-patch axis.")
@@ -167,9 +167,7 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
         min_pixels: int | None,
         max_pixels: int | None,
     ) -> None:
-        if not self.supports_pixel_budget and (
-            min_pixels is not None or max_pixels is not None
-        ):
+        if not self.supports_pixel_budget and (min_pixels is not None or max_pixels is not None):
             raise ValueError(
                 "Qwen VL exact cost estimation received a pixel budget, but its "
                 "ProcessorPolicy does not forward pixel budgets to the processor."
@@ -287,8 +285,10 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
             )
 
         processed_boundaries = [0]
+        protected_spans: list[tuple[int, int]] = []
         image_index = 0
         for token_id in rendered_token_ids:
+            processed_start = processed_boundaries[-1]
             increment = 1
             if int(token_id) == int(image_token_id):
                 if image_index >= len(image_costs):
@@ -301,14 +301,16 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
                         "A Qwen VL image placeholder must expand to at least one token."
                     )
                 image_index += 1
-            processed_boundaries.append(processed_boundaries[-1] + increment)
+                protected_spans.append((processed_start, processed_start + increment))
+            processed_boundaries.append(processed_start + increment)
         if image_index != len(image_costs):
             raise ValueError(
                 "Qwen VL image costs do not match the rendered image placeholder count: "
                 f"placeholders={image_index}, image_costs={len(image_costs)}."
             )
         return ShaftProcessorTokenLayout(
-            processed_boundaries=tuple(processed_boundaries)
+            processed_boundaries=tuple(processed_boundaries),
+            protected_processed_spans=tuple(protected_spans),
         )
 
     def build_token_layout(
@@ -339,6 +341,7 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
 
         canonical_ids: list[int] = []
         processed_boundaries = [0]
+        protected_spans: list[tuple[int, int]] = []
         cursor = 0
         while cursor < len(token_ids):
             token_id = token_ids[cursor]
@@ -351,6 +354,7 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
                     and token_ids[end] == token_id
                 ):
                     end += 1
+                protected_spans.append((cursor, end))
             canonical_ids.append(token_id)
             processed_boundaries.append(end)
             cursor = end
@@ -360,6 +364,7 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
             canonical_token_ids=canonical_ids,
             processed_boundaries=tuple(processed_boundaries),
             processed_token_count=len(token_ids),
+            protected_processed_spans=tuple(protected_spans),
         )
 
 
@@ -427,6 +432,7 @@ class QwenVLMoePeftPolicy(DefaultPeftPolicy):
                 "finetuning from an unquantized base or LoRA."
             )
 
+
 PROCESSOR_POLICY_REGISTRY: Registry[ProcessorPolicy] = Registry("model_processor_policy")
 PEFT_POLICY_REGISTRY: Registry[PeftPolicy] = Registry("model_peft_policy")
 
@@ -459,6 +465,15 @@ register_processor_policy(
             "video_grid_thw",
             "second_per_grid_ts",
         ),
+        processor_sequence_fields=(
+            ShaftProcessorSequenceField(
+                name="mm_token_type_ids",
+                sequence_axis=1,
+                padding_value=0,
+                continuation_value=0,
+            ),
+        ),
+        rollout_tail_logits_input_name="logits_to_keep",
     ),
 )
 register_processor_policy(

@@ -52,7 +52,6 @@ def test_varlen_batch_layout_rejects_an_empty_physical_batch() -> None:
             contexts=(),
             input_ids=(),
             labels=(),
-            mm_token_type_ids=(),
             loss_scales=(),
             ignore_index=-100,
             max_sequence_length=16,

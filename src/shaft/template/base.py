@@ -9,6 +9,8 @@ from shaft.model.types import ShaftProcessedBatch, ShaftProcessorTokenLayout
 
 from .types import (
     ShaftSupervisionCostEstimate,
+    ShaftTemplatePromptPlan,
+    ShaftTemplatePromptRow,
     ShaftTemplateSupervisionPlan,
     ShaftTemplateSupervisedRow,
     Template,
@@ -62,18 +64,9 @@ class ShaftChatTemplate(Template):
         loss_scale_name: str,
     ) -> ShaftTemplateSupervisionPlan:
         messages = self.prepare_messages(self.resolve_messages(item))
-        prompt_text = self.apply_chat_template(
-            renderer=renderer,
-            messages=messages,
-        )
+        prompt_plan = self._build_prompt_plan(messages=messages, renderer=renderer)
         loss_scale = build_loss_scale(loss_scale_name)
         loss_spec = loss_scale(item)
-        rendered_prefix_token_ids = tuple(renderer.tokenize(prompt_text))
-        truncatable_prefix_spans = self._build_truncatable_prefix_spans(
-            messages=messages,
-            rendered_prefix_token_ids=rendered_prefix_token_ids,
-            renderer=renderer,
-        )
         trainable_prefix_spans: tuple[tuple[int, int], ...] = ()
         if loss_spec.base_strategy == "default" and float(loss_spec.prefix_scale) > 0:
             assistant_indices: list[int] = []
@@ -88,16 +81,46 @@ class ShaftChatTemplate(Template):
                 trainable_prefix_spans = self._build_trainable_prefix_spans(
                     messages=messages,
                     assistant_indices=assistant_indices,
-                    rendered_prefix_token_ids=rendered_prefix_token_ids,
+                    rendered_prefix_token_ids=prompt_plan.rendered_prefix_token_ids,
                     renderer=renderer,
                 )
         return ShaftTemplateSupervisionPlan(
-            prompt_text=prompt_text,
+            prompt_text=prompt_plan.prompt_text,
             target_text=str(target_text),
             loss_spec=loss_spec,
-            rendered_prefix_token_ids=rendered_prefix_token_ids,
+            rendered_prefix_token_ids=prompt_plan.rendered_prefix_token_ids,
             trainable_prefix_spans=trainable_prefix_spans,
-            truncatable_prefix_spans=truncatable_prefix_spans,
+            truncatable_prefix_spans=prompt_plan.truncatable_prefix_spans,
+        )
+
+    def build_prompt_plan(
+        self,
+        *,
+        item: dict[str, Any],
+        renderer: ShaftChatRenderer,
+    ) -> ShaftTemplatePromptPlan:
+        messages = self.prepare_messages(self.resolve_messages(item))
+        return self._build_prompt_plan(messages=messages, renderer=renderer)
+
+    def _build_prompt_plan(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        renderer: ShaftChatRenderer,
+    ) -> ShaftTemplatePromptPlan:
+        prompt_text = self.apply_chat_template(
+            renderer=renderer,
+            messages=messages,
+        )
+        rendered_prefix_token_ids = tuple(renderer.tokenize(prompt_text))
+        return ShaftTemplatePromptPlan(
+            prompt_text=prompt_text,
+            rendered_prefix_token_ids=rendered_prefix_token_ids,
+            truncatable_prefix_spans=self._build_truncatable_prefix_spans(
+                messages=messages,
+                rendered_prefix_token_ids=rendered_prefix_token_ids,
+                renderer=renderer,
+            ),
         )
 
     def _build_truncatable_prefix_spans(
@@ -189,10 +212,9 @@ class ShaftChatTemplate(Template):
     @staticmethod
     def _prefix_keep_indices(
         *,
-        plan: ShaftTemplateSupervisionPlan,
+        plan: ShaftTemplatePromptPlan | ShaftTemplateSupervisionPlan,
         tokenizer: Any,
         prefix_token_layout: ShaftProcessorTokenLayout | None,
-        prefix_mm: torch.Tensor | None,
         prefix_limit: int,
         prefix_length: int,
     ) -> tuple[int, ...]:
@@ -239,8 +261,9 @@ class ShaftChatTemplate(Template):
                 # processor policies. They and their surrounding special tokens stay intact.
                 if processed_end - processed_start != 1:
                     continue
-                if prefix_mm is not None and bool(
-                    prefix_mm[processed_start:processed_end].ne(0).any()
+                if prefix_token_layout.intersects_protected_span(
+                    processed_start,
+                    processed_end,
                 ):
                     continue
                 if processed_start not in seen:
@@ -260,31 +283,68 @@ class ShaftChatTemplate(Template):
     def _truncate_processed_prefix(
         cls,
         *,
-        plan: ShaftTemplateSupervisionPlan,
+        plan: ShaftTemplatePromptPlan | ShaftTemplateSupervisionPlan,
         tokenizer: Any,
         prefix_token_layout: ShaftProcessorTokenLayout | None,
         prefix_ids: torch.Tensor,
-        prefix_mm: torch.Tensor | None,
         prefix_loss_scale: torch.Tensor,
         prefix_limit: int,
-    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple[int, ...]]:
         if int(prefix_limit) == int(prefix_ids.shape[0]):
-            return prefix_ids, prefix_mm, prefix_loss_scale
+            keep = tuple(range(int(prefix_ids.shape[0])))
+            return prefix_ids, prefix_loss_scale, keep
         keep = cls._prefix_keep_indices(
             plan=plan,
             tokenizer=tokenizer,
             prefix_token_layout=prefix_token_layout,
-            prefix_mm=prefix_mm,
             prefix_limit=prefix_limit,
             prefix_length=int(prefix_ids.shape[0]),
         )
         if len(keep) == int(prefix_ids.shape[0]):
-            return prefix_ids, prefix_mm, prefix_loss_scale
+            return prefix_ids, prefix_loss_scale, keep
         index = torch.tensor(keep, dtype=torch.long, device=prefix_ids.device)
         return (
             prefix_ids.index_select(0, index),
-            None if prefix_mm is None else prefix_mm.index_select(0, index),
             prefix_loss_scale.index_select(0, index),
+            keep,
+        )
+
+    def build_prompt_row(
+        self,
+        *,
+        plan: ShaftTemplatePromptPlan,
+        tokenizer: Any,
+        processed_batch: ShaftProcessedBatch,
+        row_index: int,
+        prefix_token_layout: ShaftProcessorTokenLayout | None,
+        max_length: int | None = None,
+    ) -> ShaftTemplatePromptRow:
+        model_inputs = processed_batch.model_inputs
+        prefix_mask = model_inputs["attention_mask"][row_index].bool()
+        prefix_ids = model_inputs["input_ids"][row_index][prefix_mask]
+        prefix_limit = self._resolve_prefix_limit(
+            prefix_length=int(prefix_ids.shape[0]),
+            max_length=max_length,
+            reserve_supervised_target=False,
+        )
+        prefix_ids, _, prefix_indices = self._truncate_processed_prefix(
+            plan=plan,
+            tokenizer=tokenizer,
+            prefix_token_layout=prefix_token_layout,
+            prefix_ids=prefix_ids,
+            prefix_loss_scale=torch.zeros(
+                (int(prefix_ids.shape[0]),),
+                dtype=torch.float32,
+                device=prefix_ids.device,
+            ),
+            prefix_limit=prefix_limit,
+        )
+        if max_length is not None and int(prefix_ids.shape[0]) > int(max_length):
+            raise RuntimeError("Template prompt exceeds strict max_length.")
+        return ShaftTemplatePromptRow(
+            input_ids=prefix_ids,
+            attention_mask=torch.ones_like(prefix_ids),
+            processed_prefix_indices=prefix_indices,
         )
 
     def _compute_prefix_loss_scale(
@@ -375,7 +435,6 @@ class ShaftChatTemplate(Template):
                 plan=plan,
                 tokenizer=tokenizer,
                 prefix_token_layout=prefix_token_layout,
-                prefix_mm=None,
                 prefix_limit=prefix_length,
                 prefix_length=full_prefix_length,
             )
@@ -442,8 +501,6 @@ class ShaftChatTemplate(Template):
         model_inputs = processed_batch.model_inputs
         prefix_mask = model_inputs["attention_mask"][row_index].bool()
         prefix_ids = model_inputs["input_ids"][row_index][prefix_mask]
-        mm_token_ids = model_inputs.get("mm_token_type_ids")
-        prefix_mm = mm_token_ids[row_index][prefix_mask] if mm_token_ids is not None else None
 
         target_ids = self._tokenize_target(tokenizer=tokenizer, target_text=plan.target_text)
         unbounded_target_ids = self._truncate_target_ids(
@@ -467,12 +524,11 @@ class ShaftChatTemplate(Template):
                 and float(plan.loss_spec.target_scale) > 0
             ),
         )
-        prefix_ids, prefix_mm, prefix_loss_scale = self._truncate_processed_prefix(
+        prefix_ids, prefix_loss_scale, prefix_indices = self._truncate_processed_prefix(
             plan=plan,
             tokenizer=tokenizer,
             prefix_token_layout=prefix_token_layout,
             prefix_ids=prefix_ids,
-            prefix_mm=prefix_mm,
             prefix_loss_scale=prefix_loss_scale,
             prefix_limit=prefix_limit,
         )
@@ -501,9 +557,6 @@ class ShaftChatTemplate(Template):
             )
             labels = torch.cat([prefix_labels, target_labels], dim=0)
             attention_mask = torch.ones_like(input_ids)
-            mm_row = None
-            if prefix_mm is not None:
-                mm_row = torch.cat([prefix_mm, torch.zeros_like(target_tensor)], dim=0)
             loss_scale = torch.cat(
                 [
                     prefix_loss_scale,
@@ -519,7 +572,7 @@ class ShaftChatTemplate(Template):
                 input_ids=input_ids,
                 labels=labels,
                 attention_mask=attention_mask,
-                mm_token_type_ids=mm_row,
+                processed_prefix_indices=prefix_indices,
                 loss_scale=loss_scale,
             )
 
@@ -532,6 +585,6 @@ class ShaftChatTemplate(Template):
             input_ids=input_ids,
             labels=labels,
             attention_mask=attention_mask,
-            mm_token_type_ids=prefix_mm,
+            processed_prefix_indices=prefix_indices,
             loss_scale=None,
         )

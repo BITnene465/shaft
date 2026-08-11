@@ -8,7 +8,12 @@ import torch
 from PIL import Image
 
 from shaft.loss_scale import ShaftLossScaleSpec
-from shaft.model import ShaftProcessedBatch, ShaftProcessorTokenLayout, build_model_meta
+from shaft.model import (
+    ShaftProcessedBatch,
+    ShaftProcessorSequenceField,
+    ShaftProcessorTokenLayout,
+    build_model_meta,
+)
 from shaft.template import (
     ShaftChatRenderer,
     ShaftTemplateSupervisionPlan,
@@ -332,6 +337,12 @@ def test_prefix_truncation_keeps_expanded_media_tokens_and_matches_estimator() -
             ),
         },
         batch_size=1,
+        processor_sequence_fields=(
+            ShaftProcessorSequenceField(
+                name="mm_token_type_ids",
+                continuation_value=0,
+            ),
+        ),
     )
 
     estimate = template.estimate_supervision_cost(
@@ -353,11 +364,43 @@ def test_prefix_truncation_keeps_expanded_media_tokens_and_matches_estimator() -
         max_length=7,
     )
 
-    assert row.mm_token_type_ids is not None
-    assert int(row.mm_token_type_ids.sum()) == 3
+    sequence_row = processed_batch.build_processor_sequence_row(
+        row_index=0,
+        prefix_indices=row.processed_prefix_indices,
+        continuation_length=int(row.input_ids.shape[0]) - len(row.processed_prefix_indices),
+    )
+    assert int(sequence_row["mm_token_type_ids"].sum()) == 3
     assert tuple(row.input_ids[:4].tolist()) == (100, 99, 99, 99)
     assert tuple(row.input_ids[4:6].tolist()) == (101, 102)
     assert estimate.llm_tokens == int(row.input_ids.numel()) == 7
+
+
+def test_prefix_truncation_uses_layout_protection_without_model_field_names() -> None:
+    plan = ShaftTemplateSupervisionPlan(
+        prompt_text="unused",
+        target_text="answer",
+        loss_spec=ShaftLossScaleSpec(
+            base_strategy="default",
+            prefix_scale=0.0,
+            target_scale=1.0,
+        ),
+        rendered_prefix_token_ids=(100, 99, 11, 101),
+        truncatable_prefix_spans=((1, 3),),
+    )
+    layout = ShaftProcessorTokenLayout(
+        processed_boundaries=(0, 1, 2, 3, 4),
+        protected_processed_spans=((1, 2),),
+    )
+
+    keep = ShaftChatTemplate._prefix_keep_indices(
+        plan=plan,
+        tokenizer=_FakeTokenizer(),
+        prefix_token_layout=layout,
+        prefix_limit=3,
+        prefix_length=4,
+    )
+
+    assert keep == (0, 1, 3)
 
 
 def test_template_message_validation_accepts_string_content_and_scalar_image_path() -> None:

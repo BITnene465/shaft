@@ -29,6 +29,7 @@ from .distributed import all_gather_objects
 
 _TRAINING_RESUME_CONTRACT_VERSION = "shaft-training-resume-contract-v2"
 _DISTRIBUTED_STAGE_STATUS_KEYS = frozenset({"ok", "error_type", "error", "fingerprints"})
+_TRAINING_RESUME_POLICIES: dict[str, Any] = {}
 
 
 def _canonical_json_value(value: Any) -> Any:
@@ -52,10 +53,7 @@ def _canonical_json_value(value: Any) -> Any:
                 "Training resume contract mapping keys must be JSON strings; "
                 "key coercion would make semantic identity ambiguous."
             )
-        return {
-            key: _canonical_json_value(item)
-            for key, item in sorted(value.items())
-        }
+        return {key: _canonical_json_value(item) for key, item in sorted(value.items())}
     if isinstance(value, (list, tuple)):
         return [_canonical_json_value(item) for item in value]
     if isinstance(value, (set, frozenset)):
@@ -104,6 +102,88 @@ def _owning_module_signature(value: Any) -> str:
     if module is None:
         raise ValueError(f"Cannot resolve owning module for {value!r}.")
     return _module_implementation_signature(module)
+
+
+def _implementation_reference_signature(value: Any, *, role: str) -> str:
+    """Bind a selected implementation without hashing mutable runtime class caches."""
+
+    if not inspect.isclass(value):
+        return callable_semantic_signature(
+            value,
+            role=role,
+            include_dependencies=False,
+        )
+    payload = {
+        "version": "shaft-implementation-reference-v1",
+        "role": str(role),
+        "module": str(value.__module__),
+        "qualname": str(value.__qualname__),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _stable_dependency_signature(value: Any, *, role: str) -> str:
+    """Fingerprint one direct builder dependency without mutable runtime state."""
+
+    try:
+        source = inspect.getsource(value)
+    except (OSError, TypeError):
+        source = None
+    payload = {
+        "version": "shaft-builder-dependency-v1",
+        "role": str(role),
+        "module": str(getattr(value, "__module__", "")),
+        "qualname": str(
+            getattr(value, "__qualname__", getattr(value, "__name__", ""))
+        ),
+        "source_sha256": (
+            None if source is None else hashlib.sha256(source.encode("utf-8")).hexdigest()
+        ),
+        "callable": (
+            None
+            if inspect.isclass(value)
+            else callable_semantic_signature(
+                value,
+                role=role,
+                include_dependencies=False,
+            )
+        ),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _builder_dependency_signatures(builder: Any, *, role: str) -> dict[str, str]:
+    target = inspect.unwrap(builder)
+    target_module = inspect.getmodule(target)
+    code = getattr(target, "__code__", None)
+    if target_module is None or code is None:
+        return {}
+    signatures: dict[str, str] = {}
+    for dependency_name in sorted(set(code.co_names)):
+        dependency = vars(target_module).get(dependency_name)
+        if not (inspect.isclass(dependency) or callable(dependency)):
+            continue
+        signatures[dependency_name] = _stable_dependency_signature(
+            dependency,
+            role=f"{role}:{dependency_name}",
+        )
+    return signatures
+
+
+def canonical_training_resume_value(value: Any) -> Any:
+    """Public canonicalizer for registered algorithm resume-policy payloads."""
+
+    return _canonical_json_value(value)
+
+
+def training_module_implementation_signature(value: Any) -> str:
+    """Public module identity helper for registered resume policies."""
+
+    return _module_implementation_signature(value)
 
 
 _OPTIMIZER_KEYS = frozenset(
@@ -394,7 +474,7 @@ class ShaftTrainingResumeContract:
     objective: tuple[tuple[str, Any], ...]
 
     def __post_init__(self) -> None:
-        if self.algorithm not in {"sft", "dpo", "grpo"}:
+        if self.algorithm not in _TRAINING_RESUME_POLICIES:
             raise ValueError(
                 "Training resume contract only supports exact-resumable "
                 f"algorithms, got {self.algorithm!r}."
@@ -729,14 +809,9 @@ def distributed_training_contract_stage(
         yield
         raw_fingerprints = fingerprints()
         if not isinstance(raw_fingerprints, Mapping):
-            raise TypeError(
-                f"Distributed {stage} contract fingerprints must be a mapping."
-            )
+            raise TypeError(f"Distributed {stage} contract fingerprints must be a mapping.")
         if any(
-            type(name) is not str
-            or not name
-            or type(value) is not str
-            or not value
+            type(name) is not str or not name or type(value) is not str or not value
             for name, value in raw_fingerprints.items()
         ):
             raise TypeError(
@@ -850,167 +925,12 @@ def _resolved_precision(training_args: Any) -> str:
     return "fp32"
 
 
-def _dpo_reference_semantics(finetune_mode: object) -> str:
-    mode = str(finetune_mode).strip().lower()
-    if mode in {"lora", "dora", "qlora"}:
-        return "policy_with_adapter_disabled"
-    return "frozen_policy_copy"
-
-
 def _sft_objective(config: Any) -> dict[str, Any]:
     return {
         "ignore_index": -100,
         "loss_name": str(config.train.loss_name),
         "loss_scale": str(config.train.loss_scale),
     }
-
-
-def _resolved_dpo_objective(config: Any, resolved_dpo_args: Any) -> dict[str, Any]:
-    finetune_mode = str(config.model.finetune.mode).strip().lower()
-    fields = (
-        "disable_dropout",
-        "pad_token",
-        "max_length",
-        "truncation_mode",
-        "padding_free",
-        "pad_to_multiple_of",
-        "precompute_ref_log_probs",
-        "precompute_ref_batch_size",
-        "loss_type",
-        "loss_weights",
-        "ld_alpha",
-        "f_divergence_type",
-        "f_alpha_divergence_coef",
-        "label_smoothing",
-        "beta",
-        "use_weighting",
-        "discopop_tau",
-        "activation_offloading",
-        "sync_ref_model",
-        "ref_model_mixup_alpha",
-        "ref_model_sync_steps",
-    )
-    objective = {
-        field_name: _canonical_json_value(getattr(resolved_dpo_args, field_name, None))
-        for field_name in fields
-    }
-    objective.update(
-        {
-            "finetune_mode": finetune_mode,
-            "reference_model": _dpo_reference_semantics(finetune_mode),
-        }
-    )
-    return objective
-
-
-def _grpo_objective(
-    config: Any,
-    resolved_grpo_args: Any,
-    training_args: Any,
-) -> dict[str, Any]:
-    from shaft.algorithms.grpo_rewards import GRPO_REWARD_REGISTRY
-    from shaft.codec import CODEC_REGISTRY
-
-    rewards = [
-        {
-            "name": str(reward.name),
-            "codec": str(reward.codec),
-            "weight": float(reward.weight),
-            "params": _canonical_json_value(reward.params),
-            "implementation_signature": callable_semantic_signature(
-                GRPO_REWARD_REGISTRY.get(str(reward.name)),
-                role=f"grpo_reward:{reward.name}",
-            ),
-            "implementation_module_signature": _owning_module_signature(
-                GRPO_REWARD_REGISTRY.get(str(reward.name))
-            ),
-            "codec_implementation_signature": callable_semantic_signature(
-                CODEC_REGISTRY.get(str(reward.codec)),
-                role=f"grpo_codec:{reward.codec}",
-            ),
-            "codec_module_signature": _owning_module_signature(
-                CODEC_REGISTRY.get(str(reward.codec))
-            ),
-        }
-        for reward in config.rlhf.grpo.reward_functions
-    ]
-    fields = (
-        "disable_dropout",
-        "beta",
-        "num_generations",
-        "max_completion_length",
-        "temperature",
-        "top_p",
-        "top_k",
-        "min_p",
-        "repetition_penalty",
-        "generation_kwargs",
-        "chat_template_kwargs",
-        "cache_implementation",
-        "use_transformers_paged",
-        "ds3_gather_for_generation",
-        "steps_per_generation",
-        "num_iterations",
-        "generation_batch_size",
-        "shuffle_dataset",
-        "use_vllm",
-        "vllm_mode",
-        "vllm_model_impl",
-        "vllm_structured_outputs_regex",
-        "epsilon",
-        "delta",
-        "epsilon_high",
-        "sapo_temperature_neg",
-        "sapo_temperature_pos",
-        "importance_sampling_level",
-        "reward_weights",
-        "multi_objective_aggregation",
-        "scale_rewards",
-        "loss_type",
-        "mask_truncated_completions",
-        "sync_ref_model",
-        "ref_model_mixup_alpha",
-        "ref_model_sync_steps",
-        "top_entropy_quantile",
-        "max_tool_calling_iterations",
-        "vllm_importance_sampling_correction",
-        "vllm_importance_sampling_mode",
-        "vllm_importance_sampling_cap",
-        "off_policy_mask_threshold",
-        "use_bias_correction_kl",
-    )
-    objective = {
-        field_name: _canonical_json_value(getattr(resolved_grpo_args, field_name, None))
-        for field_name in fields
-    }
-    gradient_accumulation = int(training_args.gradient_accumulation_steps)
-    generation_reuse_microsteps = int(getattr(resolved_grpo_args, "steps_per_generation")) * int(
-        getattr(resolved_grpo_args, "num_iterations")
-    )
-    if gradient_accumulation <= 0 or generation_reuse_microsteps <= 0:
-        raise ValueError("Resolved GRPO update cadence values must be > 0.")
-    max_steps = int(training_args.max_steps)
-    unique_prompts_per_group = int(getattr(resolved_grpo_args, "generation_batch_size")) // int(
-        getattr(resolved_grpo_args, "num_generations")
-    )
-    objective.update(
-        {
-            "checkpoint_optimizer_step_cadence": (
-                generation_reuse_microsteps
-                // math.gcd(gradient_accumulation, generation_reuse_microsteps)
-            ),
-            "generation_reuse_microsteps": generation_reuse_microsteps,
-            "step_horizon_unique_prompt_budget": (
-                None
-                if max_steps < 0
-                else math.ceil(max_steps * gradient_accumulation / generation_reuse_microsteps)
-                * unique_prompts_per_group
-            ),
-            "unique_prompts_per_generation_group": unique_prompts_per_group,
-        }
-    )
-    objective["reward_functions"] = rewards
-    return objective
 
 
 def _deepspeed_config_identity(config: Any, training_args: Any) -> Any:
@@ -1141,26 +1061,10 @@ def _optimizer_implementation(name: object) -> tuple[str, str]:
 
     normalized = str(name).strip().lower()
     builder = optimizer_module.OPTIMIZER_REGISTRY.get(normalized)
-    dependency_signatures: dict[str, str] = {}
-    target = inspect.unwrap(builder)
-    target_module = inspect.getmodule(target)
-    code = getattr(target, "__code__", None)
-    if target_module is not None and code is not None:
-        for dependency_name in sorted(set(code.co_names)):
-            dependency = vars(target_module).get(dependency_name)
-            dependency_module = str(getattr(dependency, "__module__", ""))
-            if not dependency_module.startswith("shaft."):
-                continue
-            if inspect.isclass(dependency):
-                dependency_signatures[dependency_name] = component_semantic_signature(
-                    dependency,
-                    role=f"optimizer_dependency:{normalized}:{dependency_name}",
-                )
-            elif callable(dependency):
-                dependency_signatures[dependency_name] = callable_semantic_signature(
-                    dependency,
-                    role=f"optimizer_dependency:{normalized}:{dependency_name}",
-                )
+    dependency_signatures = _builder_dependency_signatures(
+        builder,
+        role=f"optimizer_dependency:{normalized}",
+    )
     policy_payload = (
         _module_implementation_signature(optimizer_module),
         _module_implementation_signature(optimizer_plan_module),
@@ -1168,7 +1072,11 @@ def _optimizer_implementation(name: object) -> tuple[str, str]:
     )
     policy_signature = hashlib.sha256(repr(policy_payload).encode("utf-8")).hexdigest()
     return (
-        callable_semantic_signature(builder, role=f"optimizer_builder:{normalized}"),
+        callable_semantic_signature(
+            builder,
+            role=f"optimizer_builder:{normalized}",
+            include_dependencies=False,
+        ),
         policy_signature,
     )
 
@@ -1179,10 +1087,21 @@ def _scheduler_implementation(name: object) -> tuple[str, str, str]:
     requested = str(name).strip().lower()
     resolved = "cosine" if requested in {"", "auto"} else requested
     builder = scheduler_module.SCHEDULER_REGISTRY.get(resolved)
+    policy_payload = (
+        _module_implementation_signature(scheduler_module),
+        _builder_dependency_signatures(
+            builder,
+            role=f"scheduler_dependency:{resolved}",
+        ),
+    )
     return (
         resolved,
-        callable_semantic_signature(builder, role=f"scheduler_builder:{resolved}"),
-        _module_implementation_signature(scheduler_module),
+        callable_semantic_signature(
+            builder,
+            role=f"scheduler_builder:{resolved}",
+            include_dependencies=False,
+        ),
+        hashlib.sha256(repr(policy_payload).encode("utf-8")).hexdigest(),
     )
 
 
@@ -1191,6 +1110,60 @@ def _runtime_package_version(distribution_name: str) -> str | None:
         return importlib_metadata.version(distribution_name)
     except importlib_metadata.PackageNotFoundError:
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingResumePolicy:
+    objective_builder: Callable[[Any, Any, Mapping[str, Any]], dict[str, Any]]
+    implementation_builder: Callable[[Any], dict[str, Any]]
+
+
+def register_training_resume_policy(
+    name: str,
+    *,
+    objective_builder: Callable[[Any, Any, Mapping[str, Any]], dict[str, Any]],
+    implementation_builder: Callable[[Any], dict[str, Any]],
+) -> None:
+    normalized = str(name).strip().lower()
+    if normalized in _TRAINING_RESUME_POLICIES:
+        raise ValueError(f"Duplicate training resume policy {normalized!r}.")
+    _TRAINING_RESUME_POLICIES[normalized] = TrainingResumePolicy(
+        objective_builder=objective_builder,
+        implementation_builder=implementation_builder,
+    )
+
+
+def _sft_resume_objective(config: Any, training_args: Any, context: Mapping[str, Any]):
+    _ = training_args, context
+    return _sft_objective(config)
+
+
+def _sft_resume_implementation(config: Any) -> dict[str, Any]:
+    import shaft.training.loss as loss_module
+    from shaft.algorithms import sft as _algorithm_module  # noqa: F401
+    from shaft.algorithms.registry import ALGORITHM_REGISTRY
+    from .sft_trainer import ShaftSFTTrainer
+
+    selected_loss = loss_module.LOSS_REGISTRY.get(str(config.train.loss_name).strip().lower())
+    return {
+        "algorithm_impl": ALGORITHM_REGISTRY.get("sft"),
+        "trainer_impl": ShaftSFTTrainer,
+        "objective_impl": {
+            "loss_callable": callable_semantic_signature(
+                selected_loss,
+                role=f"sft_loss:{config.train.loss_name}",
+            ),
+            "loss_policy": _module_implementation_signature(loss_module),
+        },
+        "package_names": (),
+    }
+
+
+register_training_resume_policy(
+    "sft",
+    objective_builder=_sft_resume_objective,
+    implementation_builder=_sft_resume_implementation,
+)
 
 
 def _trajectory_implementation(
@@ -1204,23 +1177,22 @@ def _trajectory_implementation(
     import shaft.model.finetune as finetune_module
     import shaft.model.finetune_plan as finetune_plan_module
     import shaft.model.freeze as freeze_module
-    import shaft.training.loss as loss_module
     import shaft.training.optimizer_mixin as optimizer_mixin_module
     import shaft.training.reproducibility as reproducibility_module
     import shaft.training.train_sampler_mixin as train_sampler_module
-    from shaft.algorithms.registry import ALGORITHM_REGISTRY
 
-    if algorithm == "sft":
-        from shaft.algorithms import sft as _algorithm_module  # noqa: F401
-    elif algorithm == "dpo":
-        from shaft.algorithms import dpo as _algorithm_module  # noqa: F401
-    else:
-        from shaft.algorithms import grpo as _algorithm_module  # noqa: F401
-
-    algorithm_impl = ALGORITHM_REGISTRY.get(algorithm)
+    try:
+        resume_policy = _TRAINING_RESUME_POLICIES[algorithm]
+    except KeyError as exc:
+        raise ValueError(
+            f"Algorithm {algorithm!r} has no exact-resume implementation policy."
+        ) from exc
+    algorithm_implementation = resume_policy.implementation_builder(config)
+    algorithm_impl = algorithm_implementation["algorithm_impl"]
+    trainer_impl = algorithm_implementation["trainer_impl"]
+    objective_impl = algorithm_implementation["objective_impl"]
     package_names = ["torch", "transformers", "accelerate"]
-    if algorithm in {"dpo", "grpo"}:
-        package_names.append("trl")
+    package_names.extend(algorithm_implementation["package_names"])
     finetune_mode = str(config.model.finetune.mode).strip().lower()
     if finetune_mode in {"lora", "dora", "qlora"}:
         package_names.append("peft")
@@ -1245,58 +1217,8 @@ def _trajectory_implementation(
         }:
             package_names.append(package_name)
 
-    if algorithm == "sft":
-        from .sft_trainer import ShaftSFTTrainer
-
-        selected_loss = loss_module.LOSS_REGISTRY.get(str(config.train.loss_name).strip().lower())
-        objective_impl: dict[str, Any] = {
-            "loss_callable": callable_semantic_signature(
-                selected_loss,
-                role=f"sft_loss:{config.train.loss_name}",
-            ),
-            "loss_policy": _module_implementation_signature(loss_module),
-        }
-        trainer_impl = ShaftSFTTrainer
-    else:
-        import shaft.algorithms.rlhf_utils as rlhf_utils_module
-
-        from .trl_trainers import ShaftDPOTrainer, ShaftGRPOTrainer
-
-        config_builder = (
-            rlhf_utils_module.build_trl_dpo_config
-            if algorithm == "dpo"
-            else rlhf_utils_module.build_trl_grpo_config
-        )
-        config_policy = [
-            callable_semantic_signature(
-                rlhf_utils_module._normalize_training_args_payload,
-                role="trl_config:normalize_training_args",
-            ),
-            callable_semantic_signature(
-                config_builder,
-                role=f"trl_config:{algorithm}",
-            ),
-        ]
-        if algorithm == "grpo":
-            config_policy.extend(
-                [
-                    callable_semantic_signature(
-                        rlhf_utils_module._precision_model_init_kwargs,
-                        role="trl_config:precision_model_init",
-                    ),
-                    callable_semantic_signature(
-                        rlhf_utils_module._set_default_model_init_kwargs,
-                        role="trl_config:set_default_model_init",
-                    ),
-                ]
-            )
-        objective_impl = {
-            "trl_config_policy": config_policy,
-        }
-        trainer_impl = ShaftDPOTrainer if algorithm == "dpo" else ShaftGRPOTrainer
-
     return {
-        "algorithm": callable_semantic_signature(
+        "algorithm": _implementation_reference_signature(
             algorithm_impl,
             role=f"algorithm:{algorithm}",
         ),
@@ -1319,10 +1241,11 @@ def _trajectory_implementation(
         },
         "sequence_execution_capabilities": list(sequence_execution_capabilities),
         "sampler_trainer_policy": _module_implementation_signature(train_sampler_module),
-        "trainer": callable_semantic_signature(
+        "trainer": _implementation_reference_signature(
             trainer_impl,
             role=f"trainer:{algorithm}",
         ),
+        "trainer_policy": _owning_module_signature(trainer_impl),
     }
 
 
@@ -1430,8 +1353,7 @@ def build_training_resume_contract(
     sequence_execution_contract_fingerprint: str | None = None,
     sequence_execution_capabilities: Sequence[str] = (),
     resolved_experts_implementation: str | None = None,
-    resolved_dpo_args: Any | None = None,
-    resolved_grpo_args: Any | None = None,
+    algorithm_resume_context: Mapping[str, Any] | None = None,
     hook_instances: Sequence[Any] = (),
     interceptor_instances: Sequence[Any] = (),
 ) -> ShaftTrainingResumeContract:
@@ -1446,25 +1368,26 @@ def build_training_resume_contract(
         raise ValueError("Training resume contract requires a resolved finetune-plan fingerprint.")
     if not str(resolved_optimizer_plan_fingerprint).strip():
         raise ValueError("Training resume contract requires a resolved optimizer-plan fingerprint.")
-    if type(train_input_contract_fingerprint) is not str or not train_input_contract_fingerprint.strip():
+    if (
+        type(train_input_contract_fingerprint) is not str
+        or not train_input_contract_fingerprint.strip()
+    ):
         raise ValueError("Training resume contract requires a train-input contract fingerprint.")
     if type(data_execution_fingerprint) is not str or not data_execution_fingerprint.strip():
         raise ValueError("Training resume contract requires a data-execution fingerprint.")
     algorithm = str(config.algorithm.name).strip().lower()
-    if algorithm == "ppo":
-        raise ValueError("PPO does not support exact-resume training contracts.")
-    if algorithm == "sft":
-        objective = _sft_objective(config)
-    elif algorithm == "dpo":
-        if resolved_dpo_args is None:
-            raise ValueError("DPO training resume contract requires resolved TRL arguments.")
-        objective = _resolved_dpo_objective(config, resolved_dpo_args)
-    elif algorithm == "grpo":
-        if resolved_grpo_args is None:
-            raise ValueError("GRPO training resume contract requires resolved TRL arguments.")
-        objective = _grpo_objective(config, resolved_grpo_args, training_args)
-    else:
-        raise ValueError(f"Unsupported exact-resume algorithm: {algorithm!r}.")
+    try:
+        resume_policy = _TRAINING_RESUME_POLICIES[algorithm]
+    except KeyError as exc:
+        raise ValueError(
+            f"Algorithm {algorithm!r} does not support exact-resume training contracts."
+        ) from exc
+    resume_context = dict(algorithm_resume_context or {})
+    objective = resume_policy.objective_builder(
+        config,
+        training_args,
+        resume_context,
+    )
 
     train = config.train
     duration = train.duration
@@ -1508,9 +1431,7 @@ def build_training_resume_contract(
                     sequence_execution_contract_fingerprint=(
                         sequence_execution_contract_fingerprint
                     ),
-                    resolved_experts_implementation=(
-                        resolved_experts_implementation
-                    ),
+                    resolved_experts_implementation=(resolved_experts_implementation),
                 ).items()
             )
         ),
@@ -1563,8 +1484,7 @@ def build_training_resume_preflight_contract(
     config: Any,
     training_args: Any,
     batch_contract_fingerprint: str,
-    resolved_dpo_args: Any | None = None,
-    resolved_grpo_args: Any | None = None,
+    algorithm_resume_context: Mapping[str, Any] | None = None,
     hook_instances: Sequence[Any] = (),
     interceptor_instances: Sequence[Any] = (),
     sequence_execution_capabilities: Sequence[str] = (),
@@ -1588,9 +1508,7 @@ def build_training_resume_preflight_contract(
     stored_model_execution = stored_execution.get("model_execution")
     if type(stored_model_execution) is not dict:
         raise ValueError("Training resume contract has no canonical model_execution mapping.")
-    resolved_experts_implementation = stored_model_execution.get(
-        "experts_implementation"
-    )
+    resolved_experts_implementation = stored_model_execution.get("experts_implementation")
     if resolved_experts_implementation is not None and (
         type(resolved_experts_implementation) is not str
         or not resolved_experts_implementation.strip()
@@ -1612,17 +1530,14 @@ def build_training_resume_preflight_contract(
         config=config,
         training_args=training_args,
         batch_contract_fingerprint=batch_contract_fingerprint,
-        train_input_contract_fingerprint=(
-            checkpoint_contract.train_input_contract_fingerprint
-        ),
+        train_input_contract_fingerprint=(checkpoint_contract.train_input_contract_fingerprint),
         data_execution_fingerprint=checkpoint_contract.data_execution_fingerprint,
         model_plan_fingerprint=model_plan_fingerprint,
         resolved_finetune_plan_fingerprint=finetune_plan_fingerprint,
         resolved_optimizer_plan_fingerprint=optimizer_plan_fingerprint,
         sequence_execution_contract_fingerprint=sequence_contract_fingerprint,
         resolved_experts_implementation=resolved_experts_implementation,
-        resolved_dpo_args=resolved_dpo_args,
-        resolved_grpo_args=resolved_grpo_args,
+        algorithm_resume_context=algorithm_resume_context,
         hook_instances=hook_instances,
         interceptor_instances=interceptor_instances,
         sequence_execution_capabilities=sequence_execution_capabilities,

@@ -20,6 +20,14 @@ from .data import (
     PromptSamplingConfig,
 )
 from .model import FinetuneConfig, FreezeConfig, ModelConfig
+from .generation_backend import OPDVLLMConfig, VLLMGenerationBackendConfig
+from .opd import (
+    OPDConfig,
+    OPDObjectiveConfig,
+    OPDRemoteTeacherConfig,
+    OPDRolloutConfig,
+    OPDTeacherConfig,
+)
 from .runtime import RuntimeConfig
 from .training import (
     EvalConfig,
@@ -63,6 +71,12 @@ __all__ = [
     "FreezeConfig",
     "LoggingConfig",
     "ModelConfig",
+    "OPDConfig",
+    "OPDObjectiveConfig",
+    "OPDRemoteTeacherConfig",
+    "OPDRolloutConfig",
+    "OPDTeacherConfig",
+    "OPDVLLMConfig",
     "PPOConfig",
     "PluginsConfig",
     "PromptSamplingConfig",
@@ -76,6 +90,7 @@ __all__ = [
     "TrainFSDPConfig",
     "TrainConfig",
     "TrainEfficiencyConfig",
+    "VLLMGenerationBackendConfig",
     "load_config",
     "load_config_from_payload",
     "load_config_from_text",

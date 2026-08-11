@@ -8,7 +8,7 @@ from transformers.integrations.deepspeed import deepspeed_config
 
 from shaft.algorithms.rlhf_utils import build_trl_dpo_config
 from shaft.config import load_config
-from shaft.pipeline import run_rlhf, run_sft
+from shaft.pipeline import run_rl, run_sft
 from shaft.pipeline.execution import finalize_training_outputs
 from shaft.pipeline.training_args import build_hf_training_args
 from shaft.training.checkpointing import ShaftCheckpointProtocol
@@ -103,9 +103,9 @@ def test_rlhf_pipeline_initializes_deepspeed_before_model_loading(tmp_path: Path
         _assert_zero3_is_active()
         return build_fake_model_artifacts()
 
-    with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor", _fake_build_model):
+    with patch("shaft.pipeline.rl.build_model_tokenizer_processor", _fake_build_model):
         with patch("shaft.algorithms.dpo.ShaftDPOTrainer", FakePipelineTrainer):
-            metrics = run_rlhf(config)
+            metrics = run_rl(config)
 
     assert "train_loss" in metrics
     assert FakePipelineTrainer.last_kwargs["args"].deepspeed == config.train.distributed.deepspeed.config

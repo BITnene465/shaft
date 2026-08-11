@@ -6,9 +6,9 @@ import re
 from typing import Any, get_args, get_type_hints
 
 from .algorithm import (
-    SFT_AUXILIARY_LOSS_WEIGHTS_PARAM,
-    normalize_sft_algorithm_params,
+    resolve_algorithm_profile,
 )
+from .generation_backend import normalize_vllm_generation_backend
 from .data import SHAFT_BATCH_RESOURCE_NAMES
 from .runtime import RuntimeConfig
 from .training import resolve_deepspeed_zero_stage, resolve_eval_input_policy
@@ -19,7 +19,6 @@ _BATCH_CARDINALITIES = {"fixed", "token_budget"}
 _BATCH_LAYOUTS = {"padded", "varlen"}
 _PACKING_MODES = {"none", "greedy"}
 _TRAIN_DURATION_UNITS = {"steps", "epochs"}
-_ALGORITHMS = {"sft", "dpo", "ppo", "grpo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
 _LOSS_NAMES = {"auto", "causal_lm"}
 _DPO_LOSS_TYPES = {"sigmoid"}
@@ -173,24 +172,10 @@ def _validate_optional_regex(value: str | None, field_name: str) -> str | None:
 def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     _normalize_declared_booleans(config)
     config.algorithm.name = str(config.algorithm.name).strip().lower()
-    if config.algorithm.name not in _ALGORITHMS:
-        raise ValueError(
-            f"Unsupported algorithm.name={config.algorithm.name!r}. Expected one of {_ALGORITHMS}."
-        )
-    if config.algorithm.name == "sft":
-        config.algorithm.params = normalize_sft_algorithm_params(
-            config.algorithm.params
-        )
-    else:
-        if not isinstance(config.algorithm.params, dict):
-            raise TypeError("algorithm.params must be a mapping.")
-        algorithm_params = dict(config.algorithm.params)
-        if SFT_AUXILIARY_LOSS_WEIGHTS_PARAM in algorithm_params:
-            raise ValueError(
-                "algorithm.params.auxiliary_loss_weights is only supported when "
-                "algorithm.name='sft'."
-            )
-        config.algorithm.params = algorithm_params
+    algorithm_profile = resolve_algorithm_profile(config.algorithm.name)
+    config.algorithm.params = algorithm_profile.params_normalizer(
+        config.algorithm.params
+    )
 
     config.model.model_type = str(config.model.model_type).strip().lower()
     if not config.model.model_type:
@@ -486,34 +471,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             and dataset.use_for_eval
         ):
             raise ValueError(f"data.datasets[{dataset.dataset_name}].val_paths cannot be empty.")
-        if config.algorithm.name == "sft" and dataset.source_type == "jsonl_ppo":
+        if dataset.source_type not in algorithm_profile.source_types:
             raise ValueError(
-                f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is sft."
-            )
-        if config.algorithm.name == "sft" and dataset.source_type == "jsonl_dpo":
-            raise ValueError(
-                f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is sft."
-            )
-        if config.algorithm.name == "dpo" and dataset.source_type == "jsonl_sft":
-            raise ValueError(
-                f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is dpo."
-            )
-        if config.algorithm.name == "dpo" and dataset.source_type == "jsonl_ppo":
-            raise ValueError(
-                f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is dpo."
-            )
-        if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_sft":
-            raise ValueError(
-                f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is ppo."
-            )
-        if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_dpo":
-            raise ValueError(
-                f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is ppo."
-            )
-        if config.algorithm.name == "grpo" and dataset.source_type != "jsonl_sft":
-            raise ValueError(
-                f"data.datasets[{dataset.dataset_name}] uses {dataset.source_type} but algorithm is grpo. "
-                "GRPO currently expects jsonl_sft data."
+                f"data.datasets[{dataset.dataset_name}] uses {dataset.source_type!r}, but "
+                f"algorithm.name={config.algorithm.name!r} requires one of "
+                f"{sorted(algorithm_profile.source_types)}."
             )
 
     if not any(dataset.enabled and dataset.weight > 0 for dataset in config.data.datasets):
@@ -636,9 +598,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             "mutually exclusive: init starts a new schedule, while resume restores "
             "the previous training state."
         )
-    if config.algorithm.name == "ppo" and train.save_strategy != "no":
+    if not algorithm_profile.supports_checkpoint and train.save_strategy != "no":
         raise ValueError(
-            "Shaft PPO does not publish resumable training checkpoints; "
+            f"Shaft {config.algorithm.name.upper()} does not publish resumable training checkpoints; "
             "set train.save_strategy='no'. Final model export remains available."
         )
     if int(train.save_epoch_interval) <= 0:
@@ -658,10 +620,10 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     length_grouped = batching.grouping == "length"
     planned = bounded or length_grouped
     if planned:
-        if config.algorithm.name != "sft":
+        if not algorithm_profile.supports_planned_batching:
             raise ValueError(
                 f"data.batching.grouping={batching.grouping!r} currently supports "
-                "algorithm.name='sft' only."
+                "only algorithms whose profile enables planned batching."
             )
         if train.duration.unit != "steps":
             raise ValueError(
@@ -956,7 +918,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     )
     if (
         eval_cfg.enabled
-        and config.algorithm.name == "grpo"
+        and not algorithm_profile.supports_loss_eval
         and eval_cfg.loss_metrics_enabled
     ):
         raise ValueError(
@@ -1043,7 +1005,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     )
     if (
         eval_cfg.enabled
-        and config.algorithm.name == "ppo"
+        and not algorithm_profile.supports_eval_pixel_budget
         and has_explicit_eval_pixel_budget
     ):
         raise ValueError(
@@ -1086,10 +1048,10 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         from shaft.metrics import EVAL_METRIC_REGISTRY
         from shaft.training.online_eval import TARGET_ADAPTER_REGISTRY
 
-        if config.algorithm.name not in {"sft", "grpo"}:
+        if not algorithm_profile.supports_online_eval:
             raise ValueError(
                 "eval.online_metrics_enabled is currently only supported for "
-                "algorithm.name in {'sft', 'grpo'}."
+                "algorithms whose profile enables online evaluation."
             )
         if eval_cfg.do_sample:
             raise ValueError(
@@ -1266,37 +1228,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         vllm_cfg.enabled,
         "rlhf.grpo.vllm.enabled",
     )
-    vllm_cfg.mode = str(vllm_cfg.mode).strip().lower()
-    if vllm_cfg.mode not in {"server", "colocate"}:
-        raise ValueError("rlhf.grpo.vllm.mode must be 'server' or 'colocate'.")
-    vllm_cfg.model_impl = str(vllm_cfg.model_impl).strip().lower()
-    if vllm_cfg.model_impl not in {"vllm", "transformers"}:
-        raise ValueError("rlhf.grpo.vllm.model_impl must be 'vllm' or 'transformers'.")
-    vllm_cfg.enable_sleep_mode = _normalize_bool(
-        vllm_cfg.enable_sleep_mode,
-        "rlhf.grpo.vllm.enable_sleep_mode",
+    normalize_vllm_generation_backend(
+        vllm_cfg,
+        field_prefix="rlhf.grpo.vllm",
+        normalize_bool=_normalize_bool,
     )
-    vllm_cfg.structured_outputs_regex = (
-        str(vllm_cfg.structured_outputs_regex)
-        if vllm_cfg.structured_outputs_regex is not None
-        else None
-    )
-    vllm_cfg.server_base_url = (
-        str(vllm_cfg.server_base_url).strip() if vllm_cfg.server_base_url is not None else None
-    )
-    vllm_cfg.server_host = str(vllm_cfg.server_host).strip() or "0.0.0.0"
-    if int(vllm_cfg.server_port) <= 0:
-        raise ValueError("rlhf.grpo.vllm.server_port must be > 0.")
-    if float(vllm_cfg.server_timeout) <= 0:
-        raise ValueError("rlhf.grpo.vllm.server_timeout must be > 0.")
-    if int(vllm_cfg.group_port) <= 0:
-        raise ValueError("rlhf.grpo.vllm.group_port must be > 0.")
-    if not (0.0 < float(vllm_cfg.gpu_memory_utilization) <= 1.0):
-        raise ValueError("rlhf.grpo.vllm.gpu_memory_utilization must be in (0, 1].")
-    if vllm_cfg.max_model_length is not None and int(vllm_cfg.max_model_length) <= 0:
-        raise ValueError("rlhf.grpo.vllm.max_model_length must be > 0 when configured.")
-    if int(vllm_cfg.tensor_parallel_size) <= 0:
-        raise ValueError("rlhf.grpo.vllm.tensor_parallel_size must be > 0.")
 
     grpo_cfg.num_generations = int(rollout_cfg.num_generations)
     grpo_cfg.num_generations_eval = (
@@ -1388,4 +1324,5 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         config.progress.persist,
         "progress.persist",
     )
+    algorithm_profile.config_normalizer(config)
     return config

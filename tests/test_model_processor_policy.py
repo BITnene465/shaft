@@ -11,6 +11,7 @@ from shaft.model import (
     ProcessorPolicy,
     ShaftProcessedBatch,
     ShaftProcessorCostEstimate,
+    ShaftProcessorSequenceField,
     build_model_meta,
 )
 
@@ -39,6 +40,151 @@ def test_processor_policy_controls_pixel_budget_forwarding() -> None:
     assert "min_pixels" not in captured
     assert "max_pixels" not in captured
     assert captured["images_kwargs"] == {"min_pixels": 16, "max_pixels": 32}
+
+
+def test_qwen_processor_policy_extends_multimodal_sequence_fields_for_opd() -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+    prompt_inputs = {
+        "input_ids": torch.tensor([[7, 8, 9]], dtype=torch.long),
+        "attention_mask": torch.ones((1, 3), dtype=torch.long),
+        "mm_token_type_ids": torch.tensor([[0, 1, 0]], dtype=torch.long),
+        "pixel_values": torch.randn((4, 8)),
+        "image_grid_thw": torch.tensor([[1, 2, 2]], dtype=torch.long),
+    }
+    sequences = torch.tensor([[7, 8, 9, 10, 11]], dtype=torch.long)
+    attention_mask = torch.ones((1, 5), dtype=torch.long)
+
+    scoring = model_adapter.build_rollout_scoring_plan(
+        prompt_inputs=prompt_inputs,
+        sequences=sequences,
+        attention_mask=attention_mask,
+    )
+
+    scoring_inputs = scoring.model_inputs
+    assert torch.equal(
+        scoring_inputs["mm_token_type_ids"],
+        torch.tensor([[0, 1, 0, 0, 0]], dtype=torch.long),
+    )
+    assert scoring_inputs["pixel_values"] is prompt_inputs["pixel_values"]
+    assert scoring_inputs["image_grid_thw"] is prompt_inputs["image_grid_thw"]
+    assert scoring_inputs["use_cache"] is False
+    assert scoring_inputs["logits_to_keep"] == 3
+    assert scoring.logit_start == 2
+    assert scoring.logit_count == 3
+    aligned_mask = scoring.align_completion_mask(
+        torch.tensor([[False, False, False, True, True]]),
+        logits=torch.zeros((1, 3, 17)),
+    )
+    assert aligned_mask.tolist() == [[False, True, True]]
+
+
+def test_processor_policy_materializes_arbitrary_sequence_fields_without_core_names() -> None:
+    policy = ProcessorPolicy(
+        processor_sequence_fields=(
+            ShaftProcessorSequenceField(
+                name="alternate_positions",
+                sequence_axis=2,
+                padding_value=-1,
+                continuation_value=9,
+            ),
+        ),
+    )
+
+    class _Processor:
+        def __call__(self, **kwargs):
+            _ = kwargs
+            return {
+                "input_ids": torch.tensor([[1, 2, 3], [4, 0, 0]], dtype=torch.long),
+                "attention_mask": torch.tensor([[1, 1, 1], [1, 0, 0]], dtype=torch.long),
+                "alternate_positions": torch.tensor(
+                    [
+                        [[10, 11, 12], [20, 21, 22]],
+                        [[30, 0, 0], [40, 0, 0]],
+                    ],
+                    dtype=torch.long,
+                ),
+            }
+
+    processed = policy.build_batch(
+        processor=_Processor(),
+        tokenizer=None,
+        prompt_texts=["first", "second"],
+        images=["image-0", "image-1"],
+        min_pixels=None,
+        max_pixels=None,
+    )
+    first = processed.build_processor_sequence_row(
+        row_index=0,
+        prefix_indices=(0, 2),
+        continuation_length=1,
+    )
+    second = processed.build_processor_sequence_row(
+        row_index=1,
+        prefix_indices=(0,),
+        continuation_length=2,
+    )
+
+    assert first["alternate_positions"].tolist() == [[10, 12, 9], [20, 22, 9]]
+    assert second["alternate_positions"].tolist() == [[30, 9, 9], [40, 9, 9]]
+    padded = processed.collate_processor_sequence_rows(
+        [first, second],
+        layout="padded",
+        padding_side="left",
+    )
+    assert padded["alternate_positions"].tolist() == [
+        [[10, 12, 9], [20, 22, 9]],
+        [[30, 9, 9], [40, 9, 9]],
+    ]
+
+
+def test_processor_sequence_field_requires_explicit_continuation_semantics() -> None:
+    field = ShaftProcessorSequenceField(
+        name="position_ids",
+        sequence_axis=1,
+        padding_value=0,
+    )
+    processed = ShaftProcessedBatch(
+        model_inputs={
+            "input_ids": torch.tensor([[1, 2]], dtype=torch.long),
+            "attention_mask": torch.ones((1, 2), dtype=torch.long),
+            "position_ids": torch.tensor([[0, 1]], dtype=torch.long),
+        },
+        batch_size=1,
+        processor_sequence_fields=(field,),
+    )
+
+    with pytest.raises(ValueError, match="continuation rule"):
+        processed.build_processor_sequence_row(
+            row_index=0,
+            prefix_indices=(0, 1),
+            continuation_length=1,
+        )
+
+
+def test_processor_policy_rejects_sequence_field_outside_processed_batch_contract() -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+    processed = ShaftProcessedBatch(
+        model_inputs={
+            "input_ids": torch.tensor([[1, 2]], dtype=torch.long),
+            "attention_mask": torch.ones((1, 2), dtype=torch.long),
+            "mm_token_type_ids": torch.tensor([[0, 1]], dtype=torch.long),
+        },
+        batch_size=1,
+    )
+
+    with pytest.raises(ValueError, match="processed-batch sequence contract"):
+        model_adapter.assemble_processor_training_inputs(
+            processed_batch=processed,
+            sequence_inputs={
+                "input_ids": torch.tensor([[1, 2]], dtype=torch.long),
+                "attention_mask": torch.ones((1, 2), dtype=torch.long),
+            },
+            row_indices=(0,),
+        )
 
 
 def test_qwen_processor_policy_builds_one_image_media_manifest_per_row() -> None:
@@ -488,7 +634,7 @@ def test_processor_policy_fails_on_unowned_sequence_aligned_output() -> None:
         batch_size=1,
     )
 
-    with pytest.raises(ValueError, match="must explicitly assemble sequence-aligned"):
+    with pytest.raises(ValueError, match="does not declare the layout"):
         model_adapter.assemble_processor_training_inputs(
             processed_batch=processed_batch,
             sequence_inputs={

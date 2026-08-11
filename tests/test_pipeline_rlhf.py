@@ -20,7 +20,7 @@ from shaft.data import (
     ShaftGroupedSampleContract,
     ShaftSampleSampler,
 )
-from shaft.pipeline import run_rlhf
+from shaft.pipeline import run_rl
 from shaft.training.batch_planning import (
     ShaftBatchingMetadataCallback,
     load_batching_run_metadata,
@@ -71,7 +71,8 @@ def test_rlhf_pipeline_materializes_model_identity_only_when_checkpointable(
 ) -> None:
     cfg = load_config(config_writer(tmp_path))
     cfg.train.save_strategy = save_strategy
-    from shaft.pipeline import rlhf as rlhf_pipeline
+    from shaft.pipeline import rl as rl_pipeline
+
     observed_stage_fingerprints: dict[str, dict[str, str]] = {}
 
     @contextmanager
@@ -80,21 +81,21 @@ def test_rlhf_pipeline_materializes_model_identity_only_when_checkpointable(
         observed_stage_fingerprints[stage] = dict(fingerprints())
 
     with patch(
-        "shaft.pipeline.rlhf.resolve_model_plan",
-        wraps=rlhf_pipeline.resolve_model_plan,
+        "shaft.pipeline.rl.resolve_model_plan",
+        wraps=rl_pipeline.resolve_model_plan,
     ) as resolver:
         with patch(
-            "shaft.pipeline.rlhf.materialize_resolved_model_artifact_identity",
-            wraps=rlhf_pipeline.materialize_resolved_model_artifact_identity,
+            "shaft.pipeline.rl.materialize_resolved_model_artifact_identity",
+            wraps=rl_pipeline.materialize_resolved_model_artifact_identity,
         ) as materialize:
             with patch(
-                "shaft.pipeline.rlhf.distributed_training_contract_stage",
+                "shaft.pipeline.rl.distributed_training_contract_stage",
                 _capture_stage,
             ):
-                with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as builder:
+                with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as builder:
                     builder.return_value = _build_fake_model_artifacts()
                     with patch(trainer_target, _FakeTrainer):
-                        run_rlhf(cfg)
+                        run_rl(cfg)
 
     assert resolver.call_args.kwargs["require_immutable_artifact"] is False
     assert materialize.call_count == int(expected_immutable)
@@ -103,7 +104,7 @@ def test_rlhf_pipeline_materializes_model_identity_only_when_checkpointable(
     )
 
 
-def test_run_rlhf_initializes_seed_before_model_and_adapter_build(tmp_path: Path) -> None:
+def test_run_rl_initializes_seed_before_model_and_adapter_build(tmp_path: Path) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     cfg.experiment.seed = 149
     torch.manual_seed(cfg.experiment.seed + 1)
@@ -114,44 +115,44 @@ def test_run_rlhf_initializes_seed_before_model_and_adapter_build(tmp_path: Path
         return _build_fake_model_artifacts()
 
     with patch(
-        "shaft.pipeline.rlhf.build_model_tokenizer_processor",
+        "shaft.pipeline.rl.build_model_tokenizer_processor",
         side_effect=build_seeded_artifacts,
     ):
         with patch("shaft.algorithms.dpo.ShaftDPOTrainer", _FakeTrainer):
-            _ = run_rlhf(cfg)
+            _ = run_rl(cfg)
 
 
-def test_run_rlhf_rejects_resume_contract_before_publish_or_model_load(
+def test_run_rl_rejects_resume_contract_before_publish_or_model_load(
     tmp_path: Path,
 ) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     cfg.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
 
     with patch(
-        "shaft.pipeline.rlhf.resolve_resume_checkpoint_generation",
+        "shaft.pipeline.rl.resolve_resume_checkpoint_generation",
         return_value=_resolved_resume(cfg.train.resume_from_checkpoint),
     ):
-        with patch("shaft.pipeline.rlhf.validate_resume_checkpoint"):
+        with patch("shaft.pipeline.rl.validate_resume_checkpoint"):
             with patch(
-                "shaft.pipeline.rlhf.load_checkpoint_batching_metadata",
+                "shaft.pipeline.rl.load_checkpoint_batching_metadata",
                 return_value=SimpleNamespace(training_resume_contract=object()),
             ):
                 with patch(
-                    "shaft.pipeline.rlhf.build_training_resume_preflight_contract",
+                    "shaft.pipeline.rl.build_training_resume_preflight_contract",
                     return_value=SimpleNamespace(fingerprint="preflight-v1"),
                 ):
                     with patch(
-                        "shaft.pipeline.rlhf.validate_batching_resume_contract",
+                        "shaft.pipeline.rl.validate_batching_resume_contract",
                         side_effect=ValueError("batch contract drift"),
                     ):
                         with patch(
-                            "shaft.pipeline.rlhf.publish_batching_run_metadata"
+                            "shaft.pipeline.rl.publish_batching_run_metadata"
                         ) as publish_metadata:
                             with patch(
-                                "shaft.pipeline.rlhf.build_model_tokenizer_processor"
+                                "shaft.pipeline.rl.build_model_tokenizer_processor"
                             ) as build_model:
                                 with pytest.raises(ValueError, match="batch contract drift"):
-                                    run_rlhf(cfg)
+                                    run_rl(cfg)
 
     publish_metadata.assert_not_called()
     build_model.assert_not_called()
@@ -185,7 +186,7 @@ def test_dpo_beta_resume_drift_fails_before_local_weight_hashing(
         model_plan_fingerprint="stored-model-plan",
         resolved_finetune_plan_fingerprint="stored-finetune-plan",
         resolved_optimizer_plan_fingerprint="stored-optimizer-plan",
-        resolved_dpo_args=dpo_args,
+        algorithm_resume_context={"resolved_trainer_args": dpo_args},
     )
     cfg.rlhf.dpo.beta = 0.25
     cfg.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
@@ -197,22 +198,20 @@ def test_dpo_beta_resume_drift_fails_before_local_weight_hashing(
 
     with (
         patch(
-            "shaft.pipeline.rlhf.resolve_resume_checkpoint_generation",
+            "shaft.pipeline.rl.resolve_resume_checkpoint_generation",
             return_value=_resolved_resume(cfg.train.resume_from_checkpoint),
         ),
-        patch("shaft.pipeline.rlhf.validate_resume_checkpoint"),
+        patch("shaft.pipeline.rl.validate_resume_checkpoint"),
         patch(
-            "shaft.pipeline.rlhf.load_checkpoint_batching_metadata",
-            return_value=SimpleNamespace(
-                training_resume_contract=checkpoint_contract
-            ),
+            "shaft.pipeline.rl.load_checkpoint_batching_metadata",
+            return_value=SimpleNamespace(training_resume_contract=checkpoint_contract),
         ),
         patch(
-            "shaft.pipeline.rlhf.validate_batching_resume_contract",
+            "shaft.pipeline.rl.validate_batching_resume_contract",
             side_effect=reject_drift,
         ),
         patch(
-            "shaft.pipeline.rlhf.resolve_model_plan",
+            "shaft.pipeline.rl.resolve_model_plan",
             side_effect=AssertionError("model identity resolved before cheap preflight"),
         ),
         patch(
@@ -221,10 +220,10 @@ def test_dpo_beta_resume_drift_fails_before_local_weight_hashing(
         ),
     ):
         with pytest.raises(ValueError, match="Training resume contract changed"):
-            run_rlhf(cfg)
+            run_rl(cfg)
 
 
-def test_run_rlhf_rejects_sample_execution_drift_before_publish_or_model_load(
+def test_run_rl_rejects_sample_execution_drift_before_publish_or_model_load(
     tmp_path: Path,
 ) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
@@ -265,34 +264,34 @@ def test_run_rlhf_rejects_sample_execution_drift_before_publish_or_model_load(
         raise ValueError("sample execution drift")
 
     with patch(
-        "shaft.pipeline.rlhf.resolve_resume_checkpoint_generation",
+        "shaft.pipeline.rl.resolve_resume_checkpoint_generation",
         return_value=_resolved_resume(cfg.train.resume_from_checkpoint),
     ):
-        with patch("shaft.pipeline.rlhf.validate_resume_checkpoint"):
+        with patch("shaft.pipeline.rl.validate_resume_checkpoint"):
             with patch(
-                "shaft.pipeline.rlhf.load_checkpoint_batching_metadata",
+                "shaft.pipeline.rl.load_checkpoint_batching_metadata",
                 return_value=SimpleNamespace(training_resume_contract=object()),
             ):
                 with patch(
-                    "shaft.pipeline.rlhf.build_training_resume_preflight_contract",
+                    "shaft.pipeline.rl.build_training_resume_preflight_contract",
                     return_value=SimpleNamespace(fingerprint="preflight-v1"),
                 ):
                     with patch(
-                        "shaft.pipeline.rlhf.validate_batching_resume_contract",
+                        "shaft.pipeline.rl.validate_batching_resume_contract",
                         side_effect=validate_contract,
                     ):
-                        with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
+                        with patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter):
                             with patch(
-                                "shaft.pipeline.rlhf.publish_batching_run_metadata"
+                                "shaft.pipeline.rl.publish_batching_run_metadata"
                             ) as publish_metadata:
                                 with patch(
-                                    "shaft.pipeline.rlhf.build_model_tokenizer_processor"
+                                    "shaft.pipeline.rl.build_model_tokenizer_processor"
                                 ) as build_model:
                                     with pytest.raises(
                                         ValueError,
                                         match="sample execution drift",
                                     ):
-                                        run_rlhf(cfg)
+                                        run_rl(cfg)
 
     publish_metadata.assert_not_called()
     build_model.assert_not_called()
@@ -314,18 +313,16 @@ def test_run_dpo_rejects_invalid_epoch_sharding_before_model_load(
         "validate_epoch_sharding",
         new=_reject_epoch_sharding,
     ):
-        with patch(
-            "shaft.pipeline.rlhf.build_model_tokenizer_processor"
-        ) as build_model:
+        with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as build_model:
             with pytest.raises(ValueError, match="unequal per-rank train step counts"):
-                run_rlhf(cfg)
+                run_rl(cfg)
 
     assert len(sharding_calls) == 1
     assert sharding_calls[0]["require_equal_rank_batch_cardinality"] is True
     build_model.assert_not_called()
 
 
-def test_run_rlhf_binds_grpo_grouped_geometry_before_resume(
+def test_run_rl_binds_grpo_grouped_geometry_before_resume(
     tmp_path: Path,
 ) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
@@ -382,41 +379,37 @@ def test_run_rlhf_binds_grpo_grouped_geometry_before_resume(
 
     with (
         patch(
-            "shaft.pipeline.rlhf.resolve_resume_checkpoint_generation",
+            "shaft.pipeline.rl.resolve_resume_checkpoint_generation",
             return_value=_resolved_resume(cfg.train.resume_from_checkpoint),
         ),
-        patch("shaft.pipeline.rlhf.validate_resume_checkpoint"),
+        patch("shaft.pipeline.rl.validate_resume_checkpoint"),
         patch(
-            "shaft.pipeline.rlhf.load_checkpoint_batching_metadata",
+            "shaft.pipeline.rl.load_checkpoint_batching_metadata",
             return_value=SimpleNamespace(training_resume_contract=object()),
         ),
         patch(
-            "shaft.pipeline.rlhf.build_training_resume_preflight_contract",
+            "shaft.pipeline.rl.build_training_resume_preflight_contract",
             return_value=SimpleNamespace(fingerprint="preflight-v1"),
         ),
         patch(
-            "shaft.pipeline.rlhf.validate_batching_resume_contract",
+            "shaft.pipeline.rl.validate_batching_resume_contract",
             side_effect=validate_contract,
         ),
-        patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter),
-        patch(
-            "shaft.pipeline.rlhf.publish_batching_run_metadata"
-        ) as publish_metadata,
-        patch(
-            "shaft.pipeline.rlhf.build_model_tokenizer_processor"
-        ) as build_model,
+        patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter),
+        patch("shaft.pipeline.rl.publish_batching_run_metadata") as publish_metadata,
+        patch("shaft.pipeline.rl.build_model_tokenizer_processor") as build_model,
     ):
         with pytest.raises(
             ValueError,
             match="GRPO grouped sample execution drift",
         ):
-            run_rlhf(cfg)
+            run_rl(cfg)
 
     publish_metadata.assert_not_called()
     build_model.assert_not_called()
 
 
-def test_run_rlhf_rejects_grpo_mid_generation_resume_before_model_load(
+def test_run_rl_rejects_grpo_mid_generation_resume_before_model_load(
     tmp_path: Path,
 ) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
@@ -445,26 +438,24 @@ def test_run_rlhf_rejects_grpo_mid_generation_resume_before_model_load(
 
     with (
         patch(
-            "shaft.pipeline.rlhf.resolve_resume_checkpoint_generation",
+            "shaft.pipeline.rl.resolve_resume_checkpoint_generation",
             return_value=_resolved_resume(checkpoint),
         ),
-        patch("shaft.pipeline.rlhf.validate_resume_checkpoint"),
+        patch("shaft.pipeline.rl.validate_resume_checkpoint"),
         patch(
-            "shaft.pipeline.rlhf.load_checkpoint_batching_metadata",
+            "shaft.pipeline.rl.load_checkpoint_batching_metadata",
             return_value=SimpleNamespace(training_resume_contract=object()),
         ),
         patch(
-            "shaft.pipeline.rlhf.build_training_resume_preflight_contract",
+            "shaft.pipeline.rl.build_training_resume_preflight_contract",
             return_value=SimpleNamespace(fingerprint="preflight-v1"),
         ),
-        patch("shaft.pipeline.rlhf.validate_batching_resume_contract"),
-        patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter),
-        patch(
-            "shaft.pipeline.rlhf.build_model_tokenizer_processor"
-        ) as build_model,
+        patch("shaft.pipeline.rl.validate_batching_resume_contract"),
+        patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter),
+        patch("shaft.pipeline.rl.build_model_tokenizer_processor") as build_model,
     ):
         with pytest.raises(ValueError, match="generation-reuse cycle"):
-            run_rlhf(cfg)
+            run_rl(cfg)
 
     build_model.assert_not_called()
 
@@ -483,15 +474,11 @@ def test_run_grpo_rejects_vllm_checkpointing_before_data_or_model_load(
         cfg.train.save_strategy = "no"
         cfg.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
 
-    with patch(
-        "shaft.pipeline.rlhf.validate_grpo_vllm_runtime_compatibility"
-    ):
-        with patch("shaft.pipeline.rlhf.ShaftDataCenter") as data_center:
-            with patch(
-                "shaft.pipeline.rlhf.build_model_tokenizer_processor"
-            ) as build_model:
+    with patch("shaft.rl.grpo.validate_grpo_vllm_runtime_compatibility"):
+        with patch("shaft.pipeline.rl.ShaftDataCenter") as data_center:
+            with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as build_model:
                 with pytest.raises(ValueError, match="vLLM.*RNG state"):
-                    run_rlhf(cfg)
+                    run_rl(cfg)
 
     data_center.assert_not_called()
     build_model.assert_not_called()
@@ -513,11 +500,9 @@ def test_run_grpo_rejects_incompatible_vllm_before_model_plan_or_data(
             return_value=['vllm<0.13.0,>=0.10.2; extra == "vllm"'],
         ),
         patch("shaft.algorithms.rlhf_utils.metadata.version", side_effect=version),
-        patch("shaft.pipeline.rlhf.resolve_model_plan") as resolve_plan,
-        patch("shaft.pipeline.rlhf.ShaftDataCenter") as data_center,
-        patch(
-            "shaft.pipeline.rlhf.build_model_tokenizer_processor"
-        ) as build_model,
+        patch("shaft.pipeline.rl.resolve_model_plan") as resolve_plan,
+        patch("shaft.pipeline.rl.ShaftDataCenter") as data_center,
+        patch("shaft.pipeline.rl.build_model_tokenizer_processor") as build_model,
     ):
         with pytest.raises(
             ValueError,
@@ -526,7 +511,7 @@ def test_run_grpo_rejects_incompatible_vllm_before_model_plan_or_data(
                 r"installed_vllm_version=0\.19\.1"
             ),
         ):
-            run_rlhf(cfg)
+            run_rl(cfg)
 
     resolve_plan.assert_not_called()
     data_center.assert_not_called()
@@ -553,12 +538,12 @@ def test_run_grpo_accepts_compatible_vllm_metadata(
         ),
         patch("shaft.algorithms.rlhf_utils.metadata.version", side_effect=version),
         patch(
-            "shaft.pipeline.rlhf.build_model_tokenizer_processor",
+            "shaft.pipeline.rl.build_model_tokenizer_processor",
             return_value=_build_fake_model_artifacts(),
         ),
         patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer),
     ):
-        metrics = run_rlhf(cfg)
+        metrics = run_rl(cfg)
 
     assert "train_loss" in metrics
 
@@ -584,27 +569,25 @@ def test_run_grpo_rejects_incomplete_prompt_group_before_model_load(
                 train_execution_contract_complete=True,
             )
 
-    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
-        with patch(
-            "shaft.pipeline.rlhf.build_model_tokenizer_processor"
-        ) as build_model:
+    with patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as build_model:
             with pytest.raises(ValueError, match="complete grouped batches"):
-                run_rlhf(cfg)
+                run_rl(cfg)
 
     build_model.assert_not_called()
 
 
-def test_run_rlhf_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
+def test_run_rl_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
     cfg.train.save_final_model = True
     cfg.train.save_final_state = True
 
     with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
-        with patch("shaft.pipeline.rlhf.is_rank_zero", return_value=False):
+        with patch("shaft.pipeline.rl.is_rank_zero", return_value=False):
             with patch("shaft.pipeline.execution.is_rank_zero", return_value=False):
-                with patch("shaft.pipeline.rlhf.ensure_hf_export_layout") as mocked_ensure:
-                    with patch("shaft.pipeline.rlhf.prune_root_output_layout") as mocked_prune:
-                        metrics = run_rlhf(cfg)
+                with patch("shaft.pipeline.rl.ensure_hf_export_layout") as mocked_ensure:
+                    with patch("shaft.pipeline.rl.prune_root_output_layout") as mocked_prune:
+                        metrics = run_rl(cfg)
 
     assert "train_loss" in metrics
     mocked_ensure.assert_not_called()
@@ -618,7 +601,7 @@ def test_run_rlhf_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
         ("prune", "synthetic RLHF output prune failure"),
     ],
 )
-def test_run_rlhf_propagates_local_finalization_file_failure(
+def test_run_rl_propagates_local_finalization_file_failure(
     tmp_path: Path,
     mode: str,
     message: str,
@@ -626,18 +609,18 @@ def test_run_rlhf_propagates_local_finalization_file_failure(
     cfg = load_config(_write_grpo_config(tmp_path))
     cfg.train.save_final_model = mode == "ensure"
     target = (
-        "shaft.pipeline.rlhf.ensure_hf_export_layout"
+        "shaft.pipeline.rl.ensure_hf_export_layout"
         if mode == "ensure"
-        else "shaft.pipeline.rlhf.prune_root_output_layout"
+        else "shaft.pipeline.rl.prune_root_output_layout"
     )
 
     with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
         with patch(target, side_effect=OSError(message)):
             with pytest.raises(OSError, match=message):
-                run_rlhf(cfg)
+                run_rl(cfg)
 
 
-def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
+def test_run_rl_uses_data_center_for_dpo(tmp_path: Path) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     fake_train_dataset = object()
     fake_eval_dataset = object()
@@ -661,11 +644,11 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
                 train_execution_contract_complete=True,
             )
 
-    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
-        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as mocked_builder:
+    with patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as mocked_builder:
             mocked_builder.return_value = _build_fake_model_artifacts()
             with patch("shaft.algorithms.dpo.ShaftDPOTrainer", _FakeTrainer):
-                _ = run_rlhf(cfg)
+                _ = run_rl(cfg)
 
     assert captured["data_config"] is cfg.data
     assert captured["seed"] == cfg.experiment.seed
@@ -675,10 +658,7 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
     assert _FakeTrainer.last_kwargs["eval_dataset"] is None
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
-    assert (
-        _FakeTrainer.last_kwargs["finetune_plan"]
-        is mocked_builder.return_value.finetune_plan
-    )
+    assert _FakeTrainer.last_kwargs["finetune_plan"] is mocked_builder.return_value.finetune_plan
     metadata = load_batching_run_metadata(cfg.experiment.output_dir)
     assert metadata.grouping == "none"
     assert metadata.cardinality == "fixed"
@@ -698,9 +678,7 @@ def test_dpo_uses_distinct_train_and_eval_pixel_budget_collators(tmp_path: Path)
     cfg.eval.enabled = True
     cfg.eval.min_pixels = 200
     cfg.eval.max_pixels = 2000
-    cfg.eval.datasets = {
-        "dpo_ds": EvalDatasetPolicyConfig(min_pixels=300, max_pixels=3000)
-    }
+    cfg.eval.datasets = {"dpo_ds": EvalDatasetPolicyConfig(min_pixels=300, max_pixels=3000)}
     fake_train_dataset = object()
     fake_eval_dataset = object()
     fake_eval_datasets_by_name = {"dpo_ds": fake_eval_dataset}
@@ -721,11 +699,11 @@ def test_dpo_uses_distinct_train_and_eval_pixel_budget_collators(tmp_path: Path)
                 train_execution_contract_complete=True,
             )
 
-    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
-        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as builder:
+    with patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as builder:
             builder.return_value = _build_fake_model_artifacts()
             with patch("shaft.algorithms.dpo.ShaftDPOTrainer", _FakeTrainer):
-                run_rlhf(cfg)
+                run_rl(cfg)
 
     train_collator = _FakeTrainer.last_kwargs["data_collator"]
     eval_collator = _FakeTrainer.last_kwargs["eval_data_collator"]
@@ -736,7 +714,7 @@ def test_dpo_uses_distinct_train_and_eval_pixel_budget_collators(tmp_path: Path)
     assert _FakeTrainer.last_kwargs["eval_dataset"] is fake_eval_datasets_by_name
 
 
-def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
+def test_run_rl_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
     fake_train_dataset = object()
     fake_eval_dataset = object()
@@ -760,11 +738,11 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
                 train_execution_contract_complete=True,
             )
 
-    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
-        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as mocked_builder:
+    with patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as mocked_builder:
             mocked_builder.return_value = _build_fake_model_artifacts()
             with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
-                _ = run_rlhf(cfg)
+                _ = run_rl(cfg)
 
     assert captured["dataset_cls"] is SFTDataset
     assert isinstance(_FakeTrainer.last_kwargs["train_dataset"], GRPODataset)
@@ -774,10 +752,7 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
     assert "finetune_mode" not in _FakeTrainer.last_kwargs
     assert "data_collator" not in _FakeTrainer.last_kwargs
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
-    assert (
-        _FakeTrainer.last_kwargs["finetune_plan"]
-        is mocked_builder.return_value.finetune_plan
-    )
+    assert _FakeTrainer.last_kwargs["finetune_plan"] is mocked_builder.return_value.finetune_plan
     grouped_contract = _FakeTrainer.last_kwargs["grouped_sample_contract"]
     assert grouped_contract == ShaftGroupedSampleContract(
         mini_repeat_count=2,
@@ -815,11 +790,11 @@ def test_run_grpo_uses_grouped_unique_prompt_budget_for_step_duration(
                 train_execution_contract_complete=True,
             )
 
-    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
-        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as builder:
+    with patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as builder:
             builder.return_value = _build_fake_model_artifacts()
             with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
-                _ = run_rlhf(cfg)
+                _ = run_rl(cfg)
 
     grouped_contract = _FakeTrainer.last_kwargs["grouped_sample_contract"]
     assert grouped_contract == ShaftGroupedSampleContract(
@@ -831,7 +806,7 @@ def test_run_grpo_uses_grouped_unique_prompt_budget_for_step_duration(
     assert captured["train_sample_budget"] == 3
 
 
-def test_run_rlhf_wires_grpo_online_eval_runner_with_named_eval_datasets(
+def test_run_rl_wires_grpo_online_eval_runner_with_named_eval_datasets(
     tmp_path: Path,
 ) -> None:
     image_path = _write_common_image(tmp_path)
@@ -839,7 +814,7 @@ def test_run_rlhf_wires_grpo_online_eval_runner_with_named_eval_datasets(
     val_jsonl = tmp_path / "val_grpo.jsonl"
     row = {
         "image_path": str(image_path),
-        "target_text": "{\"ok\":1}",
+        "target_text": '{"ok":1}',
         "user_prompt": "return json",
     }
     train_jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -934,11 +909,11 @@ rlhf:
                 train_execution_contract_complete=True,
             )
 
-    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
-        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as mocked_builder:
+    with patch("shaft.pipeline.rl.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rl.build_model_tokenizer_processor") as mocked_builder:
             mocked_builder.return_value = _build_fake_model_artifacts()
             with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
-                _ = run_rlhf(cfg)
+                _ = run_rl(cfg)
 
     assert isinstance(_FakeTrainer.last_kwargs["train_dataset"], GRPODataset)
     assert _FakeTrainer.last_kwargs["eval_dataset"] is fake_eval_datasets_by_name

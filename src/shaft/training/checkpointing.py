@@ -21,6 +21,7 @@ from shaft.model import (
     resolve_adapter_artifact,
 )
 from shaft.model.finetune_plan import FINETUNE_SUMMARY_FILENAME
+from shaft.model.generation import export_model_cache
 from shaft.observability import (
     PROGRESS_SNAPSHOT_FILENAME,
     TRAINING_EFFICIENCY_FILENAME,
@@ -145,17 +146,17 @@ class ResolvedResumeCheckpoint:
                     "checkpoints."
                 )
             if Path(self.adapter_artifact.path).resolve() != self.path:
-                raise ValueError(
-                    "Resolved PEFT artifact path differs from its resume checkpoint."
-                )
+                raise ValueError("Resolved PEFT artifact path differs from its resume checkpoint.")
         for name, value in (
             ("generation_fingerprint", self.generation_fingerprint),
             ("commit_fingerprint", self.commit_fingerprint),
         ):
             if value is None and name == "commit_fingerprint":
                 continue
-            if type(value) is not str or len(value) != 64 or any(
-                character not in "0123456789abcdef" for character in value
+            if (
+                type(value) is not str
+                or len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
             ):
                 raise ValueError(f"Resolved resume {name} must be a lowercase SHA-256 digest.")
 
@@ -249,10 +250,7 @@ def _committed_checkpoint_stat_guard(
         role="training checkpoint commit manifest.artifacts",
     )
     names = [*artifacts, TRAINING_CHECKPOINT_COMMIT_FILENAME]
-    return tuple(
-        _file_stat_token(checkpoint / name, relative_name=name)
-        for name in sorted(names)
-    )
+    return tuple(_file_stat_token(checkpoint / name, relative_name=name) for name in sorted(names))
 
 
 def _backend_checkpoint_stat_guard(
@@ -275,10 +273,7 @@ def _backend_checkpoint_stat_guard(
                 *(name for name, _size, _sha256 in adapter_artifact.weight_manifest),
             )
         )
-    return tuple(
-        _file_stat_token(checkpoint / name, relative_name=name)
-        for name in sorted(names)
-    )
+    return tuple(_file_stat_token(checkpoint / name, relative_name=name) for name in sorted(names))
 
 
 def validate_resolved_resume_checkpoint_guard(
@@ -573,8 +568,10 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> Path:
 
 
 def _validate_sha256_digest(value: Any, *, role: str) -> str:
-    if type(value) is not str or len(value) != 64 or any(
-        character not in "0123456789abcdef" for character in value
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
     ):
         raise ValueError(f"{role} must be a lowercase SHA-256 digest.")
     return value
@@ -759,8 +756,7 @@ def _backend_native_artifact_manifest(
             )
         hashed_names.add("latest")
         native_names.update(
-            path.relative_to(checkpoint).as_posix()
-            for path in (*model_shards, *optimizer_shards)
+            path.relative_to(checkpoint).as_posix() for path in (*model_shards, *optimizer_shards)
         )
 
     artifacts: dict[str, dict[str, Any]] = {}
@@ -768,8 +764,7 @@ def _backend_native_artifact_manifest(
         artifact = checkpoint / relative_name
         if artifact.is_symlink() or not artifact.is_file() or artifact.stat().st_size <= 0:
             raise ValueError(
-                "Backend-native checkpoint required artifact is missing or empty: "
-                f"{relative_name}."
+                f"Backend-native checkpoint required artifact is missing or empty: {relative_name}."
             )
         artifacts[relative_name] = {
             "size": int(artifact.stat().st_size),
@@ -796,27 +791,21 @@ def commit_backend_native_checkpoint(path: str | Path) -> Path:
         role="prepared backend-native checkpoint",
     )
     if int(trainer_state["global_step"]) != global_step:
-        raise ValueError(
-            "Backend-native prepared generation differs from trainer global_step."
-        )
+        raise ValueError("Backend-native prepared generation differs from trainer global_step.")
     planning = build_batch_planning_checkpoint_binding_payload(checkpoint)
     if planning is None:
         raise ValueError(
             "Backend-native planned checkpoint has no canonical planning callback state."
         )
     if int(planning["global_step"]) != global_step:
-        raise ValueError(
-            "Backend-native planning state differs from the prepared generation step."
-        )
+        raise ValueError("Backend-native planning state differs from the prepared generation step.")
     world_size = json_int(
         prepared,
         "world_size",
         role="prepared backend-native checkpoint",
     )
     if int(planning["data_world_size"]) != world_size:
-        raise ValueError(
-            "Backend-native planning world size differs from the prepared generation."
-        )
+        raise ValueError("Backend-native planning world size differs from the prepared generation.")
     backend = json_string(
         prepared,
         "backend",
@@ -868,9 +857,7 @@ def validate_backend_native_checkpoint_commit(
         role="backend-native checkpoint commit",
     )
     if int(trainer_state["global_step"]) != global_step:
-        raise ValueError(
-            "Backend-native checkpoint commit differs from trainer global_step."
-        )
+        raise ValueError("Backend-native checkpoint commit differs from trainer global_step.")
     world_size = json_int(
         committed,
         "world_size",
@@ -895,9 +882,7 @@ def validate_backend_native_checkpoint_commit(
         role="backend-native checkpoint commit.backend_artifacts",
     )
     if dict(stored_artifacts) != artifacts:
-        raise ValueError(
-            "Backend-native checkpoint artifact manifest changed after publication."
-        )
+        raise ValueError("Backend-native checkpoint artifact manifest changed after publication.")
     stored_artifact_fingerprint = _validate_sha256_digest(
         committed["backend_artifacts_fingerprint"],
         role="Backend-native checkpoint artifact fingerprint",
@@ -909,9 +894,7 @@ def validate_backend_native_checkpoint_commit(
         role="Backend-native checkpoint trainer_state_sha256",
     )
     if trainer_state_sha256 != artifacts["trainer_state.json"]["sha256"]:
-        raise ValueError(
-            "Backend-native checkpoint trainer state changed after publication."
-        )
+        raise ValueError("Backend-native checkpoint trainer state changed after publication.")
     planning = build_batch_planning_checkpoint_binding_payload(checkpoint)
     stored_planning = committed["planning"]
     if require_planning_state and planning is None:
@@ -1150,10 +1133,7 @@ def validate_training_checkpoint_commit(path: str | Path) -> dict[str, Any]:
             character not in "0123456789abcdef" for character in expected_sha256
         ):
             raise ValueError(f"Checkpoint artifact sha256 is invalid: {relative_path}.")
-        if (
-            relative_path == "trainer_state.json"
-            and expected_sha256 != trainer_state_sha256
-        ):
+        if relative_path == "trainer_state.json" and expected_sha256 != trainer_state_sha256:
             raise ValueError(
                 "Training checkpoint trainer_state_sha256 differs from its artifact digest."
             )
@@ -1383,6 +1363,12 @@ class ShaftCheckpointCommitMixin:
             )
             is ShaftCheckpointProtocol.COMMITTED_MANIFEST
         )
+
+    def save_model(self, output_dir: str | None = None, _internal_call: bool = False) -> None:
+        """Serialize deployment cache defaults for every checkpoint-capable trainer."""
+
+        with export_model_cache(self.model):
+            super().save_model(output_dir=output_dir, _internal_call=_internal_call)
 
     def _uses_shaft_checkpoint_publication(self) -> bool:
         return bool(
@@ -1739,9 +1725,7 @@ def _resolved_backend_checkpoint(
             "trainer_state_fingerprint": trainer_state_fingerprint,
             "backend_commit_fingerprint": backend_commit_fingerprint,
             "adapter_artifact_fingerprint": (
-                None
-                if adapter_artifact is None
-                else adapter_artifact.artifact_fingerprint
+                None if adapter_artifact is None else adapter_artifact.artifact_fingerprint
             ),
         }
     )
@@ -1778,9 +1762,7 @@ def _resolve_backend_adapter_artifact(
     artifact = resolve_adapter_artifact(checkpoint)
     for name, _size, _sha256 in artifact.weight_manifest:
         if (checkpoint / name).is_symlink():
-            raise ValueError(
-                f"Backend-native PEFT adapter weight must not be a symlink: {name}."
-            )
+            raise ValueError(f"Backend-native PEFT adapter weight must not be a symlink: {name}.")
     return artifact
 
 
@@ -1892,10 +1874,7 @@ def resolve_resume_checkpoint_generation(
             manifest["extensions"],
             role="training checkpoint commit manifest.extensions",
         )
-        if (
-            require_planning_state
-            and BATCH_PLANNING_CHECKPOINT_COMMIT_EXTENSION not in extensions
-        ):
+        if require_planning_state and BATCH_PLANNING_CHECKPOINT_COMMIT_EXTENSION not in extensions:
             raise ValueError(f"Checkpoint is missing valid batch-planning state: {target}")
         return _resolved_committed_checkpoint(target, manifest)
 
@@ -1961,20 +1940,12 @@ def validate_resume_checkpoint(
     finetune_mode: str,
     protocol: ShaftCheckpointProtocol | str,
 ) -> None:
-    resolved_generation = (
-        path if isinstance(path, ResolvedResumeCheckpoint) else None
-    )
-    checkpoint = (
-        resolved_generation.path
-        if resolved_generation is not None
-        else Path(path)
-    )
+    resolved_generation = path if isinstance(path, ResolvedResumeCheckpoint) else None
+    checkpoint = resolved_generation.path if resolved_generation is not None else Path(path)
     layout = inspect_checkpoint_layout(checkpoint)
     mode = str(finetune_mode).strip().lower()
     if not layout.has_trainer_state:
-        raise ValueError(
-            f"resume_from requires trainer_state.json in checkpoint: {checkpoint}"
-        )
+        raise ValueError(f"resume_from requires trainer_state.json in checkpoint: {checkpoint}")
     resolved_protocol = _normalize_checkpoint_protocol(protocol)
     if resolved_generation is not None:
         if resolved_generation.protocol is not resolved_protocol:
@@ -1984,10 +1955,7 @@ def validate_resume_checkpoint(
         validate_resolved_resume_checkpoint_guard(resolved_generation)
     if resolved_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE:
         _validate_backend_native_checkpoint_location(checkpoint)
-        if (
-            resolved_generation is not None
-            and resolved_generation.commit_fingerprint is not None
-        ):
+        if resolved_generation is not None and resolved_generation.commit_fingerprint is not None:
             validate_backend_native_checkpoint_commit(
                 checkpoint,
                 require_planning_state=True,
@@ -1996,9 +1964,7 @@ def validate_resume_checkpoint(
             raise ValueError(f"Unsupported finetune mode: {finetune_mode!r}")
         if mode in {"lora", "dora", "qlora"}:
             adapter_artifact = (
-                None
-                if resolved_generation is None
-                else resolved_generation.adapter_artifact
+                None if resolved_generation is None else resolved_generation.adapter_artifact
             )
             if adapter_artifact is None:
                 adapter_artifact = _resolve_backend_adapter_artifact(
@@ -2032,10 +1998,7 @@ def validate_resume_checkpoint(
 def validate_training_state_policy(config: RuntimeConfig) -> None:
     train_cfg = config.train
     eval_cfg = config.eval
-    if (
-        train_cfg.init_from_checkpoint is not None
-        and train_cfg.resume_from_checkpoint is not None
-    ):
+    if train_cfg.init_from_checkpoint is not None and train_cfg.resume_from_checkpoint is not None:
         raise ValueError(
             "train.init_from_checkpoint and train.resume_from_checkpoint are "
             "mutually exclusive: init starts a new schedule, while resume restores "

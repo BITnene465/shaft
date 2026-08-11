@@ -1016,6 +1016,325 @@
 - 任何 coefficient override 都只能改变 weighted contribution，不能提前进入 model-owned raw metric
   finalizer。
 
+## 2026-08-05：v5.7 reconstruction prompt 与新版标注协议不一致
+
+### 现象
+
+- `grounding_layout.v5.7` 已按新版人工标注指南更新，但 shape/line context reconstruction 仍使用 v5.3
+  协议：shape 缺少 `card/splits`，line 仍输出 `fill_color` 和旧边框字段，line points 未明确新版曲线和圆角
+  取点规则。
+- 这不是模型能力问题，也不是 eval/codec/metric 误判，而是 prompt、data target 与新版标注协议不同步。
+
+### 根因
+
+- 旧 pool 同时把真实属性标注值域和合成 `gt_standard` 值域当作同一套 DSL。新版 PDF 与 v9 数据已经区分：
+  合成 shape 使用 `uniform|complex` 和 `none|exist`，真实属性子集仍需要透明填充、渐变和 shadow/glow。
+- v9 image 虽有显示形态字段，但 `image_type` 为 `N/A`，不能直接并入现有 13 类 image-type 任务。
+
+### 影响范围
+
+- 影响后续 v5.7 shape/line 全量重建、真实 shape 属性弱监督、line 属性恢复和 line points 数据生成。
+- 现有 v5.3 SFT 数据保持历史协议，不能仅切换 prompt 路径后继续使用。
+
+### 修复方式
+
+- 新增五个独立 v5.7 pool，保留旧文件：synthetic shape/line 使用 v9 精确字段；真实 shape 属性保持独立
+  非几何值域；line 属性改为嵌套 `fill/border`；line points 明确直线、圆角和曲线取点规则。
+- 暂不扩展 image-type pool；后续显示形态重建必须独立建任务，禁止把 `N/A` 映射为 `other`。
+
+### 回归测试
+
+- 使用仓库 `load_prompt_pool` 加载并渲染全部新变体，校验动态 bbox、pool id/version、main 变体和 UTF-8/YAML
+  合法性；对 prompt 文本执行旧字段与必需新字段检查。
+
+### 后续防线
+
+- prompt 版本升级必须同时核对 PDF、实际源 JSON 值域和将要生成的 target；不能只根据文档示例改字段。
+- 新 pool 进入训练配置前必须重建或显式迁移数据，并对 target 做 exact-key/value-domain 校验。
+
+## 2026-08-05：测试集图片后缀与真实编码格式不一致
+
+### 现象
+
+- 在冻结 175 张测试集上准备 PNG/JPEG 压缩鲁棒性实验时，按 `.png` 后缀得到 79 个候选，但 Pillow
+  解码后只有 77 个真实 PNG；`pic_891.png` 和 `pic_939.png` 的实际编码格式均为 JPEG。
+- 第一版临时抽样只检查后缀，曾抽中 `pic_891.png`。该问题属于 data/eval 输入标准误判，不是模型能力、
+  codec 或 metric 问题。
+
+### 根因
+
+- 历史测试资产的文件扩展名没有与内容编码保持一致，而临时实验错误地把路径后缀当成图片格式真源。
+- 常规 layout 评测只需要图片可解码，因此此前没有暴露；只有把“原始 PNG”作为实验条件时才会破坏条件定义。
+
+### 影响范围
+
+- 若不修复，所谓 PNG baseline 会混入已经过 JPEG 编码的输入，压缩率、PSNR 和模型性能变化都不可比。
+- 异常在正式推理前由输入格式校验发现；最终 20 张实验样本已从 77 张真实 PNG 中重新确定性抽取，正式
+  100 次推理结果不受污染。
+
+### 修复方式
+
+- 格式敏感实验同时要求路径后缀为 `.png` 且解码后的 `Image.format == "PNG"`，并把后缀候选数、真实
+  格式候选数和排除项写入 experiment manifest。
+- 原始测试集不改写；两个异常文件只从本次 PNG 候选池排除。
+
+### 回归测试
+
+- 最终 manifest 记录后缀池 79、真实 PNG 池 77 和两个排除项；20 个 source 派生的 100 个输入逐一检查
+  实际格式、原始尺寸、SHA-256 和 4M pixel cap。
+- 100/100 推理成功，PNG/JPEG 条件各 20 张，prediction overlay 和 detail crop 各 100 个，HTML 本地链接
+  缺失为 0，`validation.json` 状态为 `ready_to_review`。
+
+### 后续防线
+
+- 任何以编码格式、alpha、色彩空间或压缩方式为自变量的实验，都必须以解码元数据而不是扩展名作为格式
+  真源，并在推理前 fail closed。
+- 数据 split 的常规完整性检查后续应增加“扩展名与解码格式一致率”统计，但是否修复历史文件名需要单独
+  迁移，不能在评测脚本中静默改写原始数据。
+
+## 2026-08-05：Q95 聚合下降被误读为 PPT 类别普遍敏感
+
+### 现象
+
+- 20 张 PNG/JPEG 压缩鲁棒性临时测试中，Q95 相对原始 PNG 的 all-label micro-F1 从 `0.792115`
+  降到 `0.776256`（`-0.015859`），初看像是 PPT 在轻微 JPEG 压缩下普遍退化。
+- 该指标变化是真实复算结果，但“PPT 类别效应”的解释不成立；这属于 eval sampling/aggregation 解释问题，
+  不是 codec 或 matcher 计算错误。
+
+### 根因
+
+- 真实 PNG 候选池本身就是 73/77 张 PPT，固定随机 20 张中为 19 张 PPT、1 张 medical，几乎没有非 PPT
+  对照，不能从这个样本估计类别差异。
+- Q95 总 TP 变化为 `-17`；`ppt_0004` 与 `ppt_0017` 两张合计贡献 `-18`，其余 18 张合计反而为
+  `+1`。排除 `ppt_0004` 后 Q95−PNG F1 变为 `+0.003989`，两张都排除后为 `+0.008678`。
+- `ppt_0004` 是嵌套标注粒度翻转：shape prediction `12→2`、icon `5→7`，多个 shape+inner icon 被模型
+  合并理解为整体 icon；`ppt_0017` 是四个约18×30 px的低对比细白边矩形消失。Q95 仍做4:2:0色度
+  降采样与DCT量化，而生成式greedy序列对早期离散token边界不连续，因此高PSNR不保证JSON对象列表稳定。
+
+### 影响范围
+
+- 本轮数据只支持“Q95 在该 20 张样本上观察到小幅下降，且集中于两个敏感 source”，不支持“PPT 普遍
+  比其它类别敏感”或“Q95 必然下降约 1.6 F1 点”。
+- paired source bootstrap 10,000 次的 Q95 ΔF1 95% 区间为 `[-0.067467,+0.018864]`，跨 0；该区间
+  只覆盖 source sampling uncertainty，不覆盖重复 serving 的数值/动态 batching 波动。
+
+### 修复方式
+
+- 增加逐 source F1 delta 排序、TP/FP/FN贡献拆分、leave-one-out/leave-two-out敏感性和类别预测数量对照，
+  不再只报告一个聚合点估计。
+- 生成独立的 Q95 技术诊断报告；明确把验证事实、理论机制和未验证训练域假设分开。没有修改 prediction、
+  GT 或 matcher。
+
+### 回归测试
+
+- 从 `sample_results.json` 独立重算 20 张 PNG/Q95 的 TP/FP/FN、precision/recall/F1，与正式汇总在
+  `1e-12` 内一致；逐图ID唯一、条件各20张。
+- 诊断数据物化为SQLite后由报告中保存的真实SQL查询重新读取；canonical report artifact validation和
+  portable HTML结构验证通过。当前Chromium环境与打包器不兼容，因此仅完成structural-only验证，未声称
+  浏览器viewport/source interaction已验证。
+
+### 后续防线
+
+- 需要推断“某类别更敏感”时必须做分层抽样或至少保证各类别有足够对照；按文件格式过滤后的类别分布也要
+  在实验前报告。
+- 小样本鲁棒性评测必须同时给逐样本分布、离群贡献和paired uncertainty；聚合点估计不能直接解释为普遍效应。
+- 后续应增加同一PNG的A/A重复推理，以及JPEG Q95 4:4:4/4:2:0对照，再决定是否加入整图grounding的
+  JPEG增强。
+
+## 2026-08-05：V9 `gt_standard` 的 v5.7 reconstruction 重建与 schema 边界
+
+### 现象
+
+- V9 新增 `shape_type=card` 与 `splits[].split_corners`，旧 context builder 只转换外层
+  `corners`，会把 split 控制点保留成原图像素坐标，形成混合坐标 target。
+- 初版审计错误地把合法的 image `clip_shape=none|regular_hexagon`、oval 的空 `corners`，以及
+  shape-style straight line 的 `corner_style` 判为异常。
+- 旧 `line_context_points` 默认依赖 `data/archive2` 的 point/full-image manifest；该归档在当前机器已
+  不存在，按旧 README 路径重建会在预检阶段失败。
+
+### 根因
+
+- V5.7 prompt 已切换到新 synthetic DSL，但采样、严格校验和几何坐标转换仍部分沿用 v5.3 假设。
+- `corner_style` 的约束对象是有折点的 `straight` line，不是 `line_style=path`；image 显示轮廓和值域也
+  不能从少量 rectangle 示例推断。
+- 历史 real-point 数据源没有随 derived selection 一起保留可重建真源，构建器又没有 synthetic-only
+  的显式模式。
+
+### 影响范围
+
+- 影响 V9 shape/line reconstruction 与 point subset，不影响现有 v5.3 数据。Grounding 只消费
+  `type+bbox`，使用独立 clipping/drop 规则。
+- 全量审计确认 100,000 个 train JSON 均可解析且与 PNG 尺寸一致；reconstruction 过滤 4 个非法 shape
+  bbox、992 个非法/越界 line bbox，以及 2,428 条不满足 curved 每段固定四点合同的 line。V9
+  `image_type=N/A` 仍不进入 13 类 image-type 训练。
+
+### 修复方式
+
+- 新增 `scripts/tasks/prepare_gt_standard_v5_7.py`，以 40 进程完成图像/JSON 审计，并按 shape type 与
+  shape/line 细粒度 strata 做不放回采样；60,000 条以下的 shape 类全部保留。
+- Context builder 将 card split geometry 纳入 crop 覆盖范围并统一量化到 contextual-crop `0..999`；line
+  prompt/校验同步允许 straight shape-style line 使用 `corner_style`。
+- 增加 `--line-point-synthetic-only`，允许 V9 多分支 point subset 独立构建；不把缺少原始真源的旧 derived
+  selection 提升为 truth。
+- 新产物写入 `data/v5_7`：grounding sync 100,000、shape 300,000、line 300,000、synthetic line-points
+  15,000；旧 v5.3 目录未覆盖。
+
+### 回归测试
+
+- `tests/test_prepare_gt_standard_v5_7.py` 覆盖完整审计、card/split schema 和确定性 selection；context
+  builder 测试覆盖 card split 坐标与 synthetic-only point 模式。
+- Shape/line 各 1,000 条 canary 通过 schema、坐标、媒体引用和可视化检查。
+- 全量 615,000 条 reconstruction 逐行校验无重复 ID、缺图、legacy line 字段或非法 `0..999` 坐标；
+  100,000 条 grounding SFT 逐行通过 `{bbox_2d,label}` 合同。
+
+### 后续防线
+
+- Prompt 版本升级必须同时审计 source value domain、selection validator 和所有几何转换字段；只更新 YAML
+  不代表旧 target 已兼容。
+- 新增嵌套几何字段时，必须同时进入 geometry coverage 与 coordinate codec 测试。
+- 可选归档源缺失时应在预检阶段失败或使用语义明确的 source-only 模式；禁止从 derived target 反写或推断
+  raw truth。
+
+## 2026-08-05：删除未采用的 `line_attribute_recovery` 任务
+
+### 现象
+
+- v5.3 line 预标注脚本残留一个 `line_attribute_recovery` 兜底请求，v5.7 prompt 清单又延续了该名称，容易被
+  误认为正式训练子任务。
+- 实际 v5.3 训练未使用该任务，line 非几何属性始终属于完整 `line_context_reconstruction` 合同。
+
+### 根因
+
+- 一次性预标注流程中的失败恢复分支被错误提升为独立 prompt/task 概念，没有与真实训练数据源和训练配置
+  对照确认。
+
+### 影响范围
+
+- 未产生训练数据污染；影响仅限两份未采用的 prompt 和旧预标注脚本中的额外 API 兜底路径。
+
+### 修复方式
+
+- 删除 v5.3/v5.7 `line_attribute_recovery` prompt，以及预标注 CLI、请求、融合、审计计数中的对应逻辑。
+- 保留从完整 reconstruction 结果提取样式属性的逻辑；几何子集仍由 `line_context_points` 负责。
+
+### 回归测试
+
+- `tests/test_prelabel_line_reconstruction.py` 21 项通过；ruff 与残留引用检查通过。
+
+### 后续防线
+
+- 只有存在独立 target contract、派生数据源和训练配置消费方时，才把辅助恢复调用登记为训练任务。
+- 后续 line 任务清单只包含完整 `line_context_reconstruction` 和几何子集
+  `line_context_points`，不得重新引入属性恢复任务。
+
+## 2026-08-05：`line_context_points` 接入全部 active raw 真实路径
+
+### 现象
+
+- v5.7 初版 `line_context_points` 只有 15,000 条 v9 合成多分支数据，缺少当前人工 compact raw 中已经存在
+  的真实路径监督。
+- 真实 source points 去除 160 个相邻重复坐标后仍有 17 个点对在 Qwen `0..999` 量化时落到同一坐标。
+
+### 根因
+
+- 旧 builder 的真实 points 入口只支持已丢失的 archive manifest，无法直接从当前
+  `size + layout[].parameters.points` 真源重建。
+- 坐标转换只在源像素空间做去重，没有在离散量化边界再次检查相邻点。
+
+### 影响范围
+
+- Raw JSON 未改写。122,218 条非空真实 line points 此前未进入 v5.7 point subset；222,792 条空 points
+  不具备几何监督，继续排除。
+- 量化重复不导致 segment 坍缩，但会产生无意义的零长度相邻边。
+
+### 修复方式
+
+- 新增 `prepare_real_line_context_points.py`，从 active train split 不放回选择全部非空真实 line：
+  112,350 条单分支、9,868 条多分支。
+- Context builder 新增 `real_point` source adapter，从 compact raw 回查 bbox、原图和有序 points；真实 crop
+  保持 clean，并与现有 15,000 条 `synthetic_realism_v1` 合成多分支数据合并。
+- 派生阶段移除 160 个源相邻重复点和 17 个量化后相邻重复点，不删除对应实例；最终仍为 137,218 条。
+
+### 回归测试
+
+- Context builder focused 测试覆盖真实 selection、空 points 排除、真实/合成融合、source/quantization 两级
+  去重和严格 `is_single + points` target。
+- 全量逐行检查确认 137,218 个唯一 ID、137,218 张对应 crop，无缺图、多余字段、越界坐标、坍缩 segment
+  或相邻重复点；validation 文件为 0 行。
+
+### 后续防线
+
+- Point subset 必须从 active raw truth 重建，selection 只保存 source identity，不得把 derived target 提升为
+  真源。
+- 任意连续坐标转离散坐标的路径任务都要在量化后再次去重并拒绝坍缩 segment。
+
+## 2026-08-05：v5.7 暂停 `shape_context_attributes` 任务
+
+### 现象
+
+- 历史 `shape_context_attributes` 弱标注仍使用 v5.3 合同，而准备中的 v5.7 prompt 已切换到新版
+  `uniform/card` 字段，prompt、校验器和现有 target 无法形成一致合同。
+
+### 根因
+
+- 真实 shape 属性弱标注是独立 API 辅助任务，其版本演进没有与新版完整 reconstruction 真值同步。
+
+### 影响范围
+
+- v5.7 不训练 `shape_context_attributes`；现有 v5.3 prompt、弱标注 sidecar 和 22,058 条派生数据只作为
+  历史资产保留，不改写、不删除。
+
+### 修复方式
+
+- 删除未启用的 `shape_context_attributes.v5.7.yaml`，并从 v5.7 prompt 清单中移除该任务。
+- 后续 v5.7 数据配置不得登记 `shape_context_attributes`，其余 grounding、shape/line reconstruction 和
+  line points 任务不受影响。
+
+### 回归测试
+
+- 全仓引用检查确认不存在 v5.7 shape-attribute prompt 或训练配置消费方；v5.3 历史配置仍引用原 v5.3
+  prompt。
+
+### 后续防线
+
+- 只有在新版真实属性合同、校验器和重建数据同时完成后，才能在后续版本重新启用该辅助任务。
+
+## 2026-08-05：完成 Banana v5.7 训练配置
+
+### 现象
+
+- v5.7 六类派生数据已生成，但尚无独立 catalog 和训练 YAML；继续复用 v5.3 配置会错误加入已取消的
+  background/shape attributes，并遗漏 V9 合成 grounding。
+
+### 根因
+
+- 数据准备、prompt 升级与训练 mix 分阶段完成，最终任务边界和超参数尚未固化为一个可加载配置。
+
+### 影响范围
+
+- 只新增 v5.7 本地运行资产，不修改 v5.3 配置、历史数据或训练内核。
+
+### 修复方式
+
+- 新增 `configs/data/banana_v5_7.yaml`，按 `6:2:4:4:3:1` 登记 real grounding、V9 synthetic
+  grounding、shape/line reconstruction、line points 和 reviewed image type。
+- 新增 `configs/train/banana_sft_4b_v5_7.yaml`：fresh full SFT、20,000 steps、8 卡 token-budget local
+  batch `1..2`、GA=4、语言模型学习率 `8e-6`、视觉/aligner `3e-6/8e-6`、warmup `0.1`、weight decay
+  `0.01`、`0.5M..2M` 像素预算。
+- Shape/line 相关任务绑定 v5.7 prompt；13 类 image-type 合同未变化，显式保留 reviewed v5.3 prompt。
+
+### 回归测试
+
+- 严格 config loader 成功展开六个 catalog source；所有 train/val 路径存在，train 行数分别为 58,440、
+  100,000、300,000、300,000、137,218、21,184，所有 val 均为空。
+- 六个 source 的首条 target 可解析，六个 prompt pool 均可编译且包含 `main` variant；权重和为 20，解析
+  概率为 30%/10%/20%/20%/15%/5%。
+
+### 后续防线
+
+- 启动训练前必须从 v5.7 YAML 做一次 rank-0 canary，核对日志中的 source weights、2M pixel budget、
+  prompt/input fingerprint 和 optimizer group learning rates；不得通过修改 v5.3 配置启动本轮训练。
+
 ## 2026-08-05：Qwen3VL 30B-A3B MoE SFT 真实权重门禁
 
 ### 现象
@@ -1102,6 +1421,46 @@
   routed-expert leaf-module contract，不能照搬 dense 或 Qwen3.5/3.6 profile。
 - `gpu-holder` 只负责自动让卡；门禁全程不得停止、重启、发信号或修改其配置。
 
+## 2026-08-05：v5.7 synthetic grounding 改为 100% 加噪
+
+### 现象
+
+- `grounding_layout_sync` 的 100,000 条 V9 合成 detection 仍直接引用 clean source PNG，与本轮要求的全量
+  合成域扰动不一致。
+
+### 根因
+
+- 历史 replay 规则刻意保留 clean synthetic detection，而 reconstruction 已采用
+  `synthetic_realism_v1`；两条生成链没有共享像素增强真源。
+
+### 影响范围
+
+- Grounding bbox、实例、canonical target 和 train/val split 不变；只改变 synthetic grounding 的媒体像素
+  和媒体快照。真实 grounding 与正式 eval 不受影响。
+
+### 修复方式
+
+- 抽取 `shaft.data.synthetic_realism` 作为 reconstruction 和 synthetic grounding 共用实现。
+- V9 每个 train id 物化一张保持原尺寸的 task-local PNG；每条强制包含 Gaussian noise，并可叠加
+  resample round-trip、Gaussian blur 或 JPEG compression，不再保留 clean row。
+- 40 进程在 staging 重建 structured/SFT 后发布；`media_snapshot_id` 从
+  `banana-v5.7-media-v1` 升为 `banana-v5.7-media-v2`。
+
+### 回归测试
+
+- Builder/context focused tests 通过，ruff 通过；100-row canary 的像素变化、尺寸、媒体引用和 target
+  100/100 一致。
+- 全量产物为 100,000 个唯一 ID 和 100,000 张 PNG；Gaussian noise 100,000 次，stack depth
+  `1/2/3 = 4,305/41,241/54,454`，validation 为 0。
+- 新旧 100,000 条 target 逐条完全一致；全量 PNG header/尺寸 100,000/100,000 通过，分层抽取 1,000 张
+  与 source 比较均发生像素变化。
+
+### 后续防线
+
+- `grounding_layout_sync` 的 build summary 必须满足
+  `profile.synthetic_realism_v1 == gaussian_noise == rows`；任一 clean/source-direct row 都应拒绝发布。
+- 修改派生媒体后必须升级 `media_snapshot_id`，避免 checkpoint exact-resume 把不同输入像素视为同一快照。
+
 ## 2026-08-06：Qwen3VL 多变体注册破坏远程 serving alias 推理
 
 ### 现象
@@ -1144,6 +1503,461 @@
 - 远程 serving alias 不能承担本地 artifact identity；远程推理只解析实际消费的最小 contract。
 - 只有所有候选变体共享同一推理合同才能省略 variant；训练、本地加载、分片与导出始终要求完整 descriptor。
 - 模型族测试中的参数名必须来自当前上游真实权重索引或模型实现，不能长期保留能命中前缀但不存在的伪路径。
+
+## 2026-08-06：v5.7 reconstruction real_v1 评测与 review renderer 合同错位
+
+### 现象
+
+- 为新下载的 `data/real_v1` 准备 v5.7 shape/line reconstruction 输入时，临时评测器把“不适用”的
+  `body_bbox` 写成空数组；context target 转换器将“字段存在但为空”正确判为非法 bbox，canary 在推理前失败。
+- 第一版 review 复用了 v5.2 renderer。v5.7 合法 `card` 输出包含 outer corners、fill 数组和 splits，旧
+  renderer 不认识 `card`，会把合法预测显示成透明 render；line 的 nested fill/border 与 shape 的
+  `effect=exist` 也需要显式适配。若直接交付，会把 renderer 缺口误判成模型未输出几何。
+
+### 根因
+
+- 临时评测器用空值占位表达“GT 几何不可比较”，混淆了“字段缺失”和“字段存在但非法”两种语义。
+- review renderer 没有按 prompt/validator 的 v5.7 输出合同版本化，而是假设旧 shape/line schema 可以直接
+  复用；renderer 与当前 codec/validator 的允许类型、嵌套字段和隐式几何规则没有共同门禁。
+
+### 影响范围
+
+- 只影响本轮临时 input preparation 与第一版 review 解释，不影响 `data/real_v1`、训练数据、checkpoint、
+  模型原始输出或正式 Shaft 主链。输入 canary 失败时尚未启动推理。
+- Shape 共 427 条预测为 `card`；旧页面会让其中可解析的合法 card 缺少 render，因此人工 review 会系统性
+  低估模型输出完整性。定量 contract/attribute/geometry 指标使用独立 validator 和保存的 prediction，不受
+  旧 renderer 影响。
+
+### 修复方式
+
+- 对不可比较 geometry 删除不适用字段，不再写空 `body_bbox/body_corners/corners/tail`；只在 real_v1 有
+  明确点/角标注时进入 geometry support。
+- review renderer 增加 v5.7 card outer geometry、分区 fill、split 与 border；line nested fill/border 显式
+  转成 renderer 输入。`effect=exist` 因没有 shadow/glow 子型只显示 warning，不编造视觉效果。
+- Polygon/line 缺失预测几何时保持透明，不使用 proposal 或 GT fallback；仅 oval 按 v5.7 DSL 使用 proposal
+  bbox 作为隐式外形。页面第一张图明确标注 proposal bbox 不是 GT，并只展示 prediction fields。
+
+### 回归测试
+
+- 全量 input canary 通过：4,545 个唯一实例，shape/line 为 2,494/2,051；显式 geometry support 为
+  1,975/1,666，所有输入图、crop 尺寸和 proposal bbox 边界通过。
+- Card renderer canary 验证合法 outer/split 生成非空 RGBA；缺 corners polygon 验证保持全透明；line/shape
+  普通 canary 均生成非空 render。
+- 60 进程重建 review：source/overlay/render 各 4,545，全部 render 为 RGBA，78 个 HTML 本地缺失链接 0，
+  review record 不含 GT；Chrome 人工检查确认 proposal、overlay、棋盘格 render 和 prediction fields 对齐。
+- 全量推理 4,545/4,545 完成、request error 0；结束后只关闭本轮自启 vLLM，未操作 `gpu-holder`。
+
+### 后续防线
+
+- Reconstruction review renderer 必须与 prompt/validator schema 同版本；新增 shape type、nested field 或隐式
+  几何规则时，先用当前合同的合法/非法 canary 验证 renderer，再允许生成全量页面。
+- “无可比 GT”“模型漏字段”“字段非法”“renderer 不支持”必须四分，不得都降级成透明图或一个 invalid 率。
+- 评测放行不能只看 JSON decode 或 attribute micro；至少同时报告 strict contract、exact comparable
+  attributes、type+geometry、structure count 与 geometry support。
+
+## 2026-08-06：Baidu02 flash-attn wheel 与系统 glibc 不兼容
+
+### 现象
+
+- Baidu02 启动 Qwen3VL SFT 时，8 个 rank 都在 `from_pretrained()` 初始化
+  `flash_attention_2` 阶段失败；外层模型 loader 统一报“verify model path and transformers version”。
+- 最底层异常是 `flash_attn_2_cuda.so` 要求 `GLIBC_2.32`，而 Baidu02 为 Ubuntu glibc 2.31。
+- flash-attn 修复并全量 uv 重装后，真实训练可完成模型、数据、optimizer 和 batch plan 初始化，但 8 个 rank
+  在第一个 forward 同时报 `libcudnn_graph.so.9: undefined symbol: cudnnGetLibConfig` 并 SIGABRT。
+
+### 根因
+
+- `.venv` 中预装的 flash-attn 2.8.3 是其它构建环境产出的非 manylinux wheel；其 ELF 动态符号依赖
+  `GLIBC_2.32`，超过目标主机提供的 glibc 版本。模型目录和 Transformers 本身均无异常。
+- 全量 uv 重装时还暴露第二层复现问题：`extra-build-dependencies` 只给 flash-attn 声明了无版本约束的
+  `torch`，且没有覆盖 causal-conv1d。隔离构建环境因此解析到 Torch 2.13/CUDA 13.0，而项目运行时锁定
+  Torch 2.10/CUDA 12.8；本机 CUDA toolkit 12.3 随后触发明确的版本不匹配错误。
+- Baidu02 系统安装 cuDNN 9.0.0，uv/PyTorch wheel 自带 cuDNN 9.10.2；`/root/.bashrc` 又把
+  `/usr/lib/x86_64-linux-gnu` 显式加入 `LD_LIBRARY_PATH`，使系统 cuDNN 抢在 wheel RPATH 前被加载。
+  先前 flash-attn、NCCL 和 CPU 模型加载 smoke 都没有执行 cuDNN operator，因此没有覆盖这条动态库路径。
+
+### 影响范围
+
+- 仅影响 Baidu02 上选择 `flash_attention_2` 的模型加载与训练/推理启动；数据、模型权重、训练配置和
+  主机上的 `gpu-holder` 均未修改。失败发生在权重初始化阶段，没有产生 checkpoint。
+
+### 修复方式
+
+- 保持 flash-attn 版本 2.8.3，在 Baidu02 使用本机 CUDA/GCC 和 glibc 从源码强制重编译，替换不兼容的
+  `.so`；不把训练 attention backend 降级为 SDPA。
+- 完整移走旧 `.venv`，使用 Python 3.11 和当前 `uv.lock` 执行 `uv sync --all-extras --locked`；当前环境
+  包含 train、GPU kernels、distributed、RLHF、serve 与 dev 全部 extras。
+- `pyproject.toml` 为 flash-attn 和 causal-conv1d 都增加 runtime-matched Torch build dependency，并补齐
+  ninja/packaging 等构建依赖；通过 build variables 强制源码构建，避免跨 glibc binary 回流。Baidu02 的
+  `pyproject.toml` 与 `uv.lock` 已同步到当前主机真源。
+- 不卸载或升级系统 cuDNN；仅从 Baidu02 `/root/.bashrc` 的 `LD_LIBRARY_PATH` 中移除显式
+  `/usr/lib/x86_64-linux-gnu`。该目录本来就在系统默认搜索路径，移除显式优先级后，PyTorch 可按 wheel
+  RPATH 使用 uv 环境内的 cuDNN 9.10.2，同时保留 CUDA、driver/NVML 等原有路径。
+- 清理失败启动仅留下的 `outputs/qwen3vl-sft/4b/banana-v5.7_trial/shaft_progress.json` 和空目录，
+  确保 trial 可从干净输出目录重新启动。
+
+### 回归测试
+
+- `uv lock --check` 通过，`uv sync --all-extras --locked --dry-run` 为 `Would make no changes`；
+  `uv pip check` 检查 208 个包且无冲突。关键版本为 Torch 2.10.0、Transformers 5.10.1、TRL 1.9.2、
+  vLLM 0.19.1、flash-attn 2.8.3、causal-conv1d 1.6.2.post1。
+- 新扩展 ELF 的最高 glibc 依赖由 `GLIBC_2.32` 降为 `GLIBC_2.14`；
+  `import flash_attn_2_cuda/causal_conv1d_cuda` 成功。
+- 在 A800 上执行 bf16 flash-attn 与 causal-conv1d CUDA kernel，输出 shape 正确且全部为有限值；8-rank
+  NCCL all-reduce 和每卡 flash-attn kernel 全部通过。
+- 使用净化后的库路径执行 8-rank cuDNN Conv2d + NCCL smoke，8/8 rank 均解析 cuDNN `91002`、输出有限；
+  从全新交互 bash 读取修改后的 `.bashrc` 后，单卡 bf16 Conv2d 同样通过且实际加载 wheel 内 cuDNN。
+- `Qwen3VLForConditionalGeneration` 从本地 4B 权重以 bf16 + `flash_attention_2` 完整加载成功；
+  trial 配置仍解析为 14,000 steps、default/ViT/aligner LR `2e-5/3e-6/2e-5`。验证结束后训练进程为 0。
+- 验收后删除 12 GB 旧环境备份；失败训练的 8 个 core dump 已确认不存在。trial 输出目录保持不存在，
+  `gpu-holder` 进程数和运行状态未被修改。
+- 首 batch cuDNN 失败产生的 8 个新 core dump（约 32 GB）、无 checkpoint 的 trial metadata/progress 和
+  对应离线 W&B 失败 run 已精确清理；trial 输出目录再次恢复为不存在。
+- `.bashrc` 修复落盘后，实际训练终端运行在旧 tmux server 内的 zsh：tmux 的 global environment 仍缓存
+  含 `/usr/lib/x86_64-linux-gnu` 的旧值，而 `.zshrc` 也不会读取 `.bashrc`。19:54 和 20:00 的两次重试因此
+  继续复现相同 SIGABRT。最终同时在 `.zshrc` 固定 wheel cuDNN 优先路径、净化 tmux global environment；
+  新 tmux pane 与新 zsh 均实际解析 cuDNN `91002`，bf16 Conv2d 正常。两次 0-step 重试的 metadata、离线
+  W&B run、输出目录和共 16 个 core dump 均已精确清理。
+
+### 后续防线
+
+- 跨不同 glibc 基线复制 `.venv` 或 binary wheel 前，必须先检查扩展 ELF 的 `GLIBC_*` 最大依赖，并在
+  目标机做 import + 最小 CUDA kernel smoke。
+- 依赖 PyTorch ABI 的 uv build dependency 必须使用 `match-runtime = true`，不能写无约束的裸 `torch`；
+  多机部署前必须同时核对 `pyproject.toml` 与 `uv.lock` 指纹，不能只对齐代码 commit。
+- GPU 环境验收不能只测 `torch.cuda.is_available()`、flash-attn 或 NCCL；必须至少执行一个真实 cuDNN
+  operator，并记录 `torch.backends.cudnn.version()` 与实际映射的 `.so` 路径。系统库目录不得显式置于
+  PyTorch wheel 的 CUDA runtime libraries 之前。
+- 修改 shell 启动文件中的动态库路径后，必须核对实际使用的 shell 与 tmux server environment；仅修改
+  `.bashrc` 不会覆盖已有 tmux 或 zsh。Baidu02 需要同步维护 `.zshrc` 与 `tmux set-environment -g`，重启前
+  从新 tmux pane 打印 `LD_LIBRARY_PATH` 并运行最小 cuDNN operator。
+- 训练 startup 的模型 loader 外层错误不能替代最底层动态链接异常；排障时必须保留并优先查看 chained
+  exception，避免把 ABI 问题误判为模型路径或 Transformers 版本问题。
+
+## 2026-08-06：RLHF 依赖仍锁在 TRL 0.x，阻断 1.x 能力与兼容验证
+
+### 现象
+
+- `pyproject.toml` 将 RLHF extra 限制为 `trl>=0.19,<1.0`，标准 lock 为 0.29.1，无法使用 TRL 1.x 的新
+  trainer 能力，也无法开始后续 distillation/OPD 接入。
+- 直接换成 TRL 1.9.2 后，DPO/PPO/GRPO config 与 trainer API 基本兼容，但真实 GRPO CPU smoke 在构造时
+  暴露 `SmokeTokenizer` 缺少标准 `convert_tokens_to_ids()` 接口。
+- `docs/config_reference.md` 仍记录 TRL 0.29.1 与 vLLM 0.19.1 不兼容，和新版依赖事实不一致。这属于框架依赖
+  与测试替身合同滞后，不是模型能力、eval、codec、metric 或数据问题。
+
+### 根因
+
+- TRL trainer/config import 在 `training` 和 `algorithms` 两处重复维护，依赖允许范围只存在于
+  `pyproject.toml`，运行时没有统一的版本门禁和可诊断错误。
+- 仓库 smoke tokenizer 只覆盖旧 TRL 实际调用的最小方法，没有实现真实 Hugging Face tokenizer 已具备的
+  token-to-id 公共接口。
+- vLLM 兼容区间是 TRL package metadata 的动态事实；旧文档把一次 0.29.1 解析结果写成了长期结论。
+
+### 影响范围
+
+- 影响 DPO、PPO、GRPO 依赖安装和后续 RL feature 开发；SFT、独立推理和已有 checkpoint 格式不受影响。
+- GRPO 构造失败只发生在 `smoke_vlm` 测试模型；真实 Qwen tokenizer 已实现该公共接口，但若不修复测试替身，
+  CI 无法验证 TRL 1.x 下的 GRPO 训练、保存与精确续训。
+
+### 修复方式
+
+- RLHF extra 升级到 `trl>=1.9.2,<2.0.0`、`datasets>=4.7.0`，lock 固定为 TRL 1.9.2；保持
+  Transformers 5.10.1 与 vLLM 0.19.1 不变。
+- 新增单一 `training.trl_compat` 真源，统一检查受支持版本、导入 DPO/PPO/GRPO config 与 trainer，并在依赖
+  缺失、版本越界或 experimental PPO 路径变化时给出包含 installed/required 的显式错误。
+- 让 `SmokeTokenizer` 实现 `unk_token` 与 `convert_tokens_to_ids()` 的真实公共合同，并更新其 fingerprint；
+  没有在生产 GRPO 路径添加 smoke/model-family 特判。
+- 文档改为记录当前 TRL 1.9.2 从 metadata 声明的 vLLM 区间 `>=0.17.0,<=0.25.1`；版本 gate 通过不改变
+  vLLM rollout RNG 尚不可精确 checkpoint/resume 的独立限制。
+
+### 回归测试
+
+- TRL 1.9.2 + Transformers 5.10.1 + datasets 4.8.4 + vLLM 0.19.1 环境下，RLHF focused 86 项通过，覆盖
+  config 物化、trainer 构造、pipeline、分布式参数合同和 checkpoint 指纹。
+- `tests/test_pipeline_rlhf_smoke.py` 8 项通过：DPO 真实 tiny 训练/保存/精确续训、PPO 最短训练，以及 GRPO
+  真实 tiny 训练/保存/精确续训均调用 TRL 1.9.2 本体。
+- 仓库完整 smoke suite 24 项通过；实际读取 TRL package metadata 的 GRPO/vLLM 0.19.1 compatibility gate
+  通过。
+- 相关文件 ruff 与 compileall 通过；全程 `CUDA_VISIBLE_DEVICES=''`，未占用 GPU。
+
+### 后续防线
+
+- 升级 TRL 时必须先核对当前 PyPI release metadata 和 v0→v1 migration guide，再运行真实 config/trainer/step/
+  resume smoke；只验证 import 不构成兼容验收。
+- TRL import 路径、受支持版本与安装提示只能由 `training.trl_compat` 维护；算法层不得再次直接 import TRL。
+- PPO 仍位于 `trl.experimental.ppo`，即使满足 1.x 版本范围也不能视为稳定 API；其路径或构造签名变化必须
+  fail closed 并通过 focused smoke 后再升级 lock。
+
+## 2026-08-08：Qwen3.6-27B 双机 16 卡 canary 暴露不可移植的数据指纹
+
+### 现象
+
+- Baidu01/Baidu02 源码、模型、配置和 JSONL SHA256 对齐后，第一次 16-rank 启动在
+  `model-plan-local` gate 被拒绝；两端分别使用 Python 3.11.15/3.11.3，live Python/stdlib 实现指纹不同。
+- 复用 Baidu02 现有 `.venv` 并对齐到 3.11.15 后，模型/sequence/batch gate 均通过，但
+  `pre-model-data` gate 报两节点 `train_execution/train_stream` 指纹不同。两端训练 JSONL 大小、mtime、
+  内容 SHA256 和 prompt pool SHA256 实际完全一致。
+- 数据 gate 修复后，Baidu01 又暴露 `flash-linear-attention` 安装不完整：只有 `fla.layers/models`，缺失
+  `fla-core` 提供的 `fla.modules`。一次未加 `--no-deps` 的叶包重装还会解析到 Torch 2.13/CUDA 13，不能在
+  当前驱动和锁定运行时使用。
+
+### 根因
+
+- Shaft 的模型语义身份有意绑定 live Python/stdlib 实现；不同 patch-level Python 不能伪装成同一多机执行
+  环境。
+- Arrow record store v4 的 source fingerprint 同时绑定 `size/mtime_ns/ctime_ns`。`ctime` 是文件系统本地元数据，
+  rsync 可以保留内容和 mtime，但不可能跨主机保留 ctime，因此等价本地 replica 必然产生不同 cache/data
+  contract。这是框架数据身份误判，不是训练数据内容不同。
+- Baidu01 的 `flash-linear-attention` metadata 存在，但共享 `fla` namespace 中的 `fla-core` 文件和 dist-info
+  缺失。无约束重装会让解析器跟随 `fla-core -> torch` 选择最新 PyPI CUDA 13 栈；CUDA 13 包卸载时还会删除
+  与 CUDA 12 wheel 共用 namespace 下的动态库文件，需要按锁文件恢复并原位重装 CUDA 12 runtime wheels。
+
+### 影响范围
+
+- 三类问题都在 canary 内发现；没有写 checkpoint、没有启动长期训练，也没有修改训练数据、模型权重或
+  `gpu-holder`。
+- record cache format 从 v4 升到 v5，旧 Arrow cache 会正常失效并重建；normalized record schema 和 target
+  语义未变化。
+- 只排除不可移植的 ctime；cache key 仍使用 canonical path、dataset/record/validation identity、size 和
+  mtime。内容相同但 canonical path 或 mtime 不同的 replica 仍会 fail closed。
+
+### 修复方式
+
+- 以 Baidu01 为源码真源：Baidu02 原 dirty worktree 先保存为
+  `pre-baidu01-source-sync-20260808` stash，再 fast-forward/rsync 到 Baidu01 当前源码；未弹出该恢复 stash。
+- 不创建新环境；在 Baidu02 原 `.venv` 内对齐 Python 3.11.15 并按 `uv.lock` 同步。两端模型 plan fingerprint
+  最终一致。
+- Arrow record store 升级到 v5，source fingerprint 删除 `ctime_ns`，保留 size+mtime 普通变更失效语义；
+  增加 ctime-only replica 回归测试。
+- Baidu01 在原 `.venv` 中按锁文件恢复 Torch 2.10.0+cu128，并以 `--no-deps` 补齐 `fla-core`/CUDA 12 wheel
+  文件；验证 torchvision、FLA、Qwen3.6 class、真实 BF16 CUDA 运算和 `uv pip check`。
+- 双机 NCCL 强制 TCP：Baidu01 使用 `eth0`，Baidu02 使用 `eth4`，两端均设置 `NCCL_IB_DISABLE=1`；canary
+  使用 DeepSpeed ZeRO-3、16 rank、full BF16、1M pixel cap 和一个真实 optimizer step。
+
+### 回归测试
+
+- `tests/test_data_sources.py` 16 项和相关 ruff 检查通过；新测试证明仅 ctime 不同的两个 replica source
+  fingerprint 相同。两端修复文件、canary 配置、JSONL/prompt/model manifest SHA256 对齐。
+- 16-rank canary 完整通过 data/model/finetune/optimizer/trainer gate，并完成 1/1 optimizer step：
+  `train_loss=0.563232421875`、runtime `349.8346s`、useful tokens `35,941`、约 `102.77 token/s`；峰值单卡
+  allocated/reserved 为 `28.85/39.15 GiB`，rank time skew `0.000802`，无 OOM、掉 rank 或 core dump。
+- 训练中两端链路采样约双向各 `6.45 Gbit/s`；这说明 ZeRO-3 collective 正常，也确认跨管理网通信是主要
+  性能瓶颈。canary 结束后两端 launcher/rank 均正常退出。
+
+### 后续防线
+
+- 多机本地 replica 启动前必须同时核对 Python patch version、源码/配置、模型 manifest、JSONL/prompt
+  SHA256 和 canonical path；数据用 `rsync -a` 保留 mtime。不能把文件计数或 Git HEAD 当作完整一致性证明。
+- `ctime` 不得进入跨节点逻辑数据身份。若未来要求“不保留 mtime 也可识别等价 replica”，应设计节点级
+  content manifest/leader hash 缓存，不能让每个 rank 重复 hash 大 JSONL，也不能退回 stat-only 假一致。
+- 在 uv 环境内修复单个叶包必须优先使用锁文件；确需原位重装时使用 `--no-deps`。禁止对带 Torch 依赖的
+  包执行无约束 `--reinstall`，恢复后必须跑 CUDA、torchvision、模型类 import 和真实 operator smoke。
+- 本 canary 未配置 `media_snapshot_id`，因此日志正确标记 exact-resume unsafe；正式可续训配置必须声明
+  immutable media snapshot。双机 27B full SFT 虽可运行，但单步约 350 秒，不能把 16 卡视为接近 2 倍吞吐。
+
+## 2026-08-08：Baidu02 Qwen3.6-27B LoRA DDP 在 2M batch 上显存峰值 OOM
+
+### 现象
+
+- Baidu02 使用 `banana_sft_27b_qwen36_v5_7_lora.yaml` 启动 8×A800 DDP LoRA；配置和运行时合同均确认
+  为 per-device microbatch 1、GA=8、gradient checkpointing、2M pixel cap、10k token cap。
+- 第 1 个 optimizer step 完成后，rank 3 在第 2 step 的 backward 中申请 5.88 GiB 失败：单卡总容量
+  79.33 GiB、进程已占 73.50 GiB、系统只剩 5.81 GiB，PyTorch 另有 2.49 GiB reserved but unallocated。
+- rank 3 未继续进入相同 collective，其他 rank 在 600 秒后报 NCCL ALLREDUCE timeout；torchrun 最终把
+  rank 7 的 watchdog SIGABRT 显示为 launcher root failure。输出目录只有 startup/progress metadata，
+  没有 checkpoint；异常退出使 `shaft_progress.json` 暂时残留 `status=running`。
+- 将 token hard cap 从 10k 降到 8.5k 并启用 `PYTORCH_ALLOC_CONF=expandable_segments:True` 后，重试从
+  step 2 延后到 step 22 才失败，但 rank 7 仍在 backward 申请 6.67 GiB 时 OOM：进程已占 72.65 GiB，
+  PyTorch allocated 71.27 GiB，reserved-but-unallocated 仅 471 MiB。
+
+### 根因
+
+- 这次的首个真实错误是 rank 3 CUDA OOM，NCCL timeout 是掉 rank 后的二次症状，不是网络或 collective
+  顺序先出错。
+- DDP 会在每张卡完整复制约 55.6 GB 的 Qwen3.6-27B BF16 base；本次 all-linear LoRA 另有
+  124,730,880 个 trainable params。虽然 microbatch 已为 1 且开启 gradient checkpointing，2M/10k 上限下
+  的视觉与语言激活仍把 80 GB 卡推到边界。
+- 第一次失败中 2.49 GiB allocator reserve 说明碎片化参与了触发；但 8.5k + expandable-segments 重试时
+  未分配 reserve 已降到 471 MiB 仍然 OOM，证明根因不是单纯碎片化，而是 DDP 完整复制 27B base 后没有
+  足够的长程激活峰值余量。
+  GA=8 主要改变 optimizer step 的累计次数，不会让 8 个 microstep 的激活同时常驻，因此不是直接根因。
+
+### 影响范围
+
+- 仅影响 Baidu02 的 27B LoRA DDP 长训；模型、数据、prompt、LoRA target 和学习率均按目标配置正确加载。
+- Baidu01 full ZeRO-3 训练线不使用该 DDP 内存拓扑，不能从本次 OOM 推断其同样失败。
+- 诊断只读取 tmux、metadata、GPU 和系统日志；没有重启训练、清理失败目录或操作 `gpu-holder`。
+
+### 修复方式
+
+- 初次诊断按“检查失败原因”范围未修改训练配置，也未自动重启。随后按用户决定，将 Baidu02 正式配置
+  `banana_sft_27b_qwen36_v5_7_lora.yaml` 从 DDP 切换为 FSDP v2 full-shard：Qwen3.6 decoder/vision
+  transformer auto-wrap、`use_orig_params=true`、reshard-after-forward、full state dict、limit-all-gathers；
+  保留 model-side gradient checkpointing，并关闭当前栈不稳定的 FSDP activation-checkpoint wrapper。
+- 由于 Shaft 当前 planned batching 只允许 DDP，FSDP 配置同时切换为
+  `grouping=none/cardinality=fixed`。数据源、prompt、2M pixel、8.5k token、LoRA、LR、GA8、14k steps 和
+  2k/limit4 保存策略均保持不变；这是先恢复可训练性的配置级方案，尚未解决极端样本 rank skew。
+- 最小风险验证可以先在启动环境加入 `PYTORCH_ALLOC_CONF=expandable_segments:True` 做短 canary；这只
+  缓解 allocator 碎片，不能作为完整 14k 稳定性的保证。
+- 稳健方案是把 27B LoRA 改为已有验证骨架支持的 FSDP full-shard，从每卡移除完整 base replica；由于
+  Shaft 当前不允许 `bounded_cost + FSDP`，需要同时切换为 fixed cardinality/grouping none，并重新做真实
+  2M optimizer-step canary。若必须保留 DDP，则需降低 pixel/token hard cap、缩小 LoRA target/rank 或使用
+  QLoRA，均属于训练语义变更，不能静默应用。
+
+### 回归测试
+
+- 已从 `tmux AI:0.0` 核对 run id、sequence contract、batch contract、finetune summary、optimizer summary
+  和完整 rank traceback；确认实际 trainable params 为 124,730,880，microbatch/GA 为 1/8。
+- 8.5k + expandable-segments 重试真实运行到 step 22；这可以证明调整改善了短程存活，但同时反证当前
+  2M DDP 拓扑不足以稳定完成 14k 长训。
+- FSDP 配置已在 Baidu01/Baidu02 分别完成严格解析；实际 auto-wrap 为
+  `Qwen3_5DecoderLayer + Qwen3_5VisionBlock`，`reshard_after_forward=true`、`use_orig_params=true`，
+  duration/GA/save 为 14000/8/2000，尚未启动真实模型 canary 或长训。
+- 用户授权后，Baidu02 正式配置进一步从 `BS1/GA8` 改为 `BS2/GA4`，全局 sample batch 仍为 64；旧 run
+  在无 checkpoint 时以 SIGINT 正常退出，新 run 在同一 tmux pane 前台启动并显式使用
+  `WANDB_MODE=offline`。实际 batch contract 为 local/global/optimizer pack `2/16/64`、GA4；前 5 步无 OOM，
+  观察显存最高约 47.4 GiB/卡。首步 114s、前两步均值 94.6s，随后第 3–5 步约 39–40s；相较旧配置前 7 步
+  约 37.7s/step，尚未证明吞吐改善。当前 `grouping=none + padded` 的批内 padding 是继续判断 BS2 收益时
+  必须同时量化的混杂因素，不能把更多显存占用直接等同于更高 useful-token throughput。
+- 失败后 8 卡均只剩 `gpu-holder` 约 414 MiB 显存占用，训练 rank 已全部退出；没有残留 torchrun/train.py
+  进程，也没有 checkpoint。
+
+### 后续防线
+
+- 27B LoRA 在 80 GB 上不能只用“base weights 能放下”作为容量判断；必须用目标 pixel/token cap 完成至少
+  数十个不同 batch 的 forward/backward canary，并记录 peak allocated/reserved。
+- 分布式失败必须按时间和 rank 追溯首个 Python/CUDA traceback；launcher 的最后 SIGABRT 或 NCCL watchdog
+  不能覆盖更早的 OOM。
+- bounded-cost 的变长 batch 建议在显存接近上限时默认评估 expandable segments，并保留显式的显存安全边界，
+  不能以一次勉强通过代替长训容量验收。
+
+## 2026-08-08：Baidu01 Qwen3.6-27B full ZeRO-3 被未平衡的极端长样本拖入 NCCL timeout
+
+### 现象
+
+- Baidu01 使用 full BF16 + DeepSpeed ZeRO-3、microbatch 1、GA4、2M pixel cap、10k token cap 训练，已正常
+  完成 85/8000 step，平均约 21.5 秒/step；`shaft_progress.json` 最后一次写入为 21:22:14。
+- 21:22:45 起，rank 0–6 在后续 ZeRO collective 等待，10 分钟后触发 600 秒 watchdog：default PG 卡在
+  `_ALLGATHER_BASE` seq 350203，另一个 PG 卡在 `_REDUCE_SCATTER_BASE` seq 204265。rank 0–6 的 default
+  PG 最后 enqueue 到 350204，而 rank 7 的 last enqueued/completed 均停在 350202，说明 rank 7 没有进入
+  其他 rank 已等待的后续 collective。
+- 全部日志没有 Python/CUDA OOM；内核日志没有 Xid、ECC 或 host OOM。输出目录只有 metadata/progress，尚未
+  到 save step 4000，因此没有 checkpoint，异常退出后 progress 暂时残留 `status=running`。
+
+### 根因
+
+- DeepSpeed 路径受当前框架合同限制，使用 `grouping=none/cardinality=fixed`，没有 bounded-cost 的全局
+  batch balancing；每个 rank 按确定性 sample plan 直接获得一条样本。
+- 复现 step 85 后的确定性 sample schedule 后，optimizer step 86 的最后一个 GA slot 中，rank 7 获得
+  `grounding_layout` row 26597：精确估算为 8,250 LLM tokens、7,696 vision patches；同一 microbatch
+  最轻 rank 只有 819 tokens，token 长度相差约 10.07 倍。此前几个 microbatch 的 rank 间最大 token 比也
+  达到约 3.64–5.88 倍。
+- 这解释了 collective 轨迹：其他 rank 已完成较轻计算并进入后续 ZeRO allgather/reduce-scatter，rank 7
+  仍停留在较重的执行位置。当前证据可以确定直接触发条件是未做 cost balancing 的极端 rank 负载长尾；
+  日志没有 flight-recorder kernel stack，因此不能进一步严格区分“合法但超过 600 秒的长计算”与“该极端
+  shape 触发 CUDA kernel 不返回”。NCCL timeout 是 rank 失步后的结果，不是首发网络故障。
+
+### 影响范围
+
+- 影响当前 Baidu01 27B full ZeRO-3 的 `grouping=none` 长训稳定性；已通过的均衡 16-rank 单步 canary 不足以
+  覆盖 256k draw stream 中的长度长尾。
+- 模型、训练数据和 prompt 均按配置正确加载；这不是 loss、标注语义或 checkpoint 损坏问题。
+- 本轮只做日志、确定性 sample plan 与精确 cost 重放，没有清理输出、重启训练或操作 `gpu-holder`。
+
+### 修复方式
+
+- 本轮按诊断范围没有改配置或重启。不能用单纯调大 NCCL timeout 作为修复；若极端 shape 触发 kernel hang，
+  延长 timeout 只会更晚失败。
+- 稳健方向是让 DeepSpeed/FSDP 路径也拥有全局 cost-balanced fixed-cardinality sampler，或在不改变训练样本
+  语义的前提下离线按精确 token/vision cost 做 rank 配平。临时规避只能降低 token/pixel hard cap，属于
+  配置语义变化，需要用户确认。
+- 下一次短 canary 应开启 `TORCH_NCCL_TRACE_BUFFER_SIZE` 与 timeout dump，并定向重放该 step 86 batch；
+  若 rank 7 能在更长时间内完成，可量化安全 timeout；若同一 kernel 长期无进展，则按 kernel/shape 问题处理。
+
+### 回归测试
+
+- 用正式配置、seed 42、8-rank、GA4 重建 256,000 条 finite sample plan，plan fingerprint 为
+  `0b022c7dbd0970870bdadfc263f20d9b8da3ec0da73af9252a1acc211c094313`。
+- 使用 Qwen3.6 正式 processor/template 与 0.5M–2M pixel policy 精确计算 microstep 336–343 的 cost，确认
+  step 86 最后一个 slot 的 rank 7 为 8,250 tokens/7,696 patches，最轻 rank 为 819 tokens/1,980 patches。
+- 两台机器失败后均无残留 torchrun/train.py；GPU 只剩既有 `gpu-holder`。
+
+### 后续防线
+
+- 大模型分片训练 canary 必须覆盖训练流的 cost 分位点和极端样本，而不是只验证随机首个 optimizer step。
+- `grouping=none` 用于 ZeRO3/FSDP 时，应在启动阶段审计每个 global microbatch 的 rank cost ratio，并对超阈值
+  fail closed 或离线配平；只设置全局 max_length/max_pixels 不能保证 rank 间负载接近。
+- 分布式 timeout 必须比较各 rank 的 last enqueued/completed sequence。若单一 rank 落后且无首发 NCCL/Xid，
+  应先还原该 rank 的 sample cost，不能把 watchdog 末尾信息直接归因于网络。
+
+## 2026-08-08：Baidu02 FSDP2 LoRA 增大 microbatch 未改善稳定吞吐
+
+### 现象
+
+- Baidu02 的 Qwen3.6-27B BF16 LoRA 从 `BS1/GA8` 改成 `BS2/GA4`，全局 sample batch 均为 64。新 run
+  前 15 step 累计约 48.4s/step；扣除首步 114s 和第 2 步后的稳定区间约 41.3s/step，仍慢于旧 run 前 7 step
+  的约 37.7s/step。增大 microbatch 没有产生预期的 FSDP 通信摊薄收益。
+- 新 run 无 OOM，观察显存最高约 47.4 GiB/卡；因此当前结果不是显存容量不足，也不能用“显存未占满”解释。
+- Transformers 启动日志明确警告：FSDP 下模型侧 `gradient_checkpointing` 会在 backward 引入冗余 AllGather，
+  应优先使用 FSDP activation checkpointing。
+
+### 根因
+
+- 正式配置是 `model.finetune.mode=lora`。虽然 YAML 中保留 `qlora_load_in_4bit=true` 等字段，Qwen loader 只在
+  `mode=qlora` 时构造 `BitsAndBytesConfig`；当前 27B base 实际仍以 BF16 加载，必须依赖 full-shard 才有稳定
+  显存余量。
+- 模型有 64 个 decoder layer 和 27 个 vision block，FSDP2 按这些 block wrap，并使用
+  `reshard_after_forward=true`。每个微步均需反复 materialize 分片参数；模型侧 gradient checkpointing 又在
+  backward 重算 forward，放大了参数 AllGather 开销。
+- Shaft 当前 model policy 明确禁止 Qwen3.5/3.6 的通用 FSDP activation-checkpoint wrapper，正式配置只能用
+  模型侧 checkpointing；这是当前最直接的 FSDP 性能缺口，不能只靠 YAML 打开
+  `activation_checkpointing=true`。
+- 当前 Transformers 5.10.1 + Accelerate 1.13 使用 FSDP2。该路径不支持 backward prefetch，且 Transformers
+  仅在 FSDP1 分支消费 `forward_prefetch/backward_prefetch/limit_all_gathers`；这些 YAML 字段不能作为当前
+  FSDP2 run 的有效性能旋钮。
+- `grouping=none + padded` 会把每个 rank 的两条样本 pad 到本地最长样本，并保留 rank 间 cost skew；BS2
+  节省的微步/通信次数会被额外 padding 与长尾等待抵消。因此本次慢不是单一 FSDP 实现问题，而是
+  FSDP checkpoint 通信与未做 cost grouping 的叠加。
+
+### 影响范围
+
+- 影响当前 8×A800、BF16 base、FSDP2 full-shard LoRA、2M/8.5k padded 训练的吞吐；loss 与全局 batch 语义
+  正常，不是数据或 objective 错误。
+- 不能外推为 true QLoRA + DDP 的吞吐结论；后者会改变冻结 base 的数值精度和分布式拓扑，需要独立实验。
+- 本轮诊断仅检查配置、运行时合同、安装栈源码和实时指标；没有停止或修改当前训练，也未操作 `gpu-holder`。
+
+### 修复方式
+
+- 若必须保持 BF16 LoRA：框架需要为 Qwen3.6 实现并验证 FSDP-aware activation checkpointing，在启用时关闭
+  模型侧 gradient checkpointing；hybrid linear-attention 层不能未经定向 CUDA canary 就解除现有禁用策略。
+- 同时为 FSDP/DeepSpeed 增加 fixed-cardinality cost-balanced sampler 与 exact-resume 状态，使 BS2 的两条
+  样本按相近 token/vision cost 组 batch，并平衡 8 个 rank。只继续增加 BS 会进一步放大 padding。
+- 若允许改变数值范式：独立测试真正的 `mode=qlora + DDP`，以 4-bit frozen base 换掉 full-shard 参数通信；
+  不能把当前 `mode=lora` 下无效的 qlora 字段误认为已经进行了 4-bit 训练。
+- 短期配置 canary 可测试关闭模型侧 gradient checkpointing，但必须先用 BS1 覆盖 2M/8.5k 长尾并记录峰值；
+  这会显著增加 activation memory，不能直接用于正式长训。
+
+### 回归测试
+
+- 新 run 的实际 batch contract 为 local/global/optimizer pack `2/16/64`、GA4，FSDP effective contract 为
+  version 2、`reshard_after_forward=true`、activation checkpointing false；LoRA summary 为 mode `lora`。
+- 15 step 观察无 rank 退出或 OOM；显存约 35–47 GiB/卡，稳定步时约 41.3s。该窗口足以否定“BS2 已明显
+  加速”的判断，但不足以证明 14k 长程稳定性或最终平均吞吐。
+- 用户随后授权将 Baidu02 正式训练切为 true QLoRA + DDP。配置实际解析为 `mode=qlora`、NF4 double quant、
+  BF16 compute、DDP、BS2/GA4，并恢复 `bounded_cost + token_budget`（8500 tokens、16384 vision patches）；
+  独立输出目录为 `outputs/qwen36vl-sft/27b/banana-v5.7-qlora`。运行时合同和 finetune summary 均确认
+  BitsAndBytes 0.49.2 与 qlora mode 生效，不再是只保留无效 qlora 字段的 BF16 LoRA。
+- QLoRA DDP 前 8 step 正常完成、无 OOM，显存最高约 72.2 GiB/卡。前两步因 NF4 kernel/optimizer 冷启动
+  均值约 119s/step，但第 3–8 步平均约 31.9s/step，比 FSDP BF16 LoRA 稳定区间约 41.3s/step 快约 23%。
+  因而不能用前两个冷启动 step 判断长期吞吐；当前证据表明删除 FSDP AllGather 的收益已在稳定区间体现，
+  但约 7 GiB 的显存安全余量仍需用 2M/8.5k 长尾继续验证。当前 run 按用户要求继续执行。
+
+### 后续防线
+
+- runtime contract 只应展示后端实际消费的 FSDP2 选项；对 FSDP2 不支持或上游忽略的 prefetch/
+  limit-all-gathers 字段应 fail closed 或标为 inactive，不能制造参数已生效的错觉。
+- 大模型吞吐实验必须同时记录 useful tokens/s、padding ratio、各 rank token/vision cost、collective time 和
+  peak memory；GPU util 与静态显存占用都不能单独作为训练效率结论。
 
 ## 2026-08-09：planned batching 接入 FSDP full-shard 与 DeepSpeed ZeRO-3
 
@@ -1203,3 +2017,747 @@
   torn marker、native artifact 缺失或 generation 不一致必须让全体 rank fail closed。
 - 扩展 token-budget、length、packing/varlen 或 RLHF 前必须分别补 topology-specific sampler、loss 和
   backend-native exact-resume 证据，不能复用本次 fixed padded 结论直接解除限制。
+
+## 2026-08-09：27B full ZeRO-3 的独立资源上限未覆盖联合显存峰值
+
+### 现象
+
+- Baidu01 正式 Qwen3.6-27B full BF16 + ZeRO-3 在启用
+  `bounded_cost/fixed/none/padded` 后正常运行至完成 step 94，随后在 step 95 的最后一个 GA microstep 报
+  `Triton Error [CUDA]: out of memory`。失败前每卡常驻约 79.8–80.8k MiB，80 GiB 卡仅余约 1–2 GiB。
+- 旧 `grouping=none` 运行没有先报告 OOM，而是在 step 86 由其他 rank 报 NCCL timeout。
+
+### 根因
+
+- 两次失败对应同一个逻辑 draw `2751`、同一 grounding 样本
+  `json__prod_030188__degraded_00`：其精确成本同时为 8,250 LLM tokens 和 7,696 pre-merge vision patches。
+  旧 fixed stream 中它位于 step 86/GA3/rank7；新 planner 重排到 step 95/GA3/rank0。旧运行的 NCCL timeout
+  只说明其它 rank 在等待这个长尾 rank，并不能证明该样本已完成或能够稳定装入显存。
+- `max_tokens_per_microbatch=10000` 与 `resource_budgets.vision_patches=8192` 是两个独立 hard cap。planner
+  保证各维分别不超限并平衡 rank cost，但没有声明或校验二者同时接近上限时的联合 activation/workspace
+  显存。该样本两个维度都合法，归一化和为 1.7645，却超过当前 27B ZeRO-3 的真实可执行 envelope。
+- 先前 8-rank canary 验证的是同一 global microbatch 内一个 heavy-text draw（8,250 tokens、低 vision）和
+  一个 heavy-vision draw（7,696 patches、短文本），不是单个 draw 同时命中两个极值，因此没有覆盖本次
+  Triton 联合峰值。这是验收缺口，不是 grouping 丢样本、重复分片或 pixel budget 未生效。
+
+### 影响范围
+
+- sharded planned batching 的 rank 分片、配平和 exact-resume 结论仍成立；缺口在大模型运行时 admission
+  control。降低 `buffer_size` 只会推迟该 draw，增大 NCCL timeout 也不会解决单卡 OOM。
+- 10k token 和 2M pixel 各自是合法输入上限，不能继续直接等同于“可同时达到”的 27B full 训练显存合同。
+  4B、QLoRA 或显存状态余量更大的拓扑不能直接套用同一联合阈值。
+
+### 修复方式
+
+- 本轮只完成根因定位，未擅自修改训练语义或重启。下一步应先对真实联合长尾样本做隔离 canary，建立
+  token/vision 联合显存 envelope；再选择动态降低该样本的图像预算/文本上限，或通过 optimizer/parameter
+  offload 等方式释放持久显存。
+- 若在框架中增加联合 budget，必须作为 batch contract、planner spec、metadata 和 exact-resume fingerprint
+  的单一配置真源；不得只在训练脚本中对个别 sample id 打补丁或静默丢样本。
+
+### 回归测试
+
+- 通过确定性重建前 380 个 planned microsteps，复现 step 94 已完成 frame 与 step 95 失败 frame：step 94
+  最重样本约 5,744 tokens + 7,788 patches（联合归一化 1.5251）可执行；step 95/GA3 同时出现
+  8,250+7,696、8,166+7,744 和 7,938+7,680 三个联合长尾 draw。
+- 后续 GPU gate 必须增加“同一个 sample 同时 heavy-text + heavy-vision”的真实 processor/collator 输入，
+  不能再用分离的两个 draw 代替联合峰值。
+
+### 后续防线
+
+- 多维 cost balancing 与显存 admission 是两个不同契约：前者减少 rank skew，后者保证单 rank 可执行。
+  任一新 topology 在发布前必须覆盖单维极值、联合极值、GA frame 和 optimizer workspace 四类 canary。
+- 大模型正式长训前至少跑到训练流中首个已知联合长尾 draw，不能只观察前几个轻量 step 后宣布显存可行。
+
+### 2M 图像预算下的序列上限审计
+
+- 对 v5.7 前 10,000 个确定性 scheduled draws 使用真实 Qwen3.6 processor 做 exact-cost
+  审计。总序列上限为 6,000/6,144/6,500/7,000 时，分别有 46/39/23/19 条需要截断，
+  占 0.46%/0.39%/0.23%/0.19%，全部来自 `grounding_layout`。
+- 当前不改框架的保守值是 6,000：它把接近 2M 的联合长尾压到与已成功样本接近的
+  envelope，同时只影响不到 0.5% 的 scheduled draws。`data.max_length` 负责真实截断，
+  `data.batching.max_tokens_per_microbatch` 负责 planner hard guard，两者必须同步；仅降低后者会在
+  长样本上直接报 oversize。
+
+## 2026-08-10：OPD 不能继续接入单体 RLHF pipeline
+
+### 现象
+
+- 旧训练入口按算法名分支选择 SFT/RLHF，`ShaftRLHFPipeline` 又直接持有 DPO/PPO/GRPO 的 dataset、collator、
+  trainer 参数、采样和 checkpoint 差异。若继续加入 OPD，只能新增更多 `if/elif opd`，并把 teacher/student、
+  rollout 与 distribution loss 塞进已有 RL 主链。
+- OPD 的 teacher 身份、生成 RNG 和 objective 会影响 exact resume，但公共 resume contract 原先通过硬编码算法
+  名称与算法字段扩展，训练公共层开始反向依赖具体算法。
+
+### 根因
+
+- 顶层只有“算法”概念，没有 SFT、RL、OPD 三个并列训练域；公共编排层承担了本应由域和算法 runtime
+  持有的业务决策。
+- Arrow record 类型、resume policy 和 RL trainer 参数都使用封闭映射或算法专用字段，新增算法需要修改多个
+  中央模块，扩展边界不是注册式合同。
+
+### 影响范围
+
+- 直接影响新增 OPD、后续 RL 算法扩展、输入真源和 exact resume 可审计性；若不重构，单次 smoke 能跑通也
+  无法证明 teacher 不会进入 optimizer、不同 rank 的 token normalization 正确或恢复轨迹等价。
+- 既有 SFT 算法行为未改；DPO/PPO/GRPO 的执行行为保留，但 canonical 顶层名称收敛为 `rl`，旧
+  `rlhf` 类名、函数和 pipeline key 仅作为兼容别名保留。
+
+### 修复方式
+
+- 新增 training-domain registry，由 algorithm profile 声明唯一 domain，中央入口只做 registry dispatch。
+- 把 DPO/PPO/GRPO 差异迁入 `src/shaft/rl` runtime registry；RL pipeline 只做公共阶段编排。新增独立
+  `src/shaft/opd` 与 `ShaftOPDPipeline`，拥有 prompt-only data、student/teacher role、rollout、loss、trainer
+  和 resume policy，不导入 TRL experimental OPD trainer。
+- record type 与 training resume policy 改为公共注册机制；算法实现自行注册扩展。OPD checkpoint contract
+  绑定 teacher artifact、tokenizer/processor/template 兼容指纹、rollout/objective、sample assignment 与 RNG。
+- canonical RL 实现与 API 位于 `pipeline/rl.py` 的 `ShaftRLPipeline/run_rl`；`pipeline/rlhf.py` 只保留
+  `ShaftRLHFPipeline/run_rlhf` 薄导出，不承载训练逻辑。运行时 point 同步收敛为 `pipeline.rl.run`，OPD
+  独立使用 `pipeline.opd.run`，二者均拥有各自的 start/done observability interceptor。
+
+### 回归测试
+
+- CPU loss oracle 覆盖 causal shift、completion-only mask、pad/eos 相同、forward KL、reverse KL 和 JSD。
+- tiny CPU 两步 fresh 与 checkpoint resume 验证 student 更新、teacher 冻结，model、optimizer、scheduler、RNG
+  与 sample stream 恢复等价；标准 HF 输出目录生成成功。
+- 2-process CPU DDP 验证各 rank 的 student 更新、teacher 不变和 committed checkpoint；RL focused 回归在
+  canonical 命名收敛后通过。
+- 发布权重 CUDA gate 已固化为一个 manual integration：真实 Qwen3VL-2B student、Qwen3VL-4B teacher，依次
+  覆盖单卡有序双图 BF16 LoRA 非零更新/PEFT validate 与两卡单图 DDP GA=2 sampled-rollout exact
+  resume/export。
+- 真实 Qwen3VL CUDA 单卡/两卡尚未执行：当前 CUDA 0–7 被用户 27B ZeRO-3 长训占用。本轮未干预该任务，
+  也未操作 `gpu-holder`，因此不能声明 OPD production-ready。
+
+### 后续防线
+
+- 新训练域只能注册 domain runner；公共 CLI、pipeline 与 training 层不得读取具体 OPD/RL 参数或新增算法
+  `if/elif`。新 RL 算法只能实现 runtime contract，不能修改 RL pipeline 拼装逻辑。
+- CPU tiny、CPU DDP、真实模型 CUDA 与真实多图是不同证据层级，文档必须分别标注。GPU 空闲后需补真实
+  Qwen3VL 单卡 generate/score/backward/export reload 与两卡 DDP exact-resume gate。
+- external teacher、vLLM buffer、top-k/chunk、sharded backend、packing/varlen 在实现状态持久化和专项测试前
+  必须 fail closed，禁止静默降级。
+
+## 2026-08-10：真实 Qwen3VL 类 OPD gate 暴露三处模型族合同缺口
+
+### 现象
+
+- teacher 与 student 使用内容完全相同、但保存在不同目录的 Qwen3VL processor/tokenizer 时，OPD preflight
+  错误报告 processor contract 不一致。
+- 放开错误拒绝后，真实 Qwen3VL score forward 报 `mm_token_type_ids` 长度仍是 prompt 长度，而
+  `input_ids/attention_mask` 已包含 completion，mask shape 不匹配。
+- generate、student/teacher score、backward 与参数更新成功后，最终 HF export 将训练态
+  `text_config.use_cache=false` 写入 `best/config.json`，与源 artifact 的部署态 `true` 不一致。
+
+### 根因
+
+- OPD 直接使用通用 component state fingerprint 比较 processor；该 fingerprint 包含 `name_or_path` 等加载位置，
+  混淆了 artifact locator 与输入行为兼容性。
+- trainer 只扩展了 `input_ids/attention_mask`，没有模型 adapter 扩展点描述 processor 产生的其它序列对齐字段。
+  tiny smoke model 不产生 `mm_token_type_ids`，因此此前测试无法暴露问题。
+- 训练加载会保留部署 cache 默认值并临时禁用 `use_cache`，但只有 SFT trainer 的 `save_model()` 使用
+  `export_model_cache()`；OPD 等其它 checkpoint-capable trainer 没有共享该导出合同。
+
+### 影响范围
+
+- 第一项会拒绝正常的独立 teacher/student artifact；第二项使真实 Qwen3VL OPD 无法训练；第三项会生成可
+  reload 但部署配置漂移的 HF artifact。
+- Qwen 的问题字段是 `mm_token_type_ids`，但根因适用于任何在 prompt processor 输出中携带额外序列字段的
+  模型族，因此不能在 OPD trainer 内追加 Qwen 专用判断。
+
+### 修复方式
+
+- 新增 locator-neutral 的 input component semantic signature，processor/template 按行为状态比较；teacher
+  权重和 student 权重仍分别由 model-plan artifact identity 与 checkpoint contract 绑定。
+- 在 `ProcessorPolicy` 增加显式 `rollout_sequence_fill_values` 和统一 scoring-input builder。通用层验证
+  batch/sequence shape 并 fail closed；Qwen policy 声明 completion 的 `mm_token_type_ids=0`，OPD trainer 只
+  调用 model adapter，不感知模型族字段名。
+- 将 `export_model_cache()` 下沉到 `ShaftCheckpointCommitMixin.save_model()`，使 OPD、DPO、GRPO 与 SFT 的
+  periodic/final model save 共享部署 cache 恢复合同；SFT 的分布式同步 override 继续保留。
+
+### 回归测试
+
+- processor policy 单测证明 Qwen `mm_token_type_ids` 从 prompt 长度扩展到完整 rollout 长度，同时 image grid
+  与 pixel tensors 保持原始语义。
+- integration gate 使用真实 Transformers `Qwen3VLForConditionalGeneration` 模型类、两个不同随机初始化的
+  student/teacher、发布版 Qwen3VL processor/tokenizer 和两张有序图片，完成 sampled generate、student/
+  teacher score、backward、student 参数更新与 teacher artifact 不变。
+- 同一 gate 完成 checkpoint-1 -> checkpoint-2 exact resume，model、optimizer、scheduler、RNG、Trainer state
+  和 final HF export 等价；`best/` 可由标准 AutoModel/AutoProcessor reload，部署态 `use_cache` 与源 artifact
+  一致。
+
+### 后续防线
+
+- 新模型族接入 OPD 时必须通过 processor policy 声明所有 prompt-length sequence fields 的 completion 扩展
+  语义；未知 sequence field 必须在首个 forward 前拒绝，禁止 trainer 内按模型名或字段名打补丁。
+- processor/tokenizer 的“行为兼容”与 model artifact 的“来源身份”必须使用不同合同。前者排除 locator，后者
+  继续绑定 revision/content identity，二者不得互相替代。
+- tiny 通用模型只能验证算法数学与 Trainer 生命周期；发布前至少增加真实上游模型类 + 真实 processor 的
+  CPU gate，以及发布权重 CUDA 单卡/多卡 gate。当前 CPU gate 不能替代尚未执行的发布权重 GPU 验收。
+
+## 2026-08-10：OPD optimizer-window 归一化、prompt 截断与 Qwen logits 内存合同
+
+### 现象
+
+- OPD 已按每个 microbatch 的 DP 全局 completion token 数归一化，但 `gradient_accumulation_steps>1` 时，HF
+  最终累积的是多个 microbatch mean 的平均，不等于整个 optimizer window 的 token mean。
+- `data.max_length` 文档要求给 rollout 预留 completion 空间并结构化截断 prefix，OPD collator 实际只在 prompt
+  超限时报错，执行语义与合同不一致。
+- Qwen3VL student/teacher score 对完整 prompt+completion 物化 full-vocab logits；长多模态 prompt 下，绝大
+  部分 prompt logits 不进入 completion loss，却会显著放大显存。
+- GA=2 fresh 训练完成后，同一进程立即从 checkpoint 恢复曾被错误拒绝为 optimizer implementation drift。
+
+### 根因
+
+- completion 长度只有 student rollout 后才知道，不能直接使用 HF 在 dataloader 预取阶段计算的
+  `num_items_in_batch`；此前只处理了 rank 维度，没有处理 GA 时间维度。
+- OPD collator 绕过了 SFT/DPO 已有的 template prefix-layout/truncation 机制，形成了第二套不完整输入路径。
+- model adapter 只描述 rollout sequence fields，没有描述模型 forward 能否只投影一个经过验证的 logit tail。
+- optimizer/trainer selected-callable identity 递归绑定了 PyTorch 运行期依赖；foreach optimizer 路径执行后，
+  上游内部 cache 变化会改变 fingerprint，混淆“代码行为变化”和“同一实现的运行期状态变化”。
+
+### 影响范围
+
+- completion 长度在 microbatch 间不同时会改变真实优化目标；短 completion microbatch 被过度加权，且
+  `train_loss` 也不是 optimizer-window 全局 token mean。
+- 长 prompt 无法按配置严格上限训练；直接 token slice 又会破坏 image expansion、special token 和 media
+  顺序。
+- 发布权重 Qwen 的 OPD score 可能在真实训练开始前因无用 full-vocab prompt logits 产生动态 OOM。
+
+### 修复方式
+
+- `ShaftOPDTrainer` 每个 microbatch 一次性 all-reduce detached numerator/denominator；同一 GA window 内，
+  新 denominator 到达后先重标已有梯度，再对当前 numerator backward，使 clipping/optimizer step 最终看到
+  全 DP、全 GA 的一个 completion-token mean。非末 microbatch 报告零，窗口末报告统一全局 loss。
+- template 新增通用 `ShaftTemplatePromptPlan/Row`；OPD collator 复用同一 exact processor-token layout 做
+  结构化 prompt 截断和 processor input assembly，不在 OPD 内复制 token/media 规则。
+- model policy 新增 `ShaftRolloutScoringPlan` 与可选 tail-logits input 声明。Qwen VL 声明
+  `logits_to_keep=completion_width+1`，同时严格校验输出 logit span 和 completion mask；OPD trainer 不读取
+  Qwen 字段名。
+- resume contract 将 selected class 绑定为稳定的 module + qualname reference，并另行绑定 owning-module
+  source policy；optimizer/scheduler builder 绑定自身 code/default/closure，但不递归绑定可变的外部运行期
+  dependency cache。Torch/Transformers/Accelerate 版本仍由独立 runtime package contract 约束。
+
+### 回归测试
+
+- GA=2 oracle 使用 1-token 与 3-token completion，证明累积梯度逐参数等于一次按 4 个 completion tokens
+  归一化的参考梯度，并验证窗口报告 loss。
+- OPD collator 回归证明长 prompt 截到预留后的严格预算，同时保留 processor/media 输入合同。
+- 真实 Transformers Qwen3VL 模型类、多图 processor、sampled rollout、backward、exact resume 与 HF reload
+  gate 继续通过；两进程 CPU DDP 与 GA=2 resume/commit 路径通过。
+- GA=2 sampled rollout 的 checkpoint-1 -> checkpoint-2 uninterrupted/resume 再次达到 model、optimizer、
+  scheduler 与 RNG 精确等价，且同进程恢复不再受 optimizer runtime cache 影响。
+- OPD pipeline smoke 同时覆盖 full 与 LoRA student：两者均完成参数更新、GA=2 exact resume；final export
+  分别生成标准 `model.safetensors` 与 `adapter_model.safetensors/adapter_config.json`，PEFT 权重非空且有更新。
+
+### 后续防线
+
+- 任何 token-normalized objective 都必须分别证明 DP rank 维度与 GA microbatch 维度；单独的跨 rank
+  all-reduce 不能作为 optimizer-window 正确性的证据。
+- rollout 输入不得在算法 trainer 中手工切 prompt 或硬编码模型字段。结构化截断归 template，sequence/logit
+  forward 差异归 model policy，无法对齐时在 forward 前 fail closed。
+- 发布权重 CUDA 单卡与两卡 DDP 仍是 OPD production gate；CPU 真模型类证据不能替代显存与 NCCL 运行证据。
+
+## 2026-08-10：OPD trainer 直接绑定本地 rollout/teacher 会重新制造 backend 分支
+
+### 现象
+
+- 三个 training domain 已经分离，但 `ShaftOPDTrainer` 仍直接调用 student `model.generate()`，并直接持有、
+  移动和调用本地 teacher module。
+- 一旦增加 vLLM rollout、外部 teacher 或 logits service，最直接的改法会在 trainer/pipeline 中新增
+  `if/elif backend`，使 OPD 自己再次退化为单体分支实现。
+
+### 根因
+
+- 首版先完成了算法数学和 HF 生命周期，却没有把“生成 completion”和“提供 teacher score”建模为两个
+  独立的开放扩展轴。
+- checkpoint contract 绑定了 rollout 配置和 teacher artifact，但没有显式声明所选执行实现是否能够
+  exact resume。
+
+### 影响范围
+
+- 当前 `hf_local` 行为本身正确；风险位于后续扩展和恢复能力声明，不属于模型能力、eval、codec、metric
+  或 data 误判。
+- 若不先收口，新增后端会同时污染 OPD trainer、pipeline、resume 和测试，且可能错误允许无法恢复外部
+  RNG/buffer 的配置保存 checkpoint。
+
+### 修复方式
+
+- 新增 OPD 域内 `OPDExecutionRegistry`，分别注册 `OPDRolloutBackend` 与 `OPDTeacherProvider`，在大模型
+  加载前解析为不可变 `OPDExecutionPlan`。
+- execution plan 统一检查 exact-resume capability；trainer 只消费 `OPDExecutionRuntime`，不再直接包含
+  本地 HF rollout 或 teacher 生命周期逻辑。
+- 当前 `HFLocalOPDRolloutBackend` 继续由 Torch/CUDA RNG 持有采样状态；
+  `LocalHFOPDTeacherProvider` 负责冻结、device placement、eval 和 no-grad score。
+- resume implementation identity 显式绑定所选 backend/provider 的名称、实现 callable 与 module policy。
+- feature review 发现 pipeline 的 teacher role materialization 仍是本地 HF 专用；因此 V1 normalize 明确只
+  接受 `hf_local`，不把内部 scorer registry 误报为 external teacher 已可选。
+
+### 回归测试
+
+- contract 单测证明替代 backend/provider 可在局部 registry 中注册和解析，且未声明 exact resume 的实现
+  会在 checkpoint preflight 被拒绝；未知名称列出已注册实现并 fail closed。
+- 配置负例证明 `vllm` rollout 或 `external` teacher 在加载任何模型前被 V1 capability gate 拒绝。
+- OPD component 与 pipeline smoke 全部通过，继续覆盖 full/LoRA、teacher 不变、student 更新、sampled
+  rollout 和 GA=2 exact resume。
+- `ruff check`、`compileall` 与 `git diff --check` 通过。
+- 两进程 CPU DDP focused 回归通过；真实 Qwen3VL 类 + 发布版 processor 的 CPU 多图、sampled rollout、
+  backward、exact resume 与 HF reload gate 通过；默认全仓 `pytest -q` 100% 通过。
+
+### 后续防线
+
+- 注册表必须拥有 selection、capability 和 implementation identity，而不只是工厂名字；中心调用方只能
+  resolve/build/invoke。
+- 任何带外部 RNG、异步队列或 rollout buffer 的实现，在 state/cursor/request seed 接入 checkpoint 前
+  必须保持 `exact_resume_supported=false`。
+- provider/backend 不能接管模型族 tensor 字段；多模态输入扩展继续唯一归属 `ProcessorPolicy`。
+
+## 2026-08-10：移除 RLHF pipeline/CLI 兼容双轨
+
+### 现象
+
+- DPO/PPO/GRPO 的实现已经迁入 `src/shaft/rl`，唯一业务实现也已是 `ShaftRLPipeline/run_rl`，但仓库仍
+  注册 `rlhf` CLI、`shaft_rlhf` pipeline key，并导出 `ShaftRLHFPipeline/run_rlhf` 与一个兼容模块。
+- 这些名字不包含业务逻辑，却形成第二套公开入口、文档和测试义务，与 SFT/RL/OPD 三域并列的完成定义
+  不一致。
+
+### 根因
+
+- 迁移 RL 单体实现时为了短期兼容保留了薄 shim；feature 完成后的全局 review 未立即执行“已有正确真源后
+  删除临时桥接”的最后一步。
+
+### 影响范围
+
+- 训练数学、数据、checkpoint 和已有 RL runtime 行为不受影响；问题属于入口与命名双轨，不是模型能力或
+  eval/codec/metric/data 误判。
+- 若继续保留，新代码仍可能引用旧名字，使后续又出现两个 pipeline key、两个 CLI 文档和兼容分支。
+
+### 修复方式
+
+- 删除 `src/shaft/pipeline/rlhf.py`，移除 `ShaftRLHFPipeline/run_rlhf` 导出与 `shaft_rlhf` registry key。
+- `RLCommand` 只注册 `rl`；训练 CLI 现在严格对应 `sft / rl / opd` 三个 domain。
+- `rlhf.*` 配置节点与 `rlhf` 可选依赖 extra 保留：前者仍是 DPO/PPO/GRPO 的结构化配置命名，后者表示
+  TRL/RLHF 依赖集合，不是第二训练入口。
+
+### 回归测试
+
+- registry contract 明确断言 pipeline keys 只有 `shaft_sft/shaft_rl/shaft_opd`，command keys 只有
+  `sft/rl/opd`。
+- CLI、pipeline registry 与通用 CLI focused 测试通过；`ruff`、`compileall`、`git diff --check` 和默认全仓
+  `pytest -q` 100% 通过，证明没有旧公开导入者残留。
+
+### 后续防线
+
+- 域迁移完成后不得永久保留无必要的类名、函数、registry key 或 CLI shim；HF/TRL artifact 兼容不等于
+  Shaft 必须保留内部旧入口。
+- `rlhf.*` 配置语义与 `rl` training domain 是不同层级，不能因为清理入口而机械重命名稳定配置 schema。
+
+## 2026-08-11：通用 collator 泄漏 Qwen sequence 字段语义
+
+### 现象
+
+- OPD collator 直接读取、padding 并回填 `mm_token_type_ids`；同样的字段属性还存在于通用 template row、
+  SFT/DPO collator 与 varlen batch builder。
+- `ProcessorPolicy` 虽然声明了 rollout 补零值，但 target 拼接、prefix 截断、DPO pair 扩展和 varlen 拼接仍由
+  多个调用方分别解释同一字段。
+- 当前 Qwen3VL 可运行，但接入任何使用不同字段名、不同 token 轴或非零 padding 的模型都会再次要求修改
+  OPD/SFT/DPO 通用代码。
+
+### 根因
+
+- `ShaftProcessedBatch` 只保存 processor 原始 tensor，没有携带本 batch 实际解析出的 sequence-field layout；
+  template row 因而退化为 Qwen 专属字段容器。
+- token layout 只表达 canonical/processed boundary，没有显式表达不可被 prefix truncation 删除的 media span，
+  template 只能借 `mm_token_type_ids` 猜测保护范围。
+
+### 影响范围
+
+- 影响 SFT、DPO、OPD 和 varlen 的 processor sequence 输入装配与结构化 prompt 截断；不改变 loss、optimizer、
+  sampling、eval、codec、metric 或原始数据。
+- 这是框架扩展边界问题，不是模型能力或数据质量误判。已有 Qwen 训练结果不因本次重构失效；输入 tensor
+  语义保持一致。
+
+### 修复方式
+
+- 在模型层新增 `ShaftProcessorSequenceField`，由 `ProcessorPolicy.processor_sequence_fields` 唯一声明字段名、
+  batched token axis、padding 值和 continuation 值；允许模型专用子类覆盖非恒定扩展/拼接行为。
+- `ShaftProcessedBatch` 保存实际出现的 resolved field contract，并统一实现 prompt row 提取、prefix index
+  投影、continuation 扩展、padded/varlen collation。原始输出、resolved contract 与 collator 输出必须完全
+  一致，缺项或多项都在模型 forward 前失败。
+- template row 只返回 `processed_prefix_indices`，SFT/DPO/OPD collator 统一调用 processed-batch contract；删除
+  通用 template、collator、OPD 与 varlen builder 对 `mm_token_type_ids` 的所有引用。
+- `ShaftProcessorTokenLayout` 增加 `protected_processed_spans`；Qwen policy 负责从 image placeholder/token-type
+  run 生成保护区，template 只按通用 span 阻止媒体 token 被截断。
+
+### 回归测试
+
+- 单测使用未在通用代码出现过的 `alternate_positions`，覆盖 token axis=2、非零 continuation、负数 left
+  padding、prefix selection，以及缺少 continuation rule/processed-batch contract 的 fail-fast 负例。
+- OPD collator 主链用动态 processor 输出 `alternate_sequence`，证明无需修改 collator 字段名单即可正确
+  left-pad；单 token media protected-span 测试证明截断不再依赖 Qwen token type。
+- OPD focused、SFT/DPO collator、varlen、template 与 processor-policy 测试通过；真实 Transformers Qwen3VL
+  CPU 多图 rollout/backward/HF reload、2-process CPU DDP、full/LoRA sampled-rollout exact resume 均通过。
+- 默认全仓 `pytest -q` 100% 通过；`ruff check`、`compileall` 与 `git diff --check` 在最终收口后再次执行。
+
+### 后续防线
+
+- 新模型的 processor sequence 输出只能在模型 policy 注册，不得在 template/collator/trainer 增加字段属性或
+  字符串分支。无法用常数 continuation 描述时必须实现模型专用 field 行为，不能默认补零。
+- 新字段必须同时覆盖 padded、DPO pair、OPD rollout；声明 varlen 支持时还要覆盖非 1-D token axis 拼接。
+- media protection 只由精确 token layout 提供；template 不得读取任何模型 token-type 或 image-token 字段。
+
+## 2026-08-11：OPD CUDA release gate 暴露设备隔离与 telemetry 能力漂移
+
+### 现象
+
+- 发布权重门禁外层 pytest 需要同时看见 CUDA 0、1，但单卡子进程继承两张可见卡，被框架的单进程
+  DataParallel 安全检查正确拒绝，门禁无法进入训练。
+- 修复设备隔离后，真实单卡、DDP fresh 和 DDP resume 都成功；最终通用 checkpoint 比较器却要求恢复
+  `shaft_training_efficiency_rank*.json`，而 OPD checkpoint 没有这些文件。
+- `train.efficiency.enabled` 默认是 `true`，OPD pipeline 只清理旧 summary，却既不构造 monitor 也不拒绝配置，
+  形成静默忽略的错误能力声明。
+
+### 根因
+
+- 门禁 helper 没有区分“外层测试可见卡集合”和“单卡/双卡子进程实际拓扑”。
+- checkpoint 等价 helper 把 SFT release gate 的 telemetry 合同无条件套给 OPD。
+- SFT efficiency protocol 依赖 collator 的 supervised-token/loss-mass/vision work；OPD 的实际 optimizer frame
+  还包含 rollout、student score 和 teacher score，当前没有可复用的正确 measurement protocol。
+
+### 影响范围
+
+- 第一项只影响 manual gate 编排，不影响生产 topology guard；不得通过放宽 guard 修复。
+- 第二、三项影响 OPD 配置和验收的真实性，不影响已经完成的权重、optimizer、scheduler、RNG 或 Trainer
+  exact resume。问题属于 observability/config contract，不是模型、data、eval、codec 或 metric 能力误判。
+
+### 修复方式
+
+- `_run_qwen_opd_cuda_gate()` 从外层 `CUDA_VISIBLE_DEVICES` 解析稳定设备列表：world-size 1 子进程只暴露第一
+  张卡，world-size 2 torchrun 暴露前两张；资源守护和生产安全检查均保持不变。
+- OPD V1 normalize 明确拒绝 `train.efficiency.enabled=true`，测试/门禁配置显式关闭。后续必须先定义 OPD
+  专用 rollout/student-score/teacher-score protocol，不能补一份名为 efficiency 的错误 SFT 指标。
+- checkpoint 等价 helper 增加显式 `efficiency_expected` 合同。OPD 仍严格比较 adapter、optimizer、scheduler、
+  scaler presence、每 rank RNG 和 Trainer state，并反向断言双方均不存在 efficiency snapshot；其它已启用
+  SFT 门禁继续恢复并比较完整 snapshot set。
+
+### 回归测试
+
+- OPD config 负例证明默认/显式开启 telemetry 会在模型加载前失败；全部 OPD fixture 显式关闭该能力。
+- 真实 Qwen3VL-2B student + 4B teacher CUDA release gate 于 2026-08-11 在 CUDA 0、1 通过：单卡有序双图
+  BF16 LoRA sampled rollout、非零 adapter 更新与 PEFT reload；两卡 DDP GA=2 fresh 和 checkpoint-1→step-2
+  resume；adapter、optimizer、scheduler、每 rank RNG、Trainer state 与最终 export 完全一致。
+- 全仓 CPU 回归、ruff、compileall 与 diff-check 在文档收口后再次执行。
+
+### 后续防线
+
+- manual gate 必须显式控制每个子进程的可见设备集合；外层 device-count preflight 不能代替子进程拓扑。
+- 共享配置默认值不代表每个 training domain 自动支持该能力；未消费的 `train.*` 能力必须 fail closed。
+- 跨算法 checkpoint helper 只能比较明确声明的共同状态；算法专属 extension 必须由显式 capability 参数控制，
+  不能因为文件缺失而跳过，也不能无条件要求不存在的状态。
+
+## 2026-08-11：Qwen3.6 full SFT 静默丢弃 MTP speculative head
+
+### 现象
+
+- 原始 `models/Qwen3.6-27B` 有 15 个 `mtp.*` tensor；Baidu01 full SFT checkpoint-4000/8000 均没有这些
+  tensor，但保存的 `text_config.mtp_num_hidden_layers` 仍为 1。
+- 原始 artifact 为 27,781,427,952 个 BF16 元素、55.56GB；SFT checkpoint 为 27,356,728,560 个 BF16
+  元素、54.71GB，差值恰好是 424,699,392 个 MTP 元素（约 0.85GB）。
+
+### 根因
+
+- Shaft 的 Qwen3.5/3.6 loader 复用 Transformers `AutoModelForImageTextToText`；当前 Transformers
+  `Qwen3_5PreTrainedModel` 明确把 `^mtp.*` 配为 unexpected-on-load ignore，标准模型类不实例化 MTP。
+- Trainer 只能保存运行时 model state，因此被 loader 忽略的 MTP 权重不会进入 full checkpoint；artifact
+  validator 当前只区分 full/adapter，没有交叉验证 `mtp_num_hidden_layers` 与 `mtp.*` 权重集合。
+
+### 影响范围
+
+- 不影响标准 autoregressive 推理、SFT next-token loss、detection/reconstruction 质量或输出正确性；MTP 是
+  speculative draft head，缺失只会使 vLLM/SGLang 无法对该 checkpoint 启用对应的 MTP speculative decode。
+- 若仅把原始 MTP 权重复制到已 full-SFT 的 target model，speculative verification 仍保证 target 输出正确，
+  但 draft/target 已失配，acceptance rate 和性能可能显著下降；不能把这种 artifact 标为 trained MTP。
+- 这是 model/artifact/deployment capability 问题，不是 data、template、codec、metric 或现有评测误判。
+
+### 修复方式（规划）
+
+- 第一阶段先加入 MTP artifact capability：根据 config 与权重 index 严格区分 `absent / inherited / trained`；
+  请求 MTP 部署时权重不完整必须 fail closed。无 MTP 的导出不得继续保留一个误导性的 enabled config。
+- 第二阶段在 Qwen36 专用 loader/model adapter 中实现可训练 MTP module，严格加载官方 15 个键；通过现有
+  `TrainingObjectivePolicy` 注册 `mtp_loss`，从 input/labels 推导 next-N 对齐并保持 prompt、padding、media
+  token mask，不把模型专属逻辑写入通用 collator/trainer。
+- full SFT 首版只支持 padded layout 和 full/MTP-only calibration；LoRA/QLoRA、varlen、OPD/RLHF 在有独立
+  正确性门禁前 fail closed。checkpoint/export 必须保存 MTP tensor、状态和 provenance；部署由 vLLM/SGLang
+  负责 speculative execution，Shaft 只提供 typed server config、capability preflight 与可复现实验记录。
+
+### 回归测试（待实现）
+
+- artifact 测试覆盖 config=1 但缺键、残缺键、shape/dtype 错误、完整 inherited/trained round-trip，以及
+  `init_from_checkpoint`/resume/export 后 MTP tensor 与 provenance 一致。
+- objective 测试覆盖 next-N shift、assistant-only labels、padding/media mask、全 masked batch、主 loss + MTP
+  loss 系数组合，以及 MTP-only 时只允许 draft head 获得梯度。
+- 真实 Qwen3.6 gate 覆盖单卡 forward/backward、ZeRO-3 save/resume/HF reload，并用 vLLM 对比 standard 与
+  MTP 的 greedy 输出一致性、acceptance rate、TPOT 和并发吞吐；不能只以“服务能启动”作为验收。
+
+### 后续防线
+
+- 模型 config 声明的任何 auxiliary/draft capability 必须与 checkpoint tensor 集合一致；HF loader 的
+  ignored/unexpected keys 不能静默穿过模型装配和 artifact validation。
+- speculative decoding 是部署性能能力，不得与模型质量混为一谈；任何 inherited/frozen draft head 都必须
+  与 joint-trained/calibrated MTP 分开标识和 benchmark。
+
+## 2026-08-11：layout recognition 结果同步误用了 result_vlm 路径
+
+### 现象
+
+- 结果同步 subtask 默认下载和上传 `layout_recognition/result_vlm`，但评测仓库的正式真源实际是
+  `layout_recognition/result`。
+- 三个 v5.7 4M detection run 首次被写入错误远端目录；本地快照还混有该错误路径的历史残留，容易让路径
+  看起来像既有合同。
+
+### 根因
+
+- 同步脚本和 README 把早期临时命名 `result_vlm` 固化为默认值，准备脚本、v5.3 enrichment 脚本又引用了
+  同一错误路径。
+- 首次核对只检查了错误目录中的预测 JSON schema，没有同时检查仓库正式 `result` 目录的 run 根合同，因而
+  漏掉正式 run 需要 `method.json`、顶层 `methods.json` 和仓库评测器生成的 `score.json`。
+
+### 影响范围
+
+- 错误远端目录只包含本次误传的三个 run，没有覆盖正式历史结果；已整体删除。
+- 三份 prediction 内容本身有效，但首次 upload commits 不属于正式结果。内部浮点 bbox summary 与正式整数
+  JSON 的仓库评分存在轻微差异，正式展示必须以导出后 `score.json` 为准。
+- 这是结果发布路径和评测产物合同问题，不是模型能力、data、codec 或 detection metric 实现错误。
+
+### 修复方式
+
+- 删除远端 `layout_recognition/result_vlm` 及本地同名目录；同步默认路径、README、converter 命名和 v5.3
+  enrichment 目标统一改为 `layout_recognition/result`。
+- 从 Hub 完整同步正式 `result` 后重建三个 4M run；每个 run 包含 `method.json`、175 个 prediction JSON 和
+  同版 `layout_recognition/eval.py` 生成的 `score.json`，随后更新顶层 `methods.json`。
+
+### 回归测试
+
+- Hub 根目录反查确认 `layout_recognition/result_vlm` 不存在、`layout_recognition/result` 存在。
+- 三个 run 均验证 175 个 prediction 文件与 `data/real_v1/gt` 文件名全集一致，parse-ok 为 100%，
+  `method.json.name`、`score.json.method` 与目录名一致。
+- 远端每个 run 抽查 `method.json`、`score.json` 和首/中/末 prediction 共 5 个文件，SHA-256 与本地一致；
+  `methods.json` 已包含三个新方法。
+
+### 后续防线
+
+- 发布前必须从任务根目录开始核对正式路径和 run 根合同，不能仅凭局部 JSON schema 推断目标目录。
+- 工作格式指标不能直接作为发布评分；坐标量化、label 映射等导出完成后必须运行仓库自身 evaluator。
+- 同步脚本只允许一个默认真源路径；临时或历史路径必须显式覆写，不能再进入 README 推荐命令。
+
+## 2026-08-11：prediction 同步越权生成并上传 method/score
+
+### 现象
+
+- 三个 v5.7 4M detection prediction run 在同步到 `layout_recognition/result` 时，同时由本地人工生成并上传了
+  每个 run 的 `method.json` 和 `score.json`。
+- 上一条“result_vlm 路径”事故记录错误地把这两个文件视为同步方必须补齐的 run 根合同；实际 method 注册
+  和正式 score 由结果仓库的自动程序统一计算，prediction 提交方不应预先生成。
+
+### 根因
+
+- 混淆了“本地导出后自检”与“正式结果仓库自动评测”两个职责：本地 evaluator 的输出被错误提升成发布
+  真源，并随 prediction 一起上传。
+- 上传验收只验证文件完整性和 SHA-256，没有先确认自动评测系统对 method/score 的所有权边界。
+
+### 影响范围
+
+- 影响三个 run 的 6 个非 prediction 文件；每个 run 的 175 份 prediction JSON 内容未受影响。
+- 手工 score 可用于本地诊断，但不是自动程序产生的正式评分，不能在训练报告或交接文档中以“正式 score”
+  引用。这是发布流程/评测真源错误，不是模型能力、codec 或 detection metric 本身错误。
+
+### 修复方式
+
+- 从本地同步目录和 Hugging Face 远端三个 run 中删除全部 `method.json` / `score.json`，只保留
+  `real_v1/pred/*.json`。远端清理 commit 为
+  `7f64de72b06f19e8ff1b84d60600712926c06e08`。
+- 修订 Qwen3.6-27B v5.7 训练报告和 `notes/agents/vlm_training_knowledge.md`：撤销手工 score 的正式口径，
+  checkpoint 选择只引用明确标注为内部 sweep 的指标，并声明正式 method/score 等待自动程序生成。
+
+### 回归测试
+
+- Hub 远端反查三个 run：prediction 均为 175 份，`method.json` / `score.json` 均为 0 份。
+- 本地同步目录得到同样结果；未删除、改写或重新量化任何 prediction JSON。
+- 重新构建训练报告，artifact validation/package 通过，并确认 artifact/HTML 不再包含手工正式 score 来源或
+  `0.814782` / `0.792395` 等已撤销发布数值。
+
+### 后续防线
+
+- 向 `layout_recognition/result/<run>` 同步时，默认只允许 prediction payload；除非自动评测系统合同明确授权，
+  禁止代理生成、修改或上传每个 run 的 `method.json` / `score.json`。
+- 本地 evaluator 输出必须保留在临时评测目录并标注 `internal`，不得复制进正式 result run；训练报告必须区分
+  internal sweep 与 automatic official score。
+- 发布验收除了 schema 和文件数，还必须检查产物所有权：哪些文件由提交方提供、哪些由自动程序派生。
+
+## 2026-08-11：OPD 生产门禁暴露多模态 rollout、tail logits 与异步计时合同错误
+
+### 现象
+
+- 真实 Qwen3VL + TRL vLLM server 首次生成时，vLLM 返回 145-token prompt，本地 processor scoring prompt
+  只有 82 token；64 个本地 `<image_pad>` 被服务端再次展开成 127 个。
+- 修复 rollout 后，Qwen `logits_to_keep` 只返回 3 个 tail logits，但 teacher request 强制要求
+  `causal_position_mask` 等于完整 84-token 输入的 shifted width，实际 completion mask 只有 2 个位置。
+- FSDP 门禁中，本地 HF rollout 用 `torch.inference_mode()` 生成的 tensor 随后进入可训练 score graph，触发
+  inference tensor 与 autograd/FSDP 不兼容。
+- review 发现 OPD phase 只用 `perf_counter()`；CUDA kernel 异步提交时，这些 wall 字段不能代表设备执行时间。
+
+### 根因
+
+- vLLM 的预分词多模态接口要求“一张媒体对应一个未展开占位符 + 原始媒体”，而 collator 只保存了 processor
+  已展开的 scoring IDs，把 generation 表示与 scoring 表示错误合并为一个状态源。
+- teacher request 把“完整 input sequence”误当成“模型实际返回的 logit span”。Qwen 模型 policy 已声明
+  tail-logits contract，但 request validator 没有消费该抽象。
+- `inference_mode` 产生的 tensor 具有比 `no_grad` 更强的不可训练属性；rollout 结果虽然不求导，仍会被拼接成
+  student forward 输入。
+- CPU wall timer 只能度量主机可见延迟；没有 CUDA events 就无法分辨 kernel dispatch 与设备执行。
+
+### 影响范围
+
+- 第一项会使 vLLM rollout 实际条件序列与 student/teacher scoring 序列不一致，属于训练语义错误，不是模型
+  能力、data、eval、codec 或 metric 误判。
+- 第二项只在声明 tail logits 的模型族出现；完整 logits 的 smoke model 无法暴露，因而 CPU smoke 通过不代表
+  Qwen score request 正确。
+- 第三项影响 FSDP/部分 autograd 路径；普通单卡/DDP 可能延迟暴露。
+- 第四项不改变训练结果，但会低估 GPU phase 时间并形成错误效率结论；wall RPC 延迟和 device time 必须分开。
+
+### 修复方式
+
+- `OPDRolloutRequest` 现在同时保存 tokenizer-only 的 `generation_prompt_token_ids` 与 processor-expanded 的
+  `prompt_token_ids`。vLLM 只接收前者，返回的展开序列必须逐 token 等于后者；原始多图顺序保持不变。
+- `ShaftRolloutScoringPlan` 继续作为 logit span 真源；teacher mask 只要求位于 shifted input 范围内，provider
+  再用真实返回 logits shape 做强校验。objective-specific distribution 校验收敛到 `OPDObjectiveRegistry`。
+- local HF rollout 改用 `torch.no_grad()`，保留无梯度语义但返回普通 tensor。
+- OPD telemetry 保留 wall phase，并新增 deferred CUDA event phase/optimizer-frame 字段；events 只在
+  checkpoint/finalize 批量同步。DDP throughput 按每个 step 的最慢 rank critical path 聚合。
+
+### 回归测试
+
+- 直接协议探针证明：未展开 19-token prompt 经 vLLM 展开后与本地 82-token processor prompt完全相等；已展开
+  prompt 直接发送会错误变成 145 token。
+- `tests/test_opd.py` 覆盖双 prompt 发送/漂移拒绝、tail-logit request、非 inference tensor、deferred CUDA
+  event、最慢 rank critical-path 聚合、full/chunk/top-k-tail oracle、远端 teacher
+  body/identity/idempotency，以及标准库 live HTTP server 上的 urllib+safetensors 往返。
+- 真实 Qwen3VL-2B LoRA student + 4B local teacher + 独立 TRL vLLM server 在 CUDA 0/1 完成一步
+  weight-sync、单图 rollout、student/teacher score、backward 和 telemetry。
+- 两卡 tiny FSDP 与 DeepSpeed ZeRO-3 均完成 fresh step-2、checkpoint-1 resume、最终权重一致与每 rank
+  telemetry `[1,2]`；未操作 `gpu-holder`。
+- 最终 focused OPD/config、两进程 CPU DDP 与仓库默认 `pytest -q` 全部通过。
+
+### 后续防线
+
+- 多模态外部生成必须显式区分“backend preprocessing 输入”和“本地 scoring 真源”；任何 backend 返回的
+  canonical prompt 都要与 scoring 真源比对，禁止 decode/re-tokenize 修补漂移。
+- request/mask 必须对齐模型 policy 声明的 output span，不能从 input length 推断所有模型都返回完整 logits。
+- 会重新进入可训练 forward 的无梯度 tensor 使用 `no_grad`；`inference_mode` 只用于结果永不进入训练图的边界。
+- GPU 效率结论必须同时标明 wall 与 device timing；没有 device event 或真实长期 A/B 时，不得根据 dispatch
+  时间宣称 kernel 优化收益。
+
+## 2026-08-11：四卡门禁暴露 external teacher 路由、vLLM 生命周期与 topology 验收错误
+
+### 现象
+
+- 真实 `POST /v1/score` 返回 HTTP 422，并声称缺少 query 参数 `request`；service core 和假 transport 测试此前
+  均通过。
+- 三 rank DDP + 独立 vLLM server 首次同步 LoRA student 时，非主 rank 报
+  `DistributedDataParallel has no attribute merge_adapter`；主 rank 已进入 vLLM communicator，最终与其它
+  rank 一起等待到 NCCL timeout。
+- 四卡 Qwen3VL-4B greedy-varlen fresh/resume 均成功，但 checkpoint telemetry 恢复验证器固定启动两 rank，
+  用错误 topology 验证四 rank snapshot 后产生假失败。
+
+### 根因
+
+- `Request` 为 `create_opd_teacher_app()` 内的可选导入，模块又启用了 postponed annotations；FastAPI 注册路由
+  时无法解析局部类型，因而把 `request` 误判为 query 参数。
+- Shaft 把 TRL `VLLMGeneration` 延迟到首个 `compute_loss` 才创建，此时 Trainer 已把 student 包成 DDP。
+  TRL 上游则在 Trainer 初始化阶段以未包装 PEFT model 创建 generation；延迟生命周期破坏了该合同。
+- integration helper 把历史两卡门禁的 `--nproc_per_node=2` 固化为常量，没有从 checkpoint efficiency
+  transaction 的 `world_size` 真源恢复拓扑。
+
+### 影响范围
+
+- external HTTP teacher 的真实 FastAPI 服务无法用于训练；这是 service adapter 错误，不是 teacher loss、
+  codec、data 或模型能力问题。
+- DDP + PEFT + vLLM rollout 无法完成首次权重同步，且 rank 间副作用阶段不一致会把直接异常放大成长超时。
+  单 rank vLLM gate 无法暴露该问题。
+- packing 训练结果与 checkpoint 本身有效；第三项只影响多于两 rank 的验收工具，但会阻止四卡证据成立。
+
+### 修复方式
+
+- FastAPI endpoint 在拿到真实 `Request` 类后显式绑定函数 annotation，再注册 route；仍保持 FastAPI 为可选
+  serve 依赖，不提升成模块级硬依赖。
+- `OPDRolloutBackend` 增加统一 `prepare(model, accelerator, processing_class)` 生命周期。vLLM backend 在
+  `ShaftOPDTrainer.__init__`、分布式 wrapping 前创建 TRL generation 并永久绑定 canonical student；运行期
+  request 只携带 wrapped model 做 score，不再作为 generation 权重源；每次同步前还要求该 wrapper 解包后
+  与 prepared student 对象同一，防止静默同步错误模型。
+- Qwen integration runner 和 packing gate 支持显式 world size；telemetry restore helper 从 committed
+  transaction 读取 world size，并以同 topology 启动 CPU Gloo validator。
+- integration probe 只复制 student 的全部 trainable 参数来证明真实更新；冻结 teacher 的所有参数用
+  `(object identity, PyTorch mutation version)` 前后对比，完整覆盖替换和原地写入，同时避免每 rank 复制并
+  逐元素比较 2B/4B 冻结权重。
+
+### 回归测试
+
+- FastAPI `TestClient` 真实 body injection、vLLM pre-wrap model-view 单测与未准备 fail-fast 合同通过。
+- CUDA0–3 四 rank DDP + CPU HTTP teacher 完成 `topk_tail(top_k=3)`、`token_chunk_size=1`、GA、每 rank
+  telemetry、student 更新/teacher 不加载，以及 fresh/checkpoint-1→step-2 resume；rollout、teacher request、
+  RNG 离散轨迹一致，浮点状态在四 rank reduction 的 `2e-10` 严格绝对误差内一致。
+- CUDA0–3 分别完成四 rank FSDP 与四 rank DeepSpeed ZeRO-3 tiny fresh/resume/export，最终权重完全一致，
+  telemetry 每 rank steps 为 `[1,2]`。
+- CUDA0–2 三 rank DDP Qwen3VL-2B LoRA student + 每 rank 4B local teacher，CUDA3 独立 TRL vLLM server，
+  完成 weight-sync、单图 rollout、score/backward、非零 update 和 wall/device telemetry。
+- CUDA0–3 Qwen3VL-4B greedy-varlen packing 完成 fresh/resume、四 rank telemetry restore、全 checkpoint 状态
+  等价、PEFT export/reload 与 adapter 再训练。所有进程均由门禁自身回收，未操作 `gpu-holder`。
+
+### 后续防线
+
+- 依赖 distributed wrapper 状态的外部组件必须有显式 prepare/teardown 生命周期；禁止在首个 batch 中隐式构造
+  并猜测 wrapper 类型。新增 backend 应先证明 canonical model view 的所有权。
+- HTTP service 必须至少有一条真实框架路由/body 注入测试；service-core 单测不能替代 ASGI 路由解析。
+- 任何 checkpoint validator 必须从 artifact topology 真源启动匹配的 world size，不允许在通用 helper 中固化
+  rank 数；world-size elastic resume 仍是独立、未支持的能力。
+
+## 2026-08-11：文档真源漂移与专题文档膨胀收口
+
+### 现象
+
+- README、配置参考和扩展指南仍引用已经删除或未被 Git 跟踪的训练配置、测试文件和 TODO。
+- OPD、开发流程、CI handover 与多个 TODO 分散维护相同的能力矩阵；已完成实现仍留在 TODO，本地 Banana
+  实验配方和机器磁盘状态进入了框架参考文档。
+- Qwen3.6、planned batching 与 external teacher/vLLM 的部分“当前状态”互相矛盾。
+
+### 根因
+
+- feature 完成后不断新增专题文档，却没有指定每类事实的唯一所有者，也没有在实现演进时退休设计稿。
+- 框架规范、实验记录、历史交接和待办使用了相同的“当前状态”口吻，导致日期化证据被误当成长期接口。
+
+### 影响范围
+
+- 不影响训练、推理、数据或 checkpoint；影响工程师选择命令、理解能力边界和规划后续开发。
+- 未跟踪配置与不存在测试路径会让 clean clone 用户直接得到无效操作指引。
+
+### 修复方式
+
+- `docs/README.md` 收敛为唯一导航入口；当前行为由 architecture/module/config/testing 等正式文档负责，
+  `development_log.md` 只保留历史事实。
+- 将 OPD execution contract 并入 `architecture.md`，将开发/收口流程并入 `extension_guide.md`；删除重复的
+  OPD 专题、开发流程和过期 CI handover。
+- 将旧通用 TODO 与 PPO TODO 合并为一份日期化当前 TODO；完成项回到正式文档，实验过程留在开发日志。
+- 删除框架参考中的本地 Banana 配方、机器容量快照和过期 provider 限制，示例只引用 Git 跟踪配置或明确的
+  `/path/to/...` 占位符。
+
+### 回归测试
+
+- `git diff --check` 通过。
+- 对 README、AGENTS 与全部当前文档执行本地一致性检查：Markdown 相对链接均存在，正式配置引用均被 Git
+  跟踪，`docs/README.md` 无孤儿文档，已删除文档无活动引用。
+
+### 后续防线
+
+- 不再为单个 feature 默认新建架构文档；先并入现有总架构、模块参考或配置参考，只有需要独立长期维护且
+  无法清晰归属时才新增文件。
+- 当前 TODO 永远只保留一份；完成项立即删除并按需要写入正式文档或开发日志。
+- 框架参考不得登记未跟踪的业务配置、机器路径、磁盘余量或一次性实验结论。

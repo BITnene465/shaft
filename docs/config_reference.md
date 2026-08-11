@@ -84,6 +84,10 @@ RuntimeConfig
 │       ├── rollout
 │       ├── vllm
 │       └── reward_functions
+├── opd                                on-policy direct distillation 专用参数
+│   ├── teacher
+│   ├── rollout
+│   └── objective
 ├── plugins                            hooks / interceptors
 ├── logging                            日志格式与 rank 策略
 └── progress                           终端、plain 与持久化进度
@@ -275,9 +279,17 @@ model:
 - Qwen3.5 / Qwen3.6 训练需要安装支持 `qwen3_5`/`qwen3_5_moe` 架构的 Transformers。当前
   `qwen35vl` meta 会在运行前检查 `transformers>=5.10.1` 以及
   `transformers.models.qwen3_5` 模块是否存在；MoE profile 还要求 `transformers.models.qwen3_5_moe`。
-  MoE padded SFT 已实现 router auxiliary objective、full/LoRA 保存恢复和 HF/PEFT 导出。当前证据来自 tiny
-  upstream architecture 的 CPU 与两卡 CUDA gate，不能解释为真实 35B 权重的生产容量；完整验收条件见
-  `docs/todo.md`。
+  MoE padded SFT 已实现 router auxiliary objective、full/LoRA 保存恢复和 HF/PEFT 导出。Qwen3.6-27B
+  dense 已有真实权重短程训练证据；MoE 证据仍主要来自 tiny upstream architecture 的 CPU 与 CUDA gate，
+  不能解释为真实 35B MoE 权重的生产容量。完整验收条件见 `docs/20260811_todo.md`。
+- **MTP 当前不在 Shaft 支持范围内。** Qwen3.5/3.6 上游 artifact 可能携带 `mtp.*` speculative-draft
+  权重，但当前 Transformers 标准 Qwen3.5/3.6 model class 不实例化这些模块，并把它们作为 ignored
+  unexpected keys。Shaft 因而不加载、不训练、不恢复、不导出 MTP，也没有 `mtp_loss` 或 MTP
+  speculative-serving 配置。Shaft full SFT 产物只包含标准 target model；PEFT adapter 也不声明对基座 MTP
+  的兼容性。`config.text_config.mtp_num_hidden_layers > 0` 只是上游 config 残留，不能作为 checkpoint 包含
+  MTP 的证据。该限制不影响标准逐 token autoregressive 推理和任务质量，但 Shaft 产物不得启用 vLLM/SGLang
+  MTP speculative decoding；未来若开发该能力，必须先补模型装配、objective、artifact 完整性和部署门禁，
+  不能只在导出时复制 `mtp.*` 文件。
 - Qwen3.5/3.6 dense/MoE 的 `layout=varlen` 只开放 CUDA + DDP + bf16/fp16，且要求
   `flash-attn`、`flash-linear-attention` 与 `causal-conv1d`。这是 hybrid full/linear attention 的完整
   segment-isolation contract，不能只安装 FlashAttention 后强行开启。Qwen3.6 在 Transformers 5.10.1
@@ -285,8 +297,9 @@ model:
   dense/MoE gates 使用 BF16；FP16 当前仅是 runtime allowlist，尚未完成 varlen 专项验收。
 - 仓库基础依赖要求 `transformers>=5.10.1,<6`；当前验证过的 lock 口径固定为
   `transformers==5.10.1`。旧的 `>=4.57.6` 声明与 checkpoint/runtime 实现不一致，已删除，不能把未测试的
-  4.x 环境当成支持面。当前已接通 Qwen3.5 / Qwen3.6 dense/MoE 的 HF 本地训练与推理接口，真实训练证据
-  仍限于 tiny upstream architecture。`qwen-next` extra 用于进一步精确固定新一代 Qwen 口径；业务 vLLM
+  4.x 环境当成支持面。当前已接通 Qwen3.5 / Qwen3.6 dense/MoE 的 HF 本地训练与推理接口；Qwen3.6-27B
+  dense 有短程真实权重训练记录，MoE 的完整 backend 矩阵仍限于 tiny upstream architecture。
+  `qwen-next` extra 用于进一步精确固定新一代 Qwen 口径；业务 vLLM
   推理镜像使用同一份
   `uv.lock`，当前标准为 `vllm==0.19.1` + `transformers==5.10.1`。对本地 HF 训练环境，
   推荐执行：
@@ -488,7 +501,7 @@ data:
 
 ```yaml
 data:
-  media_snapshot_id: banana-v5.0-re2-media-v1
+  media_snapshot_id: example-media-v1
   batching:
     grouping: bounded_cost
     cardinality: token_budget
@@ -943,7 +956,7 @@ prompts:
 
 关键字段：
 
-- `name`: `sft | dpo | ppo | grpo`
+- `name`: `sft | dpo | ppo | grpo | opd`
 - `params.auxiliary_loss_weights`（仅 SFT）
 
 ```text
@@ -954,25 +967,30 @@ algorithm.name
 │   ├── train.loss_name / train.loss_scale
 │   └── params.auxiliary_loss_weights.<term_name>
 ├── dpo
-│   ├── ShaftRLHFPipeline
+│   ├── RL training domain / DPORuntime
 │   ├── jsonl_dpo
 │   └── rlhf.dpo
 ├── ppo
-│   ├── ShaftRLHFPipeline
+│   ├── RL training domain / PPORuntime
 │   ├── jsonl_ppo（当前 text-only）
 │   ├── rlhf.ppo
 │   └── 不支持 periodic checkpoint / resume
-└── grpo
-    ├── ShaftRLHFPipeline
-    ├── jsonl_sft -> GRPODataset
-    ├── rlhf.grpo
-    └── grouped generation repeat
+├── grpo
+│   ├── RL training domain / GRPORuntime
+│   ├── jsonl_sft -> GRPODataset
+│   ├── rlhf.grpo
+│   └── grouped generation repeat
+└── opd
+    ├── OPD training domain / ShaftOPDPipeline
+    ├── jsonl_opd（prompt-only + 有序 images）
+    ├── opd.teacher / opd.rollout / opd.objective
+    └── 本地 student rollout + 冻结 teacher direct loss
 ```
 
 说明：
 
-- resolved `RuntimeConfig` 中的 `algorithm.name` 是唯一算法选择器。`sft` 进入 SFT pipeline；
-  `dpo / ppo / grpo` 进入 RLHF pipeline，并只消费与名称对应的 `rlhf.<name>` 子块。
+- resolved `RuntimeConfig` 中的 `algorithm.name` 是唯一算法选择器。中央入口通过 training-domain registry
+  分派到 `sft / rl / opd`，没有算法名 `if/elif`；DPO/PPO/GRPO 再由 RL runtime registry 解析。
 - `load_config()` 会先按 YAML 中的算法完整 normalize；CLI 子命令或 `--algorithm` 随后才写回该字段并再次
   normalize。因此 CLI 不能“修好”一份在原 YAML algorithm 下已经非法的配置，YAML 与命令必须先自洽。
 - pipeline 只消费选中的 `rlhf.<name>`，但 normalize 当前仍校验 DPO/PPO/GRPO 三个子块；未选中的块不会
@@ -1000,7 +1018,8 @@ algorithm.name
   coefficient。eval metric 通过模型 policy 的显式 `coefficient_key` 关联训练 term，不按 metric 名猜测。
 - normalized `algorithm.params` 进入 exact-resume contract。改变 override 后不能 resume 旧 schedule；应启动
   新训练，或将旧权重作为 `train.init_from_checkpoint` 使用。
-- DPO/PPO/GRPO 的 `params` 仍是扩展上下文保留字段；它们的结构化核心参数位于对应的 `rlhf` 子块。
+- DPO/PPO/GRPO/OPD 当前都要求 `algorithm.params` 为空；未消费字段 fail closed。RL 的结构化参数位于
+  `rlhf.<name>`，OPD 参数位于独立的 `opd` 节点。
 - `rlhf.enabled` 是当前 schema 中保留的兼容字段，不参与算法选择，也不会替代
   `algorithm.name`。新配置不应依赖或显式设置它。
 
@@ -1088,7 +1107,7 @@ scheduler，使用 init。
   `committed_manifest` 路径选择最新通过 manifest 校验的 checkpoint，并跳过未提交或 artifact 校验失败的
   目录；`backend_native` 路径沿用 HF/backend 的 latest-checkpoint 发现与兼容性检查，不附加通用 torn/atomic
   承诺。`best` 仍是部署导出，不作为训练恢复点。
-- SFT/RLHF pipeline 总是在 dataset、base model 与 PEFT adapter 装配前使用 `experiment.seed` 初始化 Python/
+- SFT/RL pipeline 总是在 dataset、base model 与 PEFT adapter 装配前使用 `experiment.seed` 初始化 Python/
   NumPy/PyTorch 随机状态，保证 full/PEFT fresh 初始化不依赖 Trainer 创建时机。
 - `full_determinism=true` 还会在上述早期阶段调用 HF `enable_full_determinism`，并透传
   `TrainingArguments.full_determinism`，启用 PyTorch deterministic algorithms、确定性 cuBLAS/CuDNN，
@@ -1110,8 +1129,10 @@ train:
     persist: true
 ```
 
-- 默认打开，覆盖普通 fixed padded 和所有 planned SFT batching 组合；它不改变 planner、loss 或 checkpoint
-  正确性语义。
+- 默认打开；它不改变 planner、loss 或 checkpoint 正确性语义。SFT 输出
+  `shaft_training_efficiency.json`，统计 batching/supervision/data/optimizer 指标；OPD 使用独立的
+  `shaft_opd_telemetry.json`，统计 rollout、student/teacher score、objective、distribution 与远端传输。
+  两个协议共享 `enabled/device_timing/persist` 开关，但不共享 frame schema 或指标解释。
 - `device_timing=auto` 在 CUDA 上从 optimizer frame 的第一次 `training_step` 到 optimizer 完成记录一对延迟
   解析的 events，覆盖该 frame 的 forward/backward 与 optimizer device timeline，只在 logging/final window
   同步；每个 committed frame、每个 rank 都必须有完整 event coverage。`off` 仍保留 iterator acquire、
@@ -1164,7 +1185,7 @@ train:
 
 说明：
 
-- `train` 是 SFT 与 RLHF 共用的基础训练块。
+- `train` 是 SFT、RL 与 OPD 共用的基础运行块；算法专属语义分别位于 `rlhf.*` 与 `opd.*`。
 - `optimizer_name/scheduler_name/loss_name` 走注册表。
 - `distributed.strategy` 描述训练拓扑入口，当前支持：
   - `ddp`
@@ -1300,7 +1321,7 @@ train:
 
 - `eval.eval_strategy: epoch` 时，SFT 可以配合 `eval.epoch_interval` 控制“每隔多少个 epoch 才进行一次
   eval”。`train.save_strategy: epoch` 时，SFT 可以配合 `train.save_epoch_interval` 控制保存间隔。
-- 上述两个 interval callback 当前只在 SFT pipeline 安装；DPO/GRPO 尚未消费，RLHF 配置不要依赖它们。
+- 上述两个 interval callback 当前只在 SFT pipeline 安装；DPO/GRPO 尚未消费，RL 配置不要依赖它们。
 - 当 interval 不能整除总 epoch 时，训练最后一个 epoch 仍会强制执行一次对应的 eval / save，避免漏掉最终结果。
 
 控制关系：
@@ -1569,7 +1590,7 @@ algorithm.name
   普通 HF rollout、SFT/DPO/PPO 以及独立 infer/vLLM 服务不经过这条 gate。
 - 版本兼容 gate 与 vLLM rollout RNG checkpointability 是两条独立防线：即使版本兼容，外部 sampled-rollout
   RNG 尚未持久化时仍要求 `train.save_strategy=no` 且禁止 resume；关闭 checkpoint 不能绕过版本不兼容。
-- 对 VLM GRPO，TRL/vLLM 会绕过 SFT collator，因此 RLHF pipeline 把 model-owned
+- 对 VLM GRPO，TRL/vLLM 会绕过 SFT collator，因此 RL pipeline 把 model-owned
   `ProcessorPolicy.prepare_rollout_image()` 注入 `GRPODataset`。Qwen policy 使用 `data.min_pixels/max_pixels`
   做像素预算；通用 dataset 不理解 Qwen factor/aspect-ratio，后续模型族必须实现自己的 policy。
 - `vllm.max_model_length` 必须覆盖实际 prompt multimodal tokens 与 `rollout.max_completion_length` 的总长度；`max_completion_length=1024` 只限制生成长度，不限制图像 prompt 长度。
@@ -1604,7 +1625,61 @@ algorithm.name
   `train.save_strategy=no` 且禁止 `resume_from_checkpoint`；最终模型导出仍可使用。恢复支持要等 rollout
   使用可持久化 RNG，或按 canonical draw 派生并绑定 per-request seed 后再开放。
 
-## 9. `plugins`
+## 9. `opd`
+
+用途：fully on-policy direct-loss distillation 的 teacher、student rollout 与分布目标。
+
+```text
+model                              student artifact 与 finetune plan
+opd
+├── teacher                        冻结 teacher role
+│   ├── provider: hf_local | http
+│   ├── model_type / model_name_or_path / revision / cache_dir
+│   ├── template / local_files_only / trust_remote_code
+│   ├── attn_implementation / torch_dtype
+│   └── remote                     provider=http 时使用
+│       ├── endpoint / artifact_fingerprint / api_key_env
+│       ├── request_timeout_seconds
+│       └── max_request_bytes / max_response_bytes
+├── rollout                        student generation
+│   ├── backend: hf_local | vllm
+│   ├── max_new_tokens / do_sample / temperature
+│   ├── top_p / top_k / min_p / repetition_penalty
+│   └── vllm                       共享 vLLM topology 配置
+└── objective                      completion-token distribution loss
+    ├── mode: full_vocab | topk_tail
+    ├── divergence: forward_kl | reverse_kl | jsd
+    ├── temperature / top_k
+    └── token_chunk_size
+```
+
+约束与语义：
+
+- `data.source_type` 必须是 `jsonl_opd`；记录只包含 prompt，不允许 trailing assistant target。
+- teacher/student 必须使用相同 model adapter、tokenizer、processor 与 template 输入合同；teacher 是独立 module，
+  全部参数冻结，不进入 optimizer、student checkpoint 或最终 export。
+- `teacher.provider=hf_local` 加载独立冻结 HF teacher；`provider=http` 只解析远端 immutable identity，不在训练
+  进程加载 teacher。`artifact_fingerprint` 必须是 64 位 SHA-256；API key 只从 `api_key_env` 读取。
+- `rollout.backend=hf_local` 使用本地 student generate；`backend=vllm` 包装 TRL `VLLMGeneration`，支持
+  `server / colocate`。server 模式通常先运行 `trl vllm-serve`，并配置独立 `server_port/group_port`。
+- 多模态 vLLM 请求同时维护未展开 generation prompt 和本地 processor 展开后的 scoring prompt；返回 prompt
+  必须逐 token 对齐 scoring 真源，禁止重复展开 `<image_pad>`。
+- `data.max_length` 是 prompt + completion 严格上限，collator 会为 `rollout.max_new_tokens` 预留空间。
+- batching 只允许 `grouping=none + cardinality=fixed + packing=none + layout=padded`；支持 DDP、FSDP 和
+  DeepSpeed，仍不支持 packing/varlen 或 eval。
+- divergence 必须显式配置；`full_vocab` 使用完整词表，`token_chunk_size` 沿 completion-position 轴降低
+  objective 中间张量峰值。`topk_tail` 要求 `top_k>0`，其 loss 是 K 个显式 token 加一个剩余 mass bucket 的
+  coarse-grained divergence；不是把未返回 token 当零。
+- checkpoint contract 绑定 teacher artifact、teacher/student 输入合同、rollout/objective、数据执行身份与 RNG。
+  vLLM 请求 seed 由 run seed、model version 与 request IDs 派生；每个 model version 只同步一次权重。新增
+  execution component 只有声明 exact-resume 能力后才允许 periodic checkpoint/resume。
+- `train.efficiency.enabled=true` 启用 OPD 独立 optimizer-frame telemetry，输出
+  `shaft_opd_telemetry.json` 与 checkpoint 内 `shaft_opd_telemetry_rank<N>.json`。wall phase 与
+  `device_*` CUDA event 字段语义分离；`device_timing=off` 只关闭 CUDA event，不关闭 wall telemetry。
+- teacher service 入口为 `python scripts/serve_opd_teacher.py --config ...`。HTTP request/response 使用版本化
+  safetensors envelope，按 `max_*_bytes` 有界读取，且 body 必须匹配 `Idempotency-Key`。
+
+## 10. `plugins`
 
 - `hooks`
 - `interceptors`
@@ -1613,7 +1688,7 @@ algorithm.name
 
 - 为训练主链注入横切增强点。
 
-## 10. `logging`
+## 11. `logging`
 
 - `level`
 - `fmt`
@@ -1629,7 +1704,7 @@ algorithm.name
   model/processor config；两者都移除独立 stderr handler 并经 Shaft 的 rank/progress-aware handler 输出一次。
   显式 `logging.level=DEBUG` 才恢复上游详细日志。该规则不改变 Shaft 自身的 INFO 生命周期日志。
 
-## 11. `progress`
+## 12. `progress`
 
 - `enabled`
 - `display`
@@ -1678,7 +1753,7 @@ train 0.25% ╸───────── 25/10k 6.54s/it eta 18h07m loss 7.9 l
 没有 loss 属于训练日志策略，但速度、ETA 和精确进度从第一步起可见；efficiency callback 首次提交后会优先
 显示 `tok …/s`，此时窄行可能省略 LR。
 
-## 12. CLI override 原则
+## 13. CLI override 原则
 
 只允许无歧义字段通过 CLI 覆盖，例如：
 

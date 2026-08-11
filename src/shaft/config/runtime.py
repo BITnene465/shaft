@@ -6,6 +6,7 @@ from .algorithm import AlgorithmConfig, RLHFConfig
 from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
 from .data import DataConfig
 from .model import ModelConfig
+from .opd import OPDConfig
 from .training import EvalConfig, TrainConfig
 
 
@@ -18,6 +19,7 @@ class RuntimeConfig:
     train: TrainConfig = field(default_factory=TrainConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
     rlhf: RLHFConfig = field(default_factory=RLHFConfig)
+    opd: OPDConfig = field(default_factory=OPDConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     progress: ProgressConfig = field(default_factory=ProgressConfig)

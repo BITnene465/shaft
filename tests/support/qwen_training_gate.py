@@ -4,8 +4,11 @@ import json
 from pathlib import Path
 
 from PIL import Image
+import torch
 from transformers import (
     AutoProcessor,
+    Qwen3VLConfig,
+    Qwen3VLForConditionalGeneration,
     Qwen3_5Config,
     Qwen3_5ForConditionalGeneration,
     Qwen3_5MoeConfig,
@@ -179,6 +182,67 @@ def prepare_tiny_qwen3vl_moe_training_assets(
     return model_dir, dataset_path
 
 
+def prepare_tiny_qwen3vl_artifact(
+    root: Path,
+    *,
+    processor_source: Path,
+    name: str,
+    seed: int,
+) -> Path:
+    """Build a real Qwen3VL-class artifact small enough for CPU integration gates."""
+
+    model_dir = root / name
+    model_dir.mkdir(parents=True, exist_ok=True)
+    config = Qwen3VLConfig(
+        text_config={
+            "vocab_size": 151936,
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 4,
+            "num_key_value_heads": 2,
+            "head_dim": 8,
+            "max_position_embeddings": 256,
+            "rms_norm_eps": 1e-6,
+            "rope_parameters": {
+                "rope_type": "default",
+                "rope_theta": 10_000.0,
+                "mrope_section": [2, 1, 1],
+                "mrope_interleaved": True,
+            },
+            "attention_dropout": 0.0,
+            "use_cache": True,
+        },
+        vision_config={
+            "depth": 1,
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_heads": 4,
+            "in_channels": 3,
+            "patch_size": 16,
+            "spatial_merge_size": 2,
+            "temporal_patch_size": 2,
+            "out_hidden_size": 32,
+            "deepstack_visual_indexes": [0],
+            "num_position_embeddings": 256,
+        },
+        image_token_id=151655,
+        video_token_id=151656,
+        vision_start_token_id=151652,
+        vision_end_token_id=151653,
+    )
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(int(seed))
+        Qwen3VLForConditionalGeneration(config).save_pretrained(model_dir)
+    processor = AutoProcessor.from_pretrained(
+        processor_source,
+        trust_remote_code=False,
+        fix_mistral_regex=False,
+    )
+    processor.save_pretrained(model_dir)
+    return model_dir
+
+
 def write_qwen_training_gate_config(
     path: Path,
     *,
@@ -219,15 +283,9 @@ def write_qwen_training_gate_config(
     if logging_steps <= 0:
         raise ValueError("logging_steps must be > 0.")
     if bounded_cost_grouping and (layout != "padded" or packing != "none"):
-        raise ValueError(
-            "bounded_cost_grouping requires layout='padded' and packing='none'."
-        )
+        raise ValueError("bounded_cost_grouping requires layout='padded' and packing='none'.")
     grouping = (
-        "bounded_cost"
-        if bounded_cost_grouping
-        else "length"
-        if layout == "varlen"
-        else "none"
+        "bounded_cost" if bounded_cost_grouping else "length" if layout == "varlen" else "none"
     )
     planning_lines = (
         "    buffer_size: 8\n"
@@ -236,8 +294,7 @@ def write_qwen_training_gate_config(
         "    resource_budgets:\n"
         f"      vision_patches: {int(bounded_vision_patches)}\n"
         if grouping == "bounded_cost"
-        else
-        "    buffer_size: 8\n"
+        else "    buffer_size: 8\n"
         "    cost_cache_size: 32\n"
         "    resource_budgets:\n"
         "      vision_patches: 1024\n"
@@ -256,9 +313,7 @@ def write_qwen_training_gate_config(
         else f"  resume_from_checkpoint: {resume_from_checkpoint}\n"
     )
     init_line = (
-        ""
-        if init_from_checkpoint is None
-        else f"  init_from_checkpoint: {init_from_checkpoint}\n"
+        "" if init_from_checkpoint is None else f"  init_from_checkpoint: {init_from_checkpoint}\n"
     )
     if finetune_mode == "full":
         finetune_lines = "    mode: full\n    target_modules: [auto]\n"
@@ -282,9 +337,7 @@ def write_qwen_training_gate_config(
         raise ValueError(f"Unsupported release-gate finetune mode: {finetune_mode!r}")
     normalized_precision = str(training_precision).strip().lower()
     if normalized_precision not in {"bf16", "fp16", "fp32"}:
-        raise ValueError(
-            "training_precision must be one of 'bf16', 'fp16', or 'fp32'."
-        )
+        raise ValueError("training_precision must be one of 'bf16', 'fp16', or 'fp32'.")
     bf16 = normalized_precision == "bf16"
     fp16 = normalized_precision == "fp16"
     if per_device_train_batch_size is None:
@@ -308,18 +361,10 @@ def write_qwen_training_gate_config(
         else "\n    auxiliary_loss_weights:\n"
         f"      router_aux_loss: {float(router_aux_loss_weight)}"
     )
-    warmup_line = (
-        ""
-        if warmup_ratio is None
-        else f"  warmup_ratio: {float(warmup_ratio)}\n"
-    )
+    warmup_line = "" if warmup_ratio is None else f"  warmup_ratio: {float(warmup_ratio)}\n"
     normalized_strategy = str(distributed_strategy).strip().lower()
     if normalized_strategy == "ddp":
-        distributed_lines = (
-            "    strategy: ddp\n"
-            "    ddp:\n"
-            "      static_graph: true\n"
-        )
+        distributed_lines = "    strategy: ddp\n    ddp:\n      static_graph: true\n"
     elif normalized_strategy == "fsdp":
         distributed_lines = (
             "    strategy: fsdp\n"
@@ -347,9 +392,7 @@ def write_qwen_training_gate_config(
             "          stage3_gather_16bit_weights_on_model_save: true\n"
         )
     else:
-        raise ValueError(
-            "distributed_strategy must be one of 'ddp', 'fsdp', or 'deepspeed'."
-        )
+        raise ValueError("distributed_strategy must be one of 'ddp', 'fsdp', or 'deepspeed'.")
     content = f"""experiment:
   name: {model_type}-{layout}-release-gate
   output_dir: {output_dir}
@@ -384,7 +427,7 @@ data:
     shuffle: true
   media_snapshot_id: qwen-training-release-gate-v1
   num_workers: {resolved_num_workers}
-  prefetch_factor: {2 if workers_enabled else 'null'}
+  prefetch_factor: {2 if workers_enabled else "null"}
   pin_memory: {str(not use_cpu).lower()}
   persistent_workers: {str(workers_enabled).lower()}
   min_pixels: {int(min_pixels)}

@@ -10,6 +10,14 @@ from .data import (
     PromptSamplingConfig,
 )
 from .model import FinetuneConfig, ModelConfig
+from .generation_backend import GRPOVLLMConfig, OPDVLLMConfig, VLLMGenerationBackendConfig
+from .opd import (
+    OPDConfig,
+    OPDObjectiveConfig,
+    OPDRemoteTeacherConfig,
+    OPDRolloutConfig,
+    OPDTeacherConfig,
+)
 from .runtime import RuntimeConfig
 from .training import (
     EvalConfig,
@@ -39,8 +47,15 @@ __all__ = [
     "FinetuneConfig",
     "GRPOConfig",
     "GRPORewardConfig",
+    "GRPOVLLMConfig",
     "LoggingConfig",
     "ModelConfig",
+    "OPDConfig",
+    "OPDObjectiveConfig",
+    "OPDRemoteTeacherConfig",
+    "OPDRolloutConfig",
+    "OPDTeacherConfig",
+    "OPDVLLMConfig",
     "PPOConfig",
     "PluginsConfig",
     "PromptSamplingConfig",
@@ -53,4 +68,5 @@ __all__ = [
     "TrainFSDPConfig",
     "TrainConfig",
     "TrainEfficiencyConfig",
+    "VLLMGenerationBackendConfig",
 ]

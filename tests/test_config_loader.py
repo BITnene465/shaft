@@ -238,7 +238,7 @@ data:
             "{Router_Aux_Loss: 0.1, router_aux_loss: 0.2}",
             "duplicate normalized term name",
         ),
-        ("dpo", "{router_aux_loss: 0.1}", "only supported.*algorithm.name='sft'"),
+        ("dpo", "{router_aux_loss: 0.1}", "not consumed.*auxiliary_loss_weights"),
     ],
 )
 def test_invalid_auxiliary_loss_weights_are_rejected(

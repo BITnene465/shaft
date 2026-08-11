@@ -106,7 +106,7 @@ def test_run_from_args_forced_algorithm() -> None:
     args = build_common_train_args()
     cfg = _valid_runtime_config()
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_sft", return_value={"train_loss": 0.1}) as mocked:
+        with patch("shaft.cli.common.run_training", return_value={"train_loss": 0.1}) as mocked:
             run_from_args(args, forced_algorithm="sft")
     assert cfg.algorithm.name == "sft"
     mocked.assert_called_once()
@@ -119,7 +119,7 @@ def test_run_from_args_resolves_one_run_id_for_logging_and_pipeline() -> None:
     cfg.experiment.run_id = None
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.configure_logging") as mocked_logging:
-            with patch("shaft.cli.common.run_sft", return_value={}):
+            with patch("shaft.cli.common.run_training", return_value={}):
                 run_from_args(args, forced_algorithm="sft")
 
     assert cfg.experiment.run_id == "canonical-run"
@@ -135,7 +135,7 @@ def test_run_from_args_allowed_algorithms() -> None:
     cfg.data.datasets[0].source_type = "jsonl_ppo"
     cfg.train.save_strategy = "no"
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
+        with patch("shaft.cli.common.run_training", return_value={}) as mocked:
             run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})
     assert cfg.algorithm.name == "ppo"
     mocked.assert_called_once()
@@ -146,7 +146,7 @@ def test_run_from_args_supports_grpo() -> None:
     cfg = _valid_runtime_config()
     cfg.eval.enabled = False
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
+        with patch("shaft.cli.common.run_training", return_value={}) as mocked:
             run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})
     assert cfg.algorithm.name == "grpo"
     mocked.assert_called_once()
@@ -166,7 +166,7 @@ def test_run_from_args_revalidates_bounded_duration_override() -> None:
     _enable_bounded_batching(config)
 
     with patch("shaft.cli.common.load_config", return_value=config):
-        with patch("shaft.cli.common.run_sft") as run_sft:
+        with patch("shaft.cli.common.run_training") as run_sft:
             with pytest.raises(ValueError, match="requires train.duration.unit='steps'"):
                 run_from_args(args, forced_algorithm="sft")
 
@@ -181,7 +181,7 @@ def test_run_from_args_revalidates_schedule_mixing_override() -> None:
     config.data.schedule.shuffle = False
 
     with patch("shaft.cli.common.load_config", return_value=config):
-        with patch("shaft.cli.common.run_sft") as run_sft:
+        with patch("shaft.cli.common.run_training") as run_sft:
             with pytest.raises(ValueError, match="requires data.schedule.shuffle=true"):
                 run_from_args(args, forced_algorithm="sft")
 

@@ -141,6 +141,11 @@ device map 时，`HFLocalInferAdapter` 不再把模型整体 `.to(device)` 到�
   `backend_options.chat_template_kwargs` 覆盖。
 - `configs/infer/qwen36_vllm_example.yaml` 提供了最小 Qwen3.6 vLLM OpenAI 示例。vLLM 服务本身
   仍需以支持 `qwen3_5` 架构的 Transformers / vLLM 环境启动。
+- Shaft 当前不支持 Qwen3.5/3.6 MTP。通过 Shaft SFT/merge 生成的权重不保证包含 `mtp.*` draft head，
+  即使 `config.json` 仍有 `mtp_num_hidden_layers` 也不能启用 vLLM/SGLang MTP speculative decoding。
+  `VLLM_EXTRA_ARGS` 是通用后端逃生口，不代表其中的 speculative 参数进入 Shaft 支持合同；当前业务镜像和
+  `shaft-contract-smoke` 只验收标准 target-model decode。官方原始权重在外部服务中启用 MTP 属于后端自有
+  能力，不得把结果外推到 Shaft 训练产物。
 - 当前标准推理环境以 `uv.lock` 为准，已经验证到 `vllm==0.19.1` 与
   `transformers==5.10.1`。业务推理应优先使用 `docker/inference/` 中的镜像构建入口，或用
   同一份 lock 构建等价环境。

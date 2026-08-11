@@ -13,6 +13,7 @@ from shaft.codec.coordinates import quantize_qwen_bbox, quantize_qwen_point
 
 
 SCRIPT = Path("scripts/tasks/build_context_reconstruction_sft.py")
+REAL_POINT_SELECTION_SCRIPT = Path("scripts/tasks/prepare_real_line_context_points.py")
 
 
 def _load_module():
@@ -127,6 +128,69 @@ def test_context_view_is_deterministic_asymmetric_and_contains_gt() -> None:
     assert 0.0 < first.proposal_iou <= 1.0
     width, height = right - left, bottom - top
     assert max(width / height, height / width) <= 60.0
+
+
+def test_line_parameters_remove_duplicates_created_by_qwen_quantization() -> None:
+    module = _load_module()
+    parameters = {
+        "is_single": True,
+        "points": [[[10.0, 10.0], [10.01, 10.01], [90.0, 90.0]]],
+    }
+
+    converted = module._line_parameters(
+        parameters,
+        left=0,
+        top=0,
+        crop_width=100,
+        crop_height=100,
+    )
+
+    assert converted["points"] == [[[101, 101], [908, 908]]]
+
+
+def test_card_split_corners_use_the_context_crop_coordinate_space() -> None:
+    module = _load_module()
+    parameters = {
+        "shape_type": "card",
+        "corners": [
+            {"type": "sharp", "point": [20, 30]},
+            {"type": "sharp", "point": [120, 30]},
+            {"type": "sharp", "point": [120, 90]},
+            {"type": "sharp", "point": [20, 90]},
+        ],
+        "splits": [
+            {
+                "type": "uniform",
+                "style": "solid",
+                "color": "#112233",
+                "split_corners": [
+                    {"type": "sharp", "point": [20, 50]},
+                    {"type": "sharp", "point": [120, 50]},
+                ],
+            }
+        ],
+    }
+
+    converted = module._shape_parameters(
+        parameters,
+        left=10,
+        top=20,
+        crop_width=200,
+        crop_height=100,
+    )
+
+    assert converted["splits"][0]["split_corners"][0]["point"] == quantize_qwen_point(
+        [10, 30], width=200, height=100
+    )
+    assert converted["splits"][0]["split_corners"][1]["point"] == quantize_qwen_point(
+        [110, 30], width=200, height=100
+    )
+    assert module._geometry_bbox("shape", (20, 30, 120, 90), parameters) == (
+        20,
+        30,
+        120,
+        90,
+    )
 
 
 def test_zero_limit_is_rejected_before_output_creation(tmp_path: Path) -> None:
@@ -766,6 +830,189 @@ def test_builds_archived_line_context_point_subset_from_clean_full_image(
     for segment_count in (2, 3, 4):
         assert summary["counts"][f"synthetic_multi_selected_segments_{segment_count}"] == 1
     assert summary["counts"]["synthetic_multi_rejected_single"] == 1
+
+    synthetic_only_root = tmp_path / "synthetic_only"
+    _run_builder(
+        "--synthetic-root",
+        str(synthetic_root),
+        "--output-root",
+        str(synthetic_only_root),
+        "--line-point-synthetic-selection",
+        str(synthetic_selection),
+        "--line-point-synthetic-limit",
+        "3",
+        "--line-point-synthetic-only",
+        "--line-point-prompt-pool",
+        str(prompt),
+        "--exclude-manifest",
+        str(excluded),
+        "--tasks",
+        "line_context_points",
+        "--workers",
+        "1",
+        "--clean",
+    )
+    synthetic_only_rows = [
+        json.loads(line)
+        for line in (
+            synthetic_only_root / "line_context_points/sft/train.jsonl"
+        ).read_text().splitlines()
+    ]
+    assert len(synthetic_only_rows) == 3
+    assert all(
+        row["extra"]["source_type"] == "synthetic_gt_standard_context_points"
+        for row in synthetic_only_rows
+    )
+
+
+def test_real_line_point_selection_and_context_build_keep_every_nonempty_line(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "raw"
+    (raw_root / "json").mkdir(parents=True)
+    (raw_root / "images").mkdir()
+    (raw_root / "splits").mkdir()
+    Image.new("RGB", (120, 80), "white").save(raw_root / "images/source.png")
+    (raw_root / "json/source.json").write_text(
+        json.dumps(
+            {
+                "size": [120, 80],
+                "layout": [
+                    {
+                        "type": "line",
+                        "bbox": [10, 10, 100, 60],
+                        "parameters": {
+                            "points": [[[10, 10], [10, 10], [60, 30], [100, 60]]]
+                        },
+                    },
+                    {
+                        "type": "line",
+                        "bbox": [20, 20, 40, 40],
+                        "parameters": {"points": []},
+                    },
+                    {"type": "shape", "bbox": [1, 1, 5, 5]},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    train_split = raw_root / "splits/train.txt"
+    train_split.write_text("json/source.json\n", encoding="utf-8")
+    real_selection = tmp_path / "real_points/train.jsonl"
+    subprocess.run(
+        [
+            sys.executable,
+            str(REAL_POINT_SELECTION_SCRIPT),
+            "--raw-root",
+            str(raw_root),
+            "--train-split",
+            str(train_split),
+            "--output",
+            str(real_selection),
+            "--workers",
+            "1",
+        ],
+        cwd=Path.cwd(),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    selection_rows = [json.loads(line) for line in real_selection.read_text().splitlines()]
+    assert len(selection_rows) == 1
+    assert selection_rows[0]["sample_id"] == "real__source__line_00000"
+    assert selection_rows[0]["instances"] == [
+        {"label": "line", "bbox": [10.0, 10.0, 100.0, 60.0]}
+    ]
+    selection_summary = json.loads(
+        real_selection.with_name("build_summary.json").read_text(encoding="utf-8")
+    )
+    assert selection_summary["counts"]["selected_nonempty_line"] == 1
+    assert selection_summary["counts"]["skipped_empty_points"] == 1
+    assert selection_summary["counts"]["consecutive_duplicate_points"] == 1
+
+    synthetic_root = tmp_path / "synthetic"
+    (synthetic_root / "gt_standard").mkdir(parents=True)
+    (synthetic_root / "img").mkdir()
+    Image.new("RGB", (120, 80), "white").save(synthetic_root / "img/fork.png")
+    synthetic_bbox = [20, 20, 100, 70]
+    (synthetic_root / "gt_standard/fork.json").write_text(
+        json.dumps(
+            {
+                "size": [120, 80],
+                "layout": [
+                    {
+                        "type": "line",
+                        "bbox": synthetic_bbox,
+                        "parameters": {
+                            "is_single": False,
+                            "points": [
+                                [[20, 40], [60, 40], [100, 20]],
+                                [[60, 40], [100, 70]],
+                            ],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    synthetic_selection = tmp_path / "synthetic_points.jsonl"
+    _write_selection(
+        synthetic_selection,
+        sample_id="fork__line_0000",
+        label="line",
+        bbox=synthetic_bbox,
+        source_json="gt_standard/fork.json",
+        source_image="img/fork.png",
+        instance_index=0,
+    )
+    prompt = tmp_path / "line_context_points.yaml"
+    _write_prompt(prompt, task="line_context_points", label="line")
+    excluded = tmp_path / "test.json"
+    excluded.write_text(json.dumps({"items": []}), encoding="utf-8")
+    output_root = tmp_path / "output"
+    _run_builder(
+        "--raw-root",
+        str(raw_root),
+        "--synthetic-root",
+        str(synthetic_root),
+        "--output-root",
+        str(output_root),
+        "--line-point-real-selection",
+        str(real_selection),
+        "--line-point-synthetic-selection",
+        str(synthetic_selection),
+        "--line-point-synthetic-limit",
+        "1",
+        "--line-point-prompt-pool",
+        str(prompt),
+        "--exclude-manifest",
+        str(excluded),
+        "--tasks",
+        "line_context_points",
+        "--workers",
+        "1",
+        "--clean",
+    )
+    sft_rows = [
+        json.loads(line)
+        for line in (output_root / "line_context_points/sft/train.jsonl").read_text().splitlines()
+    ]
+    assert len(sft_rows) == 2
+    by_source_type = {row["extra"]["source_type"]: row for row in sft_rows}
+    real_row = by_source_type["human_real_context_points"]
+    real_target = json.loads(real_row["target_text"])
+    assert set(real_target["parameters"]) == {"is_single", "points"}
+    assert real_target["parameters"]["is_single"] is True
+    assert len(real_target["parameters"]["points"][0]) == 3
+    assert by_source_type["synthetic_gt_standard_context_points"]
+    assert not (output_root / "line_context_points/sft/val.jsonl").read_text()
+    summary = json.loads(
+        (output_root / "line_context_points/build_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["counts"]["selection_source_real_point"] == 1
+    assert summary["counts"]["selection_source_synthetic_point_multi"] == 1
+    assert summary["counts"]["real_consecutive_duplicate_points_removed"] == 1
 
 
 def test_worker_failure_keeps_previous_task_and_removes_staging(tmp_path: Path) -> None:

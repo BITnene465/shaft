@@ -11,13 +11,15 @@ from .batching import ShaftCollatedBatchStats, ShaftVarlenBatchLayout
 from shaft.model import ShaftModelAdapter, ShaftProcessedBatch, ShaftProcessorTokenLayout
 from shaft.template import (
     ShaftChatRenderer,
+    ShaftTemplatePromptPlan,
+    ShaftTemplatePromptRow,
     ShaftTemplateSupervisedRow,
     ShaftTemplateSupervisionPlan,
     Template,
 )
 
 
-class _ShaftSequenceCollatorBase:
+class ShaftSequenceCollatorBase:
     DEFAULT_INPUT_MODE = "training"
 
     def __init__(
@@ -150,20 +152,22 @@ class _ShaftSequenceCollatorBase:
     def _build_prefix_token_layouts(
         self,
         *,
-        plans: list[ShaftTemplateSupervisionPlan],
+        plans: list[ShaftTemplatePromptPlan | ShaftTemplateSupervisionPlan],
         processed_batch: ShaftProcessedBatch,
+        max_length: int | None = None,
     ) -> list[ShaftProcessorTokenLayout | None]:
+        resolved_max_length = self.max_length if max_length is None else int(max_length)
         layouts: list[ShaftProcessorTokenLayout | None] = []
         for row_index, plan in enumerate(plans):
             prefix_length = int(
                 processed_batch.model_inputs["attention_mask"][row_index].sum().item()
             )
             needs_truncation_layout = bool(
-                self.max_length is not None
-                and prefix_length >= int(self.max_length)
+                resolved_max_length is not None
+                and prefix_length >= int(resolved_max_length)
                 and plan.truncatable_prefix_spans
             )
-            if not plan.trainable_prefix_spans and not needs_truncation_layout:
+            if not getattr(plan, "trainable_prefix_spans", ()) and not needs_truncation_layout:
                 layouts.append(None)
                 continue
             layouts.append(
@@ -175,8 +179,32 @@ class _ShaftSequenceCollatorBase:
             )
         return layouts
 
+    @staticmethod
+    def _build_processor_sequence_rows(
+        *,
+        processed_batch: ShaftProcessedBatch,
+        rows: list[ShaftTemplatePromptRow | ShaftTemplateSupervisedRow],
+        processor_row_indices: tuple[int, ...],
+    ) -> list[dict[str, torch.Tensor]]:
+        if len(rows) != len(processor_row_indices):
+            raise ValueError("Processor row indices must align with template rows.")
+        output: list[dict[str, torch.Tensor]] = []
+        for row, processor_row_index in zip(rows, processor_row_indices, strict=True):
+            prefix_length = len(row.processed_prefix_indices)
+            continuation_length = int(row.input_ids.shape[0]) - prefix_length
+            if continuation_length < 0:
+                raise ValueError("Template row is shorter than its retained processor prefix.")
+            output.append(
+                processed_batch.build_processor_sequence_row(
+                    row_index=processor_row_index,
+                    prefix_indices=row.processed_prefix_indices,
+                    continuation_length=continuation_length,
+                )
+            )
+        return output
 
-class SFTCollator(_ShaftSequenceCollatorBase):
+
+class SFTCollator(ShaftSequenceCollatorBase):
     SHAFT_INPUT_POLICY_VERSION = "shaft-sft-collator-input-v3-structured-truncation"
 
     def __init__(
@@ -281,16 +309,27 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         ]
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
+        processor_sequence_rows = self._build_processor_sequence_rows(
+            processed_batch=processed_batch,
+            rows=rows,
+            processor_row_indices=tuple(range(len(rows))),
+        )
         varlen_plan = None
         if self.layout == "varlen":
             sequence_inputs, varlen_plan = ShaftVarlenBatchLayout.build(
                 contexts=[item.get("_batch_context") for item in batch],
                 input_ids=[row.input_ids for row in rows],
                 labels=[row.labels for row in rows],
-                mm_token_type_ids=[row.mm_token_type_ids for row in rows],
                 loss_scales=[row.loss_scale for row in rows],
                 ignore_index=self.ignore_index,
                 max_sequence_length=self.max_length,
+            )
+            sequence_inputs.update(
+                processed_batch.collate_processor_sequence_rows(
+                    processor_sequence_rows,
+                    layout="varlen",
+                    padding_side=self.padding_side,
+                )
             )
         else:
             sequence_inputs = {
@@ -307,16 +346,6 @@ class SFTCollator(_ShaftSequenceCollatorBase):
                     padding_value=self.ignore_index,
                 ),
             }
-            mm_rows = [
-                row.mm_token_type_ids
-                for row in rows
-                if row.mm_token_type_ids is not None
-            ]
-            if mm_rows:
-                sequence_inputs["mm_token_type_ids"] = self._pad_sequences(
-                    mm_rows,
-                    padding_value=0,
-                )
             loss_scale_rows = [
                 row.loss_scale for row in rows if row.loss_scale is not None
             ]
@@ -325,6 +354,13 @@ class SFTCollator(_ShaftSequenceCollatorBase):
                     loss_scale_rows,
                     padding_value=0,
                 ).to(dtype=torch.float32)
+            sequence_inputs.update(
+                processed_batch.collate_processor_sequence_rows(
+                    processor_sequence_rows,
+                    layout="padded",
+                    padding_side=self.padding_side,
+                )
+            )
         out = self.model_adapter.assemble_processor_training_inputs(
             processed_batch=processed_batch,
             sequence_inputs=sequence_inputs,
@@ -358,7 +394,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         return out
 
 
-class DPOCollator(_ShaftSequenceCollatorBase):
+class DPOCollator(ShaftSequenceCollatorBase):
     SHAFT_INPUT_POLICY_VERSION = "shaft-dpo-collator-input-v3-structured-truncation"
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
@@ -435,21 +471,28 @@ class DPOCollator(_ShaftSequenceCollatorBase):
                 padding_value=0,
             ),
         }
-        chosen_mm_rows = [row.mm_token_type_ids for row in chosen_rows if row.mm_token_type_ids is not None]
-        rejected_mm_rows = [row.mm_token_type_ids for row in rejected_rows if row.mm_token_type_ids is not None]
-        if chosen_mm_rows and rejected_mm_rows:
-            sequence_inputs["mm_token_type_ids"] = self._pad_sequences(
-                [*chosen_mm_rows, *rejected_mm_rows],
-                padding_value=0,
+        ordered_rows = [*chosen_rows, *rejected_rows]
+        processor_row_indices = tuple(range(len(batch))) * 2
+        processor_sequence_rows = self._build_processor_sequence_rows(
+            processed_batch=processed_batch,
+            rows=ordered_rows,
+            processor_row_indices=processor_row_indices,
+        )
+        sequence_inputs.update(
+            processed_batch.collate_processor_sequence_rows(
+                processor_sequence_rows,
+                layout="padded",
+                padding_side=self.padding_side,
             )
+        )
         return self.model_adapter.assemble_processor_training_inputs(
             processed_batch=processed_batch,
             sequence_inputs=sequence_inputs,
-            row_indices=tuple(range(len(batch))) * 2,
+            row_indices=processor_row_indices,
         )
 
 
-class PPOCollator(_ShaftSequenceCollatorBase):
+class PPOCollator(ShaftSequenceCollatorBase):
     SHAFT_INPUT_POLICY_VERSION = "shaft-ppo-collator-input-v1"
 
     # PPO batches are rollout prompts consumed by decoder-only generation, even

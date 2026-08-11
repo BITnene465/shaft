@@ -11,7 +11,7 @@ import torch
 
 from shaft.algorithms.grpo_rewards import GRPO_REWARD_REGISTRY
 from shaft.config import EvalDatasetPolicyConfig, load_config
-from shaft.pipeline import run_rlhf
+from shaft.pipeline import run_rl
 from shaft.training import (
     ShaftDPOTrainer,
     ShaftGRPOTrainer,
@@ -50,12 +50,12 @@ if not GRPO_REWARD_REGISTRY.has(_GRPO_SMOKE_REWARD_NAME):
     )
 
 
-def test_run_rlhf_dpo_smoke(tmp_path: Path) -> None:
+def test_run_rl_dpo_smoke(tmp_path: Path) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     cfg.train.save_strategy = "steps"
     cfg.train.save_steps = 1
     cfg.train.save_total_limit = 1
-    metrics = run_rlhf(cfg)
+    metrics = run_rl(cfg)
     assert "train_loss" in metrics
     checkpoint = Path(cfg.experiment.output_dir) / "checkpoint-1"
     validate_training_checkpoint_commit(checkpoint)
@@ -72,7 +72,7 @@ def test_run_rlhf_dpo_smoke(tmp_path: Path) -> None:
     ) == str(checkpoint)
 
 
-def test_run_rlhf_dpo_weighted_exact_resume_matches_uninterrupted(
+def test_run_rl_dpo_weighted_exact_resume_matches_uninterrupted(
     tmp_path: Path,
 ) -> None:
     config_path = _write_dpo_config(tmp_path)
@@ -81,7 +81,7 @@ def test_run_rlhf_dpo_weighted_exact_resume_matches_uninterrupted(
     cfg.train.save_strategy = "steps"
     cfg.train.save_steps = 1
     cfg.train.save_total_limit = 2
-    run_rlhf(cfg)
+    run_rl(cfg)
 
     uninterrupted_output = Path(cfg.experiment.output_dir)
     checkpoint_one = uninterrupted_output / "checkpoint-1"
@@ -96,14 +96,14 @@ def test_run_rlhf_dpo_weighted_exact_resume_matches_uninterrupted(
     resumed.train.save_steps = 1
     resumed.train.save_total_limit = 2
     resumed.train.resume_from_checkpoint = str(checkpoint_one)
-    run_rlhf(resumed)
+    run_rl(resumed)
 
     actual_final = Path(resumed.experiment.output_dir) / "checkpoint-2"
     validate_training_checkpoint_commit(actual_final)
     _assert_checkpoint_training_state_equal(expected_final, actual_final)
 
 
-def test_run_rlhf_dpo_eval_uses_distinct_eval_collator(tmp_path: Path) -> None:
+def test_run_rl_dpo_eval_uses_distinct_eval_collator(tmp_path: Path) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     cfg.eval.enabled = True
     cfg.eval.eval_strategy = "steps"
@@ -123,7 +123,7 @@ def test_run_rlhf_dpo_eval_uses_distinct_eval_collator(tmp_path: Path) -> None:
         return original_get_eval_dataloader(self, eval_dataset)
 
     with patch.object(ShaftDPOTrainer, "get_eval_dataloader", _capture_eval_collator):
-        metrics = run_rlhf(cfg)
+        metrics = run_rl(cfg)
 
     assert "train_loss" in metrics
     assert captured["train_collator"] is not captured["eval_collator"]
@@ -134,7 +134,7 @@ def test_run_rlhf_dpo_eval_uses_distinct_eval_collator(tmp_path: Path) -> None:
     assert captured["eval_collator"]._resolve_pixel_budget(["dpo_ds"]) == (300, 3000)
 
 
-def test_run_rlhf_ppo_smoke(tmp_path: Path) -> None:
+def test_run_rl_ppo_smoke(tmp_path: Path) -> None:
     cfg = load_config(_write_ppo_config(tmp_path))
     cfg.eval.enabled = True
     captured: dict[str, object] = {}
@@ -146,9 +146,9 @@ def test_run_rlhf_ppo_smoke(tmp_path: Path) -> None:
         captured["collator_padding_side"] = self.data_collator.padding_side
         return original_train(self, *args, **kwargs)
 
-    with patch("shaft.pipeline.rlhf.resolve_eval_input_policy") as resolve_eval_policy:
+    with patch("shaft.rl.common.resolve_eval_input_policy") as resolve_eval_policy:
         with patch.object(ShaftPPOTrainer, "train", _capture_duration):
-            metrics = run_rlhf(cfg)
+            metrics = run_rl(cfg)
     assert "episode" in metrics
     assert "objective/rlhf_reward" in metrics
     assert captured["num_total_batches"] == int(cfg.train.duration.value)
@@ -160,33 +160,33 @@ def test_run_rlhf_ppo_smoke(tmp_path: Path) -> None:
     resolve_eval_policy.assert_not_called()
 
 
-def test_run_rlhf_ppo_rejects_resume_before_checkpoint_resolution(
+def test_run_rl_ppo_rejects_resume_before_checkpoint_resolution(
     tmp_path: Path,
 ) -> None:
     cfg = load_config(_write_ppo_config(tmp_path))
     cfg.train.resume_from_checkpoint = str(tmp_path / "does-not-exist")
 
     with pytest.raises(ValueError, match="PPOTrainer does not support resume"):
-        run_rlhf(cfg)
+        run_rl(cfg)
 
 
-def test_run_rlhf_ppo_rejects_periodic_checkpoint_save(tmp_path: Path) -> None:
+def test_run_rl_ppo_rejects_periodic_checkpoint_save(tmp_path: Path) -> None:
     cfg = load_config(_write_ppo_config(tmp_path))
     cfg.train.save_strategy = "steps"
     cfg.train.save_steps = 1
 
     with pytest.raises(ValueError, match="does not publish resumable training checkpoints"):
-        run_rlhf(cfg)
+        run_rl(cfg)
 
 
-def test_run_rlhf_grpo_smoke(tmp_path: Path) -> None:
+def test_run_rl_grpo_smoke(tmp_path: Path) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
     with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
-        metrics = run_rlhf(cfg)
+        metrics = run_rl(cfg)
     assert "train_loss" in metrics
 
 
-def test_run_rlhf_grpo_publishes_checkpoint_commit(tmp_path: Path) -> None:
+def test_run_rl_grpo_publishes_checkpoint_commit(tmp_path: Path) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
     cfg.train.save_strategy = "steps"
     cfg.train.save_steps = 2
@@ -205,7 +205,7 @@ def test_run_rlhf_grpo_publishes_checkpoint_commit(tmp_path: Path) -> None:
         return SimpleNamespace(metrics={"train_loss": 0.0})
 
     with patch.object(ShaftGRPOTrainer, "train", _save_only):
-        metrics = run_rlhf(cfg)
+        metrics = run_rl(cfg)
 
     checkpoint = Path(cfg.experiment.output_dir) / "checkpoint-2"
     assert metrics["train_loss"] == 0.0
@@ -223,7 +223,7 @@ def test_run_rlhf_grpo_publishes_checkpoint_commit(tmp_path: Path) -> None:
     ) == str(checkpoint)
 
 
-def test_run_rlhf_grpo_generation_safe_exact_resume_matches_uninterrupted(
+def test_run_rl_grpo_generation_safe_exact_resume_matches_uninterrupted(
     tmp_path: Path,
 ) -> None:
     config_path = _write_grpo_config(tmp_path, sample_count=4)
@@ -234,7 +234,7 @@ def test_run_rlhf_grpo_generation_safe_exact_resume_matches_uninterrupted(
     uninterrupted.train.save_steps = 2
     uninterrupted.train.save_total_limit = 2
     uninterrupted.rlhf.grpo.reward_functions[0].name = _GRPO_SMOKE_REWARD_NAME
-    run_rlhf(uninterrupted)
+    run_rl(uninterrupted)
 
     checkpoint_two = Path(uninterrupted.experiment.output_dir) / "checkpoint-2"
     expected_final = Path(uninterrupted.experiment.output_dir) / "checkpoint-4"
@@ -259,7 +259,7 @@ def test_run_rlhf_grpo_generation_safe_exact_resume_matches_uninterrupted(
     resumed.train.save_total_limit = 2
     resumed.train.resume_from_checkpoint = str(checkpoint_two)
     resumed.rlhf.grpo.reward_functions[0].name = _GRPO_SMOKE_REWARD_NAME
-    run_rlhf(resumed)
+    run_rl(resumed)
 
     actual_final = Path(resumed.experiment.output_dir) / "checkpoint-4"
     validate_training_checkpoint_commit(actual_final)
