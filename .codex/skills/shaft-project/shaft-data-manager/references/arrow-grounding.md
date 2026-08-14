@@ -1,83 +1,55 @@
-# Arrow Grounding
+# Line Geometry and Legacy Arrow Imports
 
-Use this for arrow raw layers inside unified `raw_data` when deriving the unified `grounding`
-task and the `point_arrow` task.
+Use this reference when line/arrow annotations are imported or when v5.7 `line_context_points` is
+rebuilt. The maintained model-facing label is `line`; there is no current `point_arrow` dataset or
+`arrow` output label.
 
-## Raw Schema
+## Active Compact Source
 
-Current unified raw arrow annotations live in `data/raw_data/part1/json` entries whose
-`annotation.layers` include `arrow`. Arrow instances use:
+The current human truth is `data/raw/json`:
 
-- each instance has `label: "arrow"`
-- `bbox` stores the two-corner detection box `[x1, y1, x2, y2]`
-- `linestrip` stores the route/keypoint path in source order
-- `subattr` stores normalized arrow attributes
-- `extra` stores source-specific details
+- line item: `layout[].type == "line"`;
+- bbox: `layout[].bbox` in source-image boundary coordinates;
+- ordered path: optional non-empty `layout[].parameters.points`;
+- decoded image size must equal top-level `size`.
 
-Do not maintain arrows as separate LabelMe bbox/path shapes connected by `group_id`. The bbox
-and optional path belong in the same arrow instance. Bbox-only annotations are valid and should
-use an empty `linestrip`.
+Grounding consumes only the line bbox. `line_context_points` consumes the ordered path but emits a
+strict target subset containing only `is_single + points`. Do not infer missing paths, style,
+color, or endpoint attributes.
 
-Do not keep live `points`, `shape_type`, or `group_id` fields on arrow instances. Source group
-ids can be kept under `extra.source_group_id` only as provenance.
+All non-empty train paths are selected by `scripts/tasks/prepare_real_line_context_points.py`,
+after excluding `data/raw/splits/vlm.test.json`. Preserve each instance identity and order. Adjacent
+duplicate source points and adjacent duplicates introduced by `0..999` quantization may be removed
+only in the derived target; the source instance stays intact.
 
-## Legacy Arrow Labels
+Same-label/same-bbox lines can encode different routes, crossings, or directions. Compare ordered
+points before any dedupe and never delete them by bbox alone.
 
-Old `c0-c7` bbox labels encode arrow attributes and must not be treated as disposable labels:
+## Normalized Imports
 
-| label | canonical | geometry | line_style | arrow_type |
-| --- | --- | --- | --- | --- |
-| c0 | Str-Sol-Single | straight | solid | single |
-| c1 | Str-Das-Single | straight | dashed | single |
-| c2 | Cur-Sol-Single | curved | solid | single |
-| c3 | Cur-Das-Single | curved | dashed | single |
-| c4 | Str-Sol-Double | straight | solid | double |
-| c5 | Str-Das-Double | straight | dashed | double |
-| c6 | Cur-Sol-Double | curved | solid | double |
-| c7 | Cur-Das-Double | curved | dashed | double |
+An importer may normalize legacy arrow/line annotations to an `instances` record before merging:
 
-Old `p*` labels are point annotations. Ignore the point label names, but preserve point coordinates
-in original JSON order as `linestrip`.
+- `label: line`;
+- positive two-corner `bbox`;
+- ordered `linestrip` when available;
+- optional exact-contract semantic attributes in `subattr`;
+- importer/provenance details in `extra`.
 
-Do not rebuild old arrow raw annotations from downstream `single_arrow` / `double_arrow` fields
-when original `c0-c7` labels are available; that loses geometry and line-style semantics.
+Do not keep importer-native LabelMe `points`, `shape_type`, `group_id`, or `flags` as parallel live
+fields. This normalized import contract does not authorize rewriting the active compact human
+batch; merge through an explicit reviewed conversion.
 
-## Connector Imports
+## v5.7 Derived Task
 
-New connector annotations are grouped LabelMe shapes. Convert a group into one arrow instance:
+`line_context_points` contains:
 
-- bbox from `rectangle` points when present
-- `linestrip` from `linestrip` or `point` shapes in original JSON order
-- no coordinate sorting for point-derived linestrips
-- `arrow_type=unknown` unless the source explicitly provides single/double directionality
+- 122,218 real compact-raw paths, all usable paths retained;
+- 15,000 audited v9 synthetic `is_single=false` multi-branch paths.
 
-Empty arrow layers can be kept as negative samples only when `annotation.layers` includes
-`arrow`, `annotation.status.arrow` is completed, and there are no arrow instances. If the
-`arrow` layer is missing, the image is unannotated for arrow and must not be used as a negative.
+Real contextual crops remain clean. Synthetic crops use `synthetic_realism_v1`. Both sources get a
+fresh proposal/context crop and crop-local Qwen coordinate transform. Synthetic single paths do
+not enter the supplement.
 
-## Derived Grounding Policy
-
-- Main target remains `label + bbox`.
-- Preserve `linestrip`, c0-c7 attributes, source group id, and original schema in `extra`.
-- Validation should stay full-image unless explicitly requested otherwise.
-- When deriving model-facing grounding rows, expose only `label + bbox` in `instances`; keep
-  route and style metadata in `extra`.
-
-## Derived Point Policy
-
-- `point_arrow` is a crop/point task over arrow instances with a valid `linestrip`.
-- Do not derive point rows from bbox-only arrows. Bbox-only arrows may still participate in
-  `grounding`.
-- Use `data/raw_data/splits/point_arrow_val.txt` for validation. For train, filter
-  `grounding_train.txt` to `part1` arrow instances with `linestrip` unless the user provides a
-  separate point train split.
-- The maintained point-arrow structured generator is
-  `scripts/tasks/build_point_arrow_structured.py`.
-- Current crop policy is one crop row per valid arrow instance, not base-plus-jitter. Train may
-  randomize padding deterministically from the source identity; validation should use a stable
-  padding policy.
-- Eval `point_arrow` must use the same crop-level validation rows as SFT validation. Do not
-  evaluate point-arrow on raw full images.
-- Do not double the point dataset with jitter variants unless the user explicitly changes the
-  sampling policy. If extra point augmentation is added later, it must keep crop-local `bbox` and
-  `linestrip` transformed exactly and must be documented in `data/point_arrow/README.md`.
+Validate source membership, ordered-point preservation, full bbox/path coverage by the crop,
+positive quantized paths, exact target keys, task-local media existence, unique sample ids, and
+one-to-one structured/SFT alignment.

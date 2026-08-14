@@ -10,6 +10,7 @@ uv venv --python 3.11 --prompt shaft
 source .venv/bin/activate
 uv pip install -e .
 python scripts/train.py sft --config configs/train/sft_4b.yaml
+python scripts/train.py sft --config configs/train/banana_sft_4b_v5_7.yaml
 ```
 
 按用途安装扩展依赖：
@@ -349,6 +350,7 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - [docs/architecture.md](docs/architecture.md)
 - [docs/module_reference.md](docs/module_reference.md)
 - [docs/config_reference.md](docs/config_reference.md)
+- [docs/data_v5_7.md](docs/data_v5_7.md)
 - [docs/extension_guide.md](docs/extension_guide.md)
 - [docs/testing.md](docs/testing.md)
 - [docs/infer.md](docs/infer.md)
@@ -365,13 +367,13 @@ uv run pytest -q
 主链 smoke：
 
 ```bash
-uv run pytest -q -m "smoke and not manual"
+uv run pytest -q tests --suite smoke
 ```
 
 只跑 integration：
 
 ```bash
-uv run pytest -q -m integration
+uv run pytest -q tests --suite integration
 ```
 
 只跑 manual：

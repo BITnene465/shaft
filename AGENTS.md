@@ -9,11 +9,8 @@ Shaft 仓库级开发规范。面向在本仓库内协作的工程师与编码�
 ### 1.1 项目定位
 
 - 仓库正在重构为一个 **HF-first 的多模态训练与推理框架**。
-- 当前主目标是把 **`Qwen3VL + SFT` 主链做稳**，同时保留面向：
-  - `DPO / PPO`
-  - 更多模型族（如 `GLM / Gemma / Rex-Omni`）
-  - 更多推理与导出后端
-  的标准扩展骨架。
+- 当前生产主线是 **Qwen 多模态 SFT**，已覆盖 `Qwen3VL` 与 HF `qwen3_5`/Qwen3.6 适配；
+  `DPO / PPO / GRPO / OPD` 按各自能力门禁维护，不把受限能力表述为全量生产支持。
 
 ### 1.2 开发范围
 
@@ -30,7 +27,7 @@ Shaft 仓库级开发规范。面向在本仓库内协作的工程师与编码�
   - 测试/验收要求
   - feature 完成后的收口规则
 - 但**主体框架边界不变**：
-  - `config / data / model / template / algorithms / pipeline / training / infer / codec / metrics / export / plugins / observability`
+  - `config / data / model / template / algorithms / rl / opd / pipeline / loss_scale / training / infer / codec / metrics / export / plugins / observability / cli`
   这些层级职责不能因为单次需求而漂移。
 - 如果用户需求与当前文档不一致，应优先：
   1. 判断是不是文档滞后
@@ -63,9 +60,15 @@ Shaft 仓库级开发规范。面向在本仓库内协作的工程师与编码�
 - `template`
   - 模板元信息、chat template、监督 plan、模型族模板实现
 - `algorithms`
-  - `sft / dpo / ppo` 等训练算法抽象
+  - `sft / dpo / ppo / grpo` 等训练算法抽象
+- `rl`
+  - `dpo / ppo / grpo` runtime 与 registry；算法差异不进入公共 RL pipeline
+- `opd`
+  - on-policy distillation 的 data、rollout、teacher、objective、trainer 与 resume policy
 - `pipeline`
   - 训练流水线编排、组件装配、阶段调度
+- `loss_scale`
+  - token/sample loss 权重策略与注册表
 - `training`
   - trainer、optimizer、scheduler、loss、checkpoint 规则
 - `infer`
@@ -80,6 +83,8 @@ Shaft 仓库级开发规范。面向在本仓库内协作的工程师与编码�
   - 注册表、hook、interceptor
 - `observability`
   - logging、context、events
+- `cli`
+  - `sft / rl / opd / infer / export` 命令解析与薄入口编排
 
 ### 2.2 禁止事项
 

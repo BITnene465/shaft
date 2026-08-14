@@ -5,11 +5,51 @@ from pathlib import Path
 
 import pytest
 
-from shaft.config import RuntimeConfig, TrainDDPConfig, TrainDistributedConfig
+from shaft.config import RuntimeConfig, TrainDDPConfig, TrainDistributedConfig, load_config
+from shaft.prompting import load_prompt_pool
 from tests.support.configs import load_config_from_yaml
 
 
 pytestmark = pytest.mark.component
+
+
+V5_7_DATASETS = (
+    "grounding_layout",
+    "shape_context_reconstruction",
+    "line_context_reconstruction",
+    "line_context_points",
+    "image_context_reconstruction",
+)
+V5_7_CONFIGS = (
+    "banana_sft_4b_v5_7.yaml",
+    "banana_sft_4b_v5_7_trial.yaml",
+    "banana_sft_27b_qwen36_v5_7_full_zero3.yaml",
+    "banana_sft_27b_qwen36_v5_7_lora.yaml",
+    "banana_sft_27b_qwen36_v5_7_qlora.yaml",
+    "banana_sft_27b_qwen36_v5_7_re_full_zero3.yaml",
+)
+
+
+@pytest.mark.parametrize("filename", V5_7_CONFIGS)
+def test_v5_7_training_configs_resolve_complete_dataset_and_prompt_contracts(
+    filename: str,
+) -> None:
+    config = load_config(Path("configs/train") / filename)
+
+    assert tuple(dataset.dataset_name for dataset in config.data.datasets) == V5_7_DATASETS
+    assert tuple(config.data.catalog_names) == V5_7_DATASETS
+    assert set(config.data.transforms.prompt_sampling.pools) == set(V5_7_DATASETS)
+    assert all(not dataset.use_for_eval for dataset in config.data.datasets)
+    assert config.eval.enabled is False
+    assert config.data.media_snapshot_id == "banana-v5.7-media-v2"
+
+    for dataset_name, prompt_path in config.data.transforms.prompt_sampling.pools.items():
+        variants = load_prompt_pool(prompt_path)
+        assert variants
+        expected_version = (
+            "v5.3" if dataset_name == "image_context_reconstruction" else "v5.7"
+        )
+        assert {variant.version for variant in variants} == {expected_version}
 
 
 def test_load_minimal_config(tmp_path: Path) -> None:

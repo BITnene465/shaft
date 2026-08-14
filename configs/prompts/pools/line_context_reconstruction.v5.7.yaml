@@ -1,0 +1,61 @@
+metadata:
+  id: shaft.line_context_reconstruction.prompt_pool.v5.7
+  version: v5.7
+  name: v5.7 synthetic line contextual reconstruction prompt pool
+  task: line_context_reconstruction
+  subtask: line_context_reconstruction
+  target_labels: [line]
+
+arguments:
+  proposal_bbox_2d:
+    type: bbox_2d_0_999
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments, explanations,
+      or surrounding text.
+    user_prompt_template: |
+      Reconstruct the target line or arrow approximately selected by proposal bbox
+      {{ proposal_bbox_2d | json }}. The proposal may be loose or shifted. Follow the complete
+      visible target, ignore nearby objects and independent lines, and do not trace the proposal.
+
+      Return exactly one {"type":"line","parameters":{...}} object with required fields:
+      - line_type: straight|curved; line_style: path|shape; is_single: true|false.
+      - points: a list of ordered center-path segments.
+      - begin_arrow/end_arrow: none|line|stealth|triangle|pointy|tee|circle.
+      - dash_style: solid|dash.
+      - fill: {"type":"uniform","color":"#RRGGBB"} or {"type":"complex"}.
+      - border: {"type":"none"} or
+        {"type":"uniform","style":"solid|dash","color":"#RRGGBB"}.
+      Add corner_style sharp|round only for a straight line with visible bends.
+
+      Use path for stroke-like lines and shape for filled arrows. Marker line is valid only for
+      path; pointy is valid only for shape. is_single is true when points has one path segment,
+      including a polyline with several bends; it is false only for one connected target represented
+      by multiple branch segments.
+
+      For a straight segment, record endpoints and actual bends. At each rounded bend, use one point
+      at the middle of the visible arc instead of the sharp intersection. Every curved segment has
+      exactly four points: start, one-third point, two-thirds point, end. Keep points on the visible
+      center path. For a one-way arrow, order the path from tail to arrowhead.
+
+      Proposal and output points use integer 0..999 coordinates normalized to the entire current
+      crop, never to the proposal bbox. Points may extend outside the proposal.
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with valid compact JSON only. No explanation.
+    user_prompt_template: |
+      For the actual target near approximate proposal bbox {{ proposal_bbox_2d | json }}, return:
+      {"type":"line","parameters":{"line_type":"straight|curved","line_style":"path|shape","is_single":true|false,"points":[[[x1,y1],[x2,y2]]],"dash_style":"solid|dash","begin_arrow":"none|line|stealth|triangle|pointy|tee|circle","end_arrow":"none|line|stealth|triangle|pointy|tee|circle","fill":{"type":"uniform|complex"},"border":{"type":"none|uniform"}}}
+
+      Uniform fill includes color. Uniform border includes style solid|dash and color. Add
+      corner_style only for a bent straight line. One points segment means is_single true; multiple
+      connected branch segments mean false. Curved segments use start, one-third, two-thirds, end.
+      Marker line is valid only for path; pointy is valid only for shape. Order a one-way arrow
+      from tail to arrowhead.
+      Select the visible line rather than the proposal. All points are full crop-local integer
+      0..999 coordinates.

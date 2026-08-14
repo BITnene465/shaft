@@ -1060,6 +1060,11 @@ def main() -> None:
     dataset_root = Path(args.dataset_root).resolve()
     output_root = Path(args.output_root).resolve()
     split_path = Path(args.split_file).resolve() if args.split_file else dataset_root / "train.txt"
+    val_path = dataset_root / "val.txt"
+    if val_path.is_file() and split_path != val_path.resolve():
+        overlap = sorted(set(_load_split(split_path)) & set(_load_split(val_path)))
+        if overlap:
+            parser.error(f"train/val source overlap: {overlap[:10]}")
     summary, valid_stems = audit_dataset(
         dataset_root=dataset_root,
         split_path=split_path,

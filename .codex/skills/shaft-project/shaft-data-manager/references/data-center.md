@@ -1,37 +1,36 @@
-# Data Catalog and Mixing
+# Data Catalog Preparation
 
-Use this when wiring prepared datasets into Shaft training configs from the data-management side.
-For framework implementation changes to `ShaftDataCenter`, registry behavior, or sampler/mixing
-code, use the separate `shaft-data-center` development skill.
+Use this only to register already prepared data in YAML. It does not authorize changes to
+`ShaftDataCenter`, source registries, samplers, batching, or mixing implementations; those changes
+must follow repository architecture, extension, testing, and feature-review rules.
 
-## Responsibilities
+## Catalog Rules
 
-`ShaftDataCenter` is the central path for:
+- Register production sources in a tracked `configs/data/*.yaml` catalog.
+- Use canonical task names and explicit `source_type`, train/val paths, weight, enabled state,
+  `use_for_eval`, help text, and tags.
+- Resolve paths relative to the catalog file and load the consuming training YAML through
+  `shaft.config.load_config` before publication.
+- Keep train-only and eval semantics explicit. Empty validation is valid only when documented and
+  paired with `use_for_eval: false` / disabled eval.
+- Weighted mixing affects draw probability, not dataset completeness. Review current row counts
+  and intended task importance before changing weights.
+- Every enabled runtime prompt-sampled dataset must have one exact dataset-name-to-pool mapping.
+- Change `media_snapshot_id` when the referenced media/JSONL snapshot changes materially.
+- Do not register an optional or unmaterialized dataset merely because a builder exists.
 
-- data source loading
-- offline transforms
-- sample-level mixing
-- dataset-aware online transforms
+## Banana v5.7
 
-Pipelines should call the data center rather than branching on data source names.
+`configs/data/banana_v5_7.yaml` has exactly five active datasets and is consumed by all six v5.7
+training YAMLs. Its names, weights, prompt pools, and row-count baseline are documented in
+`docs/data_v5_7.md`. `grounding_layout_sync` is not materialized or registered.
 
-## Config Guidance
+## Validation
 
-- Register datasets in `configs/data/*.yaml`.
-- Use explicit source entries in `data.datasets`.
-- Prefer `concat` for full sample coverage unless the user asks for balanced sampling.
-- Keep train-only and eval datasets semantically separate.
-- For `interleave_under`, calculate effective quotas with current row counts before training.
-  Dominant large datasets may be undersampled, while a small train-only task with too much weight
-  can cap the epoch and distort the intended mix.
-- Do not set `use_for_eval: true` for weak-label-only datasets unless the user explicitly wants a
-  weak validation experiment.
-
-## Tests
-
-When changing catalog or mixing behavior, update focused tests such as:
-
-- `tests/test_data_sources.py`
-- `tests/test_mixing.py`
-- `tests/test_data_center.py`
-- config loader tests that consume the new fields
+- Load every consuming config through the strict loader.
+- Verify every enabled JSONL and prompt pool exists and every prompt pool compiles.
+- Verify catalog names, prompt mappings, weights, train-only/eval flags, and media snapshot are
+  identical across the intended config family.
+- Separately verify model/checkpoint paths; schema-valid continuation configs can still be
+  non-runnable when their initialization checkpoint is absent.
+- Update `tests/test_config_loader.py` or a focused catalog test with the published bundle.

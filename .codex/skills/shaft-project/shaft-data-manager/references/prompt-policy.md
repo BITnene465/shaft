@@ -1,193 +1,94 @@
 # Prompt Policy
 
-Prompt configs are the source of truth for SFT conversion and eval prompt seeding. Keep them
-small, task-scoped, and model-output-oriented.
+Prompt pools are versioned runtime contracts. They define task wording and output schema; they do
+not make old derived targets compatible. Rebuild or validate data before switching pools.
 
-## Current Prompt Files
+## Banana v5.7 Pools
 
-Historical v5.0 training/eval prompt pools:
+Every formal v5.7 training config maps exactly these datasets:
 
-- `configs/prompts/pools/grounding_layout.v5.0.yaml`
-- `configs/prompts/pools/point_line.v5.0.yaml`
+| dataset | pool |
+| --- | --- |
+| `grounding_layout` | `configs/prompts/pools/grounding_layout.v5.7.yaml` |
+| `shape_context_reconstruction` | `configs/prompts/pools/shape_context_reconstruction.v5.7.yaml` |
+| `line_context_reconstruction` | `configs/prompts/pools/line_context_reconstruction.v5.7.yaml` |
+| `line_context_points` | `configs/prompts/pools/line_context_points.v5.7.yaml` |
+| `image_context_reconstruction` | `configs/prompts/pools/image_context_reconstruction.v5.3.yaml` |
 
-Next v5.7 detection prompt pool:
+Image type intentionally retains v5.3 because its reviewed 13-class contract is unchanged. This
+is the only prompt-version exception in the v5.7 mix. `shape_context_attributes`, background,
+region reconstruction, `grounding_arrow`, and `point_arrow` are not formal v5.7 tasks.
 
-- `configs/prompts/pools/grounding_layout.v5.7.yaml`
+These production pools, the v5.7 data catalog, and all six v5.7 training YAMLs are tracked repo
+assets. Generated data remains ignored.
 
-Prepared v5.7 reconstruction prompt pools:
+## Pool Rules
 
-- `configs/prompts/pools/shape_context_reconstruction.v5.7.yaml`
-- `configs/prompts/pools/line_context_reconstruction.v5.7.yaml`
-- `configs/prompts/pools/line_context_points.v5.7.yaml`
+- One task owns one versioned pool with stable `metadata.id/version` and a canonical `main`
+  variant.
+- Variants may change wording only. Labels, exact output keys, coordinate frame, empty behavior,
+  and task semantics must stay identical.
+- Runtime prompt sampling is train-only. Generated SFT rows keep `system_prompt` and
+  `user_prompt` empty; every enabled dataset has an explicit pool mapping.
+- Parameterized variants declare pool-level argument schema. Structured `prompt_args` must pass
+  exact validation before SFT publication.
+- System prompts enforce compact valid JSON with no Markdown or prose. User prompts state the
+  exact task and minimal schema without adding unimplemented fields.
+- Rename/remove a pool only with synchronized builder, catalog/training YAML, tests, and docs.
 
-These pools define the next target contracts; creating them does not make old v5.3 JSONL targets
-compatible. Rebuild or explicitly migrate the corresponding derived data before enabling a v5.7
-pool in training.
+## Task Contracts
 
-Active business reconstruction prompt pools:
+### Grounding
 
-- `configs/prompts/pools/shape_region_reconstruction.v5.2.yaml`
-- `configs/prompts/pools/line_region_reconstruction.v5.2.yaml`
-- `configs/prompts/pools/image_region_reconstruction.v5.2.yaml`
-- `configs/prompts/pools/background.v5.0.yaml`
+Return a Qwen-style array:
 
-Active v5.3 training prompt pools:
+```json
+[{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+```
 
-- `configs/prompts/pools/grounding_layout.v5.3.yaml`
-- `configs/prompts/pools/shape_context_reconstruction.v5.3.yaml`
-- `configs/prompts/pools/shape_context_attributes.v5.3.yaml`
-- `configs/prompts/pools/line_context_reconstruction.v5.3.yaml`
-- `configs/prompts/pools/line_context_points.v5.3.yaml`
-- `configs/prompts/pools/image_context_reconstruction.v5.3.yaml`
+Coordinates are integer `0..999` over the full input image. Empty target is `[]`. The prompt must
+not request raw layer order; SFT uses the validated row-major canonical order
+`row_bucket(y1,20) -> x1 -> y1 -> -area -> x2 -> y2 -> label`. One connected branched line is
+one instance with a bbox covering its complete visible structure. Text-only regions and page
+background are excluded.
 
-The three context reconstruction pools use dynamic `proposal_bbox_2d` in crop-local Qwen `0..999`
-coordinates. The proposal is an approximate first-stage condition, not GT and not a bbox-local
-output frame. Their formal contextual-crop datasets were generated and validated on 2026-07-16.
+### Context reconstruction
 
-`shape_context_attributes` is a separate real-domain API weak-label task. It uses the same
-contextual crop and approximate `proposal_bbox_2d` input contract, but target parameters contain
-only shape type, border, fill, effect, and optional callout body type. It must never emit corners,
-body/tail geometry, bbox, or points. Its omission of geometry is task semantics, not a partial or
-malformed `shape_context_reconstruction` target.
+Shape, line, line-points, and image tasks consume a contextual crop and dynamic
+`proposal_bbox_2d`. The proposal is approximate, not ground truth and not a second output frame.
+Proposal and all target geometry use the same crop-local Qwen `0..999` coordinates; output may
+extend beyond the proposal.
 
-`line_context_points` is a separate geometry subset task combining every non-empty ordered line
-path from the active compact human raw split with a capped synthetic multi-segment supplement. It
-uses the same contextual crop and
-approximate `proposal_bbox_2d` contract, but its exact target is only
-`{"type":"line","parameters":{"is_single":...,"points":[...]}}`. It must not ask for or emit
-style, arrow endpoint, dash, color, border, confidence, or bbox fields outside the subset contract.
-Preserve source segment order and point order. Empty human points are not synthesized; consecutive
-duplicates may be removed without dropping the source instance.
-For directional arrows, the source contract is explicitly tail-to-arrowhead; every prompt
-variant must state that order because this subset omits separate begin/end arrow fields.
+Shape follows the v9 `gt_standard` DSL, including `card`, ordered fill regions/splits, nested
+`border`/`fill`, `effect`, clockwise corners, and callout geometry. It never emits a target bbox.
 
-The v5.3 grounding pool keeps the existing labels/schema but makes the line instance contract
-explicit: one connected multi-segment, forked, branched, or multi-way connector is one `line`
-instance with one bbox covering the complete connected structure. Only disconnected line objects
-use separate bboxes.
+Line follows the v9 DSL with nested `fill` and `border`; legacy flat color/border fields are not
+allowed. `points` preserves path and point order. A curved segment has exactly four sampled
+points under the source contract. It never emits a target bbox.
 
-The v5.7 grounding pool keeps the same four labels and Qwen bbox-list schema while aligning object
-boundaries with the 2026-07-25 human annotation guide. It excludes page background and text-only
-regions; defines shape/icon/image/line at the object level; requires full-image integer `0..999`
-coordinates and complete visible extents; keeps shape/image borders and card/container dividers
-inside their owning object; and preserves the v5.3 connected-line rule. The PDF's bottom-layer-first
-raw `layout` order is not a model-output requirement: current grounding SFT targets retain their
-validated row-major canonical order, so prompts must not request layer order.
+Line-points is an exact field subset:
 
-The v5.7 synthetic shape and line reconstruction pools follow the new `gt_standard` schema, not
-the broader real-image annotation value domain. Synthetic shape adds `card`, ordered per-region
-`fill`, and `splits`; uses `fill.type=uniform|complex` and `effect.type=none|exist`; and preserves
-the callout and clockwise-corner geometry rules. Synthetic line replaces legacy `fill_color` and
-`has_border/border_style/border_color` with required nested `fill` and `border` objects.
+```json
+{"type":"line","parameters":{"is_single":true,"points":[[[x1,y1],[x2,y2]]]}}
+```
 
-`shape_context_attributes` is not part of v5.7 training. Its v5.3 prompt and weak-label dataset are
-retained only as historical assets; do not migrate, rebuild, or register them in a v5.7 data mix.
-Real shape attributes in v5.7 come only through an explicitly accepted task added in a later
-revision, not by pairing the historical weak targets with a new prompt.
+Only `is_single + points` are allowed. Do not request style, fill, border, color, endpoint markers,
+confidence, or bbox. Multiple inner arrays represent connected branches, not independent objects.
 
-These v5.3 prompt pools are local run assets and remain ignored under the repository's current
-config policy. Maintained builders may use their conventional paths as local defaults, but tracked
-tests must provide minimal temporary prompt fixtures and must not assume those files exist in a
-clean checkout.
+Image type returns only one of the reviewed 13 values:
 
-The v5.0 `shape_reconstruction`, `line_reconstruction`, and `image_reconstruction` pools are
-historical crop-task contracts. Active v5.2 reconstruction training uses the region task names.
+```text
+photo, screenshot, chart, table, diagram, document, map, medical, microscopy,
+rendering, illustration, infographic, other
+```
 
-Historical `arrow` annotations are normalized to the model-facing `line` label inside
-`grounding_layout`. Do not introduce new detection prompts with an `arrow` label. v5.0 has no
-standalone `grounding_shape`, `grounding_icon_image`, or `grounding_line` prompt pools; all
-detection labels live in the unified `grounding_layout` task.
+Do not map v9 synthetic `image_type=N/A` to `other`; the v5.7 image task comes from reviewed real
+data only.
 
-## Method
+## Validation
 
-- Keep one prompt config per train/eval subtask.
-- Equivalent train-time prompt variants may be configured as runtime prompt pools. Keep one
-  versioned pool YAML per subtask.
-- Every prompt pool must include a `main` variant. `main` is the canonical direct-task prompt used
-  by SFT conversion and eval seeding when a single deterministic prompt is needed.
-- Organize non-main prompt variants as prompt families rather than near-duplicate synonyms.
-  Preferred family names include `visual_elements` or `visible_object`, `schema_first`,
-  `extraction_request` or `attribute_extraction`, and `minimal_contract`.
-- Prompt variants may change wording and prompt framing only. They must not change target labels,
-  output schema, field names, empty-output behavior, or task semantics.
-- When runtime prompt pools are enabled, generated SFT rows should keep both `system_prompt` and
-  `user_prompt` empty; the pool is the train prompt source and every enabled train dataset must
-  have an explicit pool.
-- Metadata should identify the stable task family (`grounding` or `point`), the subtask, and the
-  target labels.
-- The system prompt should only define response discipline: valid compact JSON, no markdown, no
-  explanations.
-- User prompts should be clear, task-scoped, and easy to generalize. Prefer light task
-  descriptions plus the exact JSON schema. Do not add coordinate-space, ordering, or tight-box
-  rules unless the training targets and eval contract explicitly require them.
-- Grounding prompts must return a Qwen-style JSON array of objects:
-  `[{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]`. Empty images return `[]`.
-- Do not use the old grouped numeric-only grounding schema
-  `{"shape":[...],"icon":[...],"image":[...],"line":[...]}` for new v5.0+ data. It is compact,
-  but it is too far from the model's common detection output format and has shown numeric tail
-  repetition in dense outputs.
-- Eval parsing, metric input, reports, and business handoff still normalize predictions back to
-  the canonical instance-list document shape with `instances[].label` and `instances[].bbox`.
-- `grounding_layout` uses labels `shape`, `icon`, `image`, and `line`. Raw `arrow` and raw
-  `line` instances both become model-facing `label: "line"` in this unified detection task.
-- `point_line` prompts must return the simplified line reconstruction object
-  `{"type":"line","parameters":{"is_single":true|false,"points":[[[x1,y1],[x2,y2],...]]}}`.
-  It intentionally omits style, arrowhead, color, and other reconstruction attributes.
-- Shape reconstruction prompts should follow the current PDF shape DSL directly: lowercase
-  `shape_type`, nested `border`, nested `fill`, `effect`, clockwise semantic `corners`, and
-  callout-specific `body_type` / `body_corners` or `body_bbox` / `tail.points`. The shape
-  reconstruction model output should not include `bbox`; bbox is provided by crop metadata.
-  An icon/image asset with no independent editable outer shape returns only
-  `{"shape_type":"other"}`; its rectangular bitmap boundary is not a rectangle container. A
-  distinct enclosing tile, badge, or panel is still classified by that outer geometric shape.
-- The v5.7 synthetic shape contract additionally supports `card`. A card uses outer `corners`, an
-  ordered fill array, and ordered `splits`; each split contains exactly two `split_corners`, and
-  the fill count equals the split count plus one. Do not use legacy `fill.type=solid` or detailed
-  `shadow|glow` targets with this synthetic pool.
-- Region reconstruction consumes the full image and a dynamic `bbox_2d` prompt argument. The
-  prompt bbox and every model-facing shape/line geometry field use the same Qwen integer `0..999`
-  coordinate space normalized against the full input image. Do not normalize target geometry
-  against the selected bbox.
-- Context reconstruction consumes a bounded contextual crop and a dynamic
-  `proposal_bbox_2d` prompt argument. The proposal may be imprecise. It and all shape/line target
-  geometry use the same Qwen integer `0..999` space normalized against the current crop; output
-  geometry may extend outside the proposal. Prompts must tell the model to follow visual evidence,
-  select the intended target, and not copy the proposal rectangle as geometry.
-- Line reconstruction prompts should follow the current PDF line DSL and the project extension
-  for endpoint markers: `tee` for T-bar inhibition endpoints and `circle` for circular endpoint
-  markers. `points` follows `gt_standard`: it is a list of one or more center-path segments,
-  for example `[[[x1,y1],[x2,y2]]]` for a single line and multiple inner lists for forked or
-  multi-branch lines. The line reconstruction model output should not include `bbox`; bbox is
-  provided by crop metadata.
-- The v5.7 line contract requires nested `fill` and `border` for both path and shape-style lines.
-  `fill_color`, `has_border`, `border_style`, and `border_color` are legacy fields and must not
-  appear in new targets. A curved segment has exactly four points at start, one-third, two-thirds,
-  and end; a rounded straight-line bend uses one point at the visible arc midpoint. `corner_style`
-  applies to a bent straight line regardless of whether `line_style` is `path` or `shape`.
-- For the `line_context_points` field-subset task, prompts must support both one-path and connected
-  multi-segment targets without implying that multiple independent objects belong in one answer.
-  A single directional arrow keeps tail-to-arrowhead order; a connected branched target keeps each
-  visible branch in a separate path segment. The target remains exactly `is_single + points`.
-- Image reconstruction prompts currently use only the PDF `image_type` field and return
-  `{"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}`.
-  Do not add `clip_shape`, `border`, `effect`, or corner fields until those fields are explicitly
-  needed by training or downstream reconstruction. The v9 synthetic source uses `image_type=N/A`;
-  never map that value to `other` or mix it into the reviewed 13-class task.
-- Background prompts consume a clean full bitmap and return only
-  `{"background":true|false}`. The model-facing boolean means that a non-editable raster/photo/
-  texture/complex visual backing remains after editable foreground extraction. Prelabeling fields
-  such as `background_level`, reason, source model, and review status are audit metadata and must
-  not enter the SFT target.
-- Do not ask business reconstruction tasks to emit weak-label audit fields. Fields such as
-  `evidence`, `confidence`, and `abstain_reason` are weak-label process metadata, not SFT targets.
-- Avoid examples beyond the minimal schema shape; examples can accidentally become style anchors.
-- Update SFT conversion, eval prompt seeding, and prelabeling references together when a prompt
-  file is renamed or removed.
-
-## Git Tracking
-
-Generated structured/SFT data stays ignored. For data catalog examples, keep only
-`configs/data/example.yaml` tracked; local project-specific catalogs should remain untracked.
-Prompt pool YAMLs under `configs/prompts/` are also ignored by default in this repository. When a
-new prompt pool becomes part of a reproducible training run, call out whether it should stay local
-or be force-added intentionally.
+- Compile every pool with `shaft.prompting`.
+- Verify all variants share the same argument and output contract.
+- Verify every training YAML maps the same five dataset names to the expected pool versions.
+- Recompute representative SFT targets and rendered prompts from structured/source truth.
+- Reject schema extras instead of moving or inventing fields.

@@ -1,0 +1,49 @@
+metadata:
+  id: shaft.line_context_points.prompt_pool.v5.7
+  version: v5.7
+  name: v5.7 contextual line point subset prompt pool
+  task: line_context_points
+  subtask: line_context_points
+  target_labels: [line]
+
+arguments:
+  proposal_bbox_2d:
+    type: bbox_2d_0_999
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments, explanations,
+      or surrounding text.
+    user_prompt_template: |
+      Recover the visible center path of the target line or arrow approximately selected by
+      proposal bbox {{ proposal_bbox_2d | json }}. The proposal may be loose or shifted. Follow the
+      actual target and ignore nearby lines, shapes, text, and other objects.
+
+      Return exactly:
+      {"type":"line","parameters":{"is_single":true|false,"points":[[[x1,y1],[x2,y2],...]]}}
+
+      points is a list of ordered path segments. A straight segment contains endpoints and actual
+      bends; at a rounded bend, replace the sharp intersection with one point at the middle of the
+      visible arc. A curved segment contains exactly four points: start, one-third point,
+      two-thirds point, end. Keep every point on the visible center path.
+
+      Use is_single true for exactly one path segment, including a polyline with multiple bends.
+      Use false only for one connected branched target represented by multiple segments, keeping
+      every visible branch separate. Order a one-way arrow from tail to arrowhead.
+      Proposal and points share integer 0..999 coordinates normalized to the entire current crop;
+      points may extend outside the proposal. Output no other fields.
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with valid compact JSON only.
+    user_prompt_template: |
+      For the actual target near approximate bbox {{ proposal_bbox_2d | json }}, return exactly
+      {"type":"line","parameters":{"is_single":true|false,"points":[[[x1,y1],[x2,y2],...]]}}.
+      Trace ordered center-path segments, not the proposal rectangle. Straight paths use endpoints
+      and bends; rounded bends use the arc midpoint; curved paths use start, one-third, two-thirds,
+      end. One segment means is_single true; multiple connected branch segments mean false.
+      Order a one-way arrow from tail to arrowhead.
+      Coordinates are integers in the full crop-local 0..999 space. Do not add fields.

@@ -149,6 +149,35 @@ def test_audits_and_builds_deterministic_v5_7_selection_manifests(tmp_path: Path
     assert points == line
 
 
+def test_rejects_train_val_overlap_before_audit(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "v9"
+    (dataset_root / "img").mkdir(parents=True)
+    (dataset_root / "gt_standard").mkdir()
+    (dataset_root / "train.txt").write_text("00000\n", encoding="utf-8")
+    (dataset_root / "val.txt").write_text("00000\n", encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--dataset-root",
+            str(dataset_root),
+            "--output-root",
+            str(tmp_path / "selection"),
+            "--workers",
+            "1",
+            "--audit-only",
+        ],
+        cwd=Path.cwd(),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "train/val source overlap" in completed.stderr
+
+
 def test_line_validator_reports_non_scalar_enums_instead_of_crashing() -> None:
     module = _load_script_module()
     parameters = _line()["parameters"]

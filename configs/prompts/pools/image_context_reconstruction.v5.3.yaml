@@ -1,0 +1,110 @@
+metadata:
+  id: shaft.image_context_reconstruction.prompt_pool.v5.3
+  version: v5.3
+  name: image contextual crop reconstruction prompt pool
+  task: image_context_reconstruction
+  subtask: image_context_reconstruction
+  target_labels: [image]
+
+arguments:
+  proposal_bbox_2d:
+    type: bbox_2d_0_999
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments,
+      explanations, or surrounding text.
+    user_prompt_template: |
+      Classify the target image element approximately indicated by proposal bbox
+      {{ proposal_bbox_2d | json }} in this contextual crop.
+      The proposal may be imprecise. Use the actual visual content of the intended target and
+      ignore surrounding layout, captions, decorations, and neighboring objects.
+      Return exactly one JSON object with type "image" and parameters only.
+
+      Base object:
+      {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}
+
+      Only output image_type. Do not output clip_shape, corners, border, effect, bbox, audit fields,
+      explanations, or markdown.
+      Choose the category by the best downstream editable reconstruction route.
+      Priority: table/chart > document > screenshot > map > medical > microscopy > diagram >
+      infographic > rendering > photo > illustration > other.
+
+      image_type definitions:
+      - photo: camera-like natural imagery of people, animals, food, vehicles, buildings,
+        landscapes, lab scenes, real objects, or product photos.
+      - screenshot: software, web, app, operating system, code editor, dashboard, or digital UI.
+        If the target is mainly an embedded chart or table, prefer chart/table.
+      - chart: plots, data visualizations, heatmaps, spectra, statistical curves, axes, or legends.
+      - table: row-column tables, matrices, spreadsheets, forms dominated by cells, or grid data.
+      - diagram: flowcharts, architectures, networks, circuits, mechanisms, process diagrams,
+        nodes, arrows, modules, or relationship graphs.
+      - document: scanned/report/paper/PDF pages, certificates, ID cards, receipts, forms, or
+        text-dominant page layouts.
+      - map: maps, routes, geographic, spatial, satellite, remote-sensing, or traffic figures.
+      - medical: MRI, CT, X-ray, ultrasound, endoscopy, pathology, anatomy, organs, or diagnostics.
+      - microscopy: microscope, SEM/TEM, cellular, tissue, material, wafer, or micrograph imagery.
+      - rendering: synthetic 3D, CAD, product, engineering, building, or simulation renderings.
+      - illustration: drawn, cartoon, hand-drawn, or decorative artwork that is not technical data.
+      - infographic: designed information posters, ads, explanatory cards, or mixed visual layouts.
+      - other: ambiguous, too small/blurry, noisy, severely occluded, or no stable route applies.
+
+  - id: visible_object
+    sampling_weight: 1.0
+    system_prompt: >
+      Output valid JSON only. No markdown or extra text.
+    user_prompt_template: |
+      Classify the actual image element near approximate proposal bbox
+      {{ proposal_bbox_2d | json }} in this contextual crop.
+      The proposal can be shifted or loose. Select the intended target from visual evidence and
+      ignore neighboring content.
+      Return one object:
+      {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}
+
+      Output only parameters.image_type inside the image object. Do not output display-shape,
+      geometry, bbox, or audit fields. Prefer the route with more editable structure:
+      table/chart > document > screenshot > map > medical > microscopy > diagram > infographic >
+      rendering > photo > illustration > other.
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with compact JSON only.
+    user_prompt_template: |
+      For the target approximately indicated by proposal bbox {{ proposal_bbox_2d | json }} in
+      this contextual crop, return:
+      {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}
+
+      The proposal is approximate; classify the actual visible target and ignore distractors.
+      Use table/chart for structured data regions; document for page-like text layouts; screenshot
+      for digital UI; map for geographic/spatial imagery; medical for clinical/biomedical images;
+      microscopy for micrographs; diagram for relationship/process structures; infographic for
+      designed explanatory panels; rendering for synthetic 3D/CAD; photo for camera-like imagery;
+      illustration for non-technical artwork; other only when no stable route applies.
+
+  - id: attribute_extraction
+    sampling_weight: 1.0
+    system_prompt: >
+      Return JSON only. Do not add explanations.
+    user_prompt_template: |
+      Using approximate proposal bbox {{ proposal_bbox_2d | json }} to select the target in this
+      contextual crop, extract its reconstructable image attributes into:
+      {"type":"image","parameters":{...}}
+
+      Required parameter: image_type.
+      Allowed values: photo, screenshot, chart, table, diagram, document, map, medical, microscopy,
+      rendering, illustration, infographic, other.
+      Return only image_type under parameters; do not add clip_shape, corners, border, effect,
+      bbox, or audit fields.
+
+  - id: minimal_contract
+    sampling_weight: 1.0
+    system_prompt: >
+      Valid JSON only.
+    user_prompt_template: |
+      Image reconstruction classification near approximate proposal bbox
+      {{ proposal_bbox_2d | json }} in this contextual crop. Classify the actual visible target,
+      not surrounding content. Return exactly:
+      {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}

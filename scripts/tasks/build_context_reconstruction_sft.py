@@ -27,6 +27,17 @@ from shaft.data.synthetic_realism import (
 from shaft.prompting import load_prompt_pool
 
 
+DEFAULT_SYNTHETIC_ROOT = "data/regulated_layout_dataset_v9_20260802"
+DEFAULT_SHAPE_SELECTION = "data/reconstruction_v5_7_selection/shape/train.jsonl"
+DEFAULT_LINE_SELECTION = "data/reconstruction_v5_7_selection/line/train.jsonl"
+DEFAULT_LINE_POINT_SYNTHETIC_SELECTION = (
+    "data/reconstruction_v5_7_selection/line_points/train.jsonl"
+)
+DEFAULT_SHAPE_PROMPT_POOL = "configs/prompts/pools/shape_context_reconstruction.v5.7.yaml"
+DEFAULT_LINE_PROMPT_POOL = "configs/prompts/pools/line_context_reconstruction.v5.7.yaml"
+DEFAULT_LINE_POINT_PROMPT_POOL = "configs/prompts/pools/line_context_points.v5.7.yaml"
+
+
 PROPOSAL_NOISE_BUCKETS = (
     ("clean", 0.10, 0.00, 0.00, 0.00),
     ("accurate", 0.50, 0.04, 0.08, 0.02),
@@ -2203,17 +2214,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build contextual-crop proposal-conditioned reconstruction SFT data."
     )
-    parser.add_argument("--synthetic-root", default="data/regulated_layout_dataset_v8_20260709")
+    parser.add_argument("--synthetic-root", default=DEFAULT_SYNTHETIC_ROOT)
     parser.add_argument("--raw-root", default="data/raw")
     parser.add_argument("--archive-root", default="data/archive2")
     parser.add_argument("--output-root", default="data")
     parser.add_argument(
         "--shape-selection",
-        default="data/shape_context_reconstruction/selection/train.jsonl",
+        default=DEFAULT_SHAPE_SELECTION,
     )
     parser.add_argument(
         "--line-selection",
-        default="data/line_context_reconstruction/selection/train.jsonl",
+        default=DEFAULT_LINE_SELECTION,
     )
     parser.add_argument(
         "--image-selection",
@@ -2241,7 +2252,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--line-point-synthetic-selection",
-        default="data/line_context_reconstruction/selection/train.jsonl",
+        default=DEFAULT_LINE_POINT_SYNTHETIC_SELECTION,
         help=(
             "Selection snapshot whose gt_standard truth is filtered to synthetic "
             "is_single=false multi-segment lines."
@@ -2265,11 +2276,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--shape-prompt-pool",
-        default="configs/prompts/pools/shape_context_reconstruction.v5.3.yaml",
+        default=DEFAULT_SHAPE_PROMPT_POOL,
     )
     parser.add_argument(
         "--line-prompt-pool",
-        default="configs/prompts/pools/line_context_reconstruction.v5.3.yaml",
+        default=DEFAULT_LINE_PROMPT_POOL,
     )
     parser.add_argument(
         "--image-prompt-pool",
@@ -2281,7 +2292,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--line-point-prompt-pool",
-        default="configs/prompts/pools/line_context_points.v5.3.yaml",
+        default=DEFAULT_LINE_POINT_PROMPT_POOL,
     )
     parser.add_argument("--exclude-manifest", default="data/raw/splits/vlm.test.json")
     parser.add_argument(

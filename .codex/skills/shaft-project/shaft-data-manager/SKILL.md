@@ -3,71 +3,63 @@ name: shaft-data-manager
 description: 管理 Shaft 数据整理任务，包括 raw 数据清洗、标注合并、去重、split、preview、grounding 数据增强、structured/SFT 派生数据重建，以及训练配置中的数据源登记准备；不用于修改 ShaftDataCenter 或 mixing 实现。
 ---
 
-# Skill: Shaft Data Manager
+# Shaft Data Manager
 
-Use this skill for data work in this repository: raw dataset cleanup, annotation merge,
-preview policy, grounding data augmentation, derived dataset rebuilds, and data catalog
-preparation from the data side.
+Use this skill for raw cleanup, annotation import, split management, grounding augmentation,
+prompt-aware structured/SFT rebuilds, and data catalog preparation in this repository.
 
 ## Core Workflow
 
-1. Identify the layer being changed:
-   - `raw_*`: source annotations and images.
-   - `grounding` / `point_arrow` / `structured` / `sft`: derived artifacts that should be
-     rebuildable.
-   - `configs/data/*.yaml`: catalog and mixing configuration.
-2. Always read the counterintuitive rules first, then only the task-specific references needed:
-   - Counterintuitive data rules: `references/counterintuitive-rules.md`
-   - Raw source handling: `references/raw-data.md`
-   - Cleaning and dedupe: `references/cleaning.md`
-   - Data merge/import: `references/merge.md`
-   - General grounding task and augmentation: `references/augmentation-grounding.md`
-   - Layout raw-layer rules for grounding: `references/layout-grounding.md`
-   - Arrow raw-layer rules for grounding/point: `references/arrow-grounding.md`
-   - Model-assisted prelabeling: `references/prelabeling.md`
-   - Prompt policy for SFT/eval data: `references/prompt-policy.md`
-   - Preview policy: `references/preview.md`
-   - Derived structured/SFT rebuilds: `references/derived-datasets.md`
-   - Data catalog usage from the data-prep side: `references/data-center.md`
-3. Before acting, make these explicit when they are not obvious from the user request:
-   input path, output path, split source, target schema, and whether rich structure should be
-   preserved in `extra` / `subattr`.
-4. Before writing raw annotations, create a small backup of the touched JSON directory.
-5. Maintained raw annotations should use normalized `instances` schemas, not importer-native
-   LabelMe `shapes` as the long-term source format.
-6. Keep raw directory state in that directory's `README.md`; do not create long reports unless
-   the user asks for machine-readable audit artifacts.
-7. Validate with counts and invariants, then report the operational result.
+1. Identify the layer:
+   - `data/raw`: active human source truth.
+   - `regulated_layout_dataset_v9_20260802/gt_standard`: active synthetic reconstruction truth.
+   - task-local `selection` / `structured` / `sft` / `images`: rebuildable derived artifacts.
+   - `configs/data` and `configs/prompts/pools`: runtime dataset/prompt contracts.
+2. Read `references/counterintuitive-rules.md`, then only the references needed:
+   - raw source: `raw-data.md`
+   - cleaning/dedupe/import: `cleaning.md`, `merge.md`
+   - grounding and line paths: `augmentation-grounding.md`, `layout-grounding.md`,
+     `arrow-grounding.md`
+   - prelabeling and preview: `prelabeling.md`, `preview.md`
+   - prompt and derived outputs: `prompt-policy.md`, `derived-datasets.md`
+   - catalog preparation: `data-center.md`
+3. State input, output, split source, target schema, and source of truth before writing.
+4. Back up only the touched raw JSON directory before raw batch edits. Derived rebuilds should
+   publish through staging/new output or an explicit supported `--clean` workflow.
+5. Preserve the active raw contract. `data/raw/json` currently uses compact
+   `size + layout[].type/bbox/parameters`; normalized imports may use `instances`. Adapt at the
+   derived boundary instead of rewriting one maintained contract into the other.
+6. Keep raw state in its directory README and derived build state in task-local README/summary.
+7. Validate counts, split boundaries, structured/SFT alignment, media coverage, target schema,
+   prompt version, catalog mapping, and model/checkpoint prerequisites.
 
 ## Non-Negotiables
 
-- Do not overwrite or delete original images unless the user explicitly asks.
-- Do not let derived data become the source of truth when raw annotations are available.
-- Do not mix train-only augmentation into validation data.
-- Do not leave temporary scripts behind. If a script should persist, place it under
-  `scripts/tasks/` as a maintained entry.
-- Prelabeling outputs are review artifacts, not raw truth. Keep them under `temp/task*` or another
-  explicit handoff directory until a human imports them into raw annotations.
-- Keep rich annotation details in raw `extra` or `subattr`; do not copy that raw metadata into
-  derived structured/SFT rows unless it is directly consumed by training or needed as a minimal
-  source id.
-- Do not preserve LabelMe `points`, `shape_type`, or `group_id` as live instance fields in raw
-  maintenance schemas. Normalize geometry into `bbox` / `linestrip`, and keep source-only
-  details in `extra`.
-- When a rule feels obvious but was previously a source of error, record it in
-  `references/counterintuitive-rules.md` rather than burying it in chat history.
-- If the task changes `ShaftDataCenter`, registry behavior, or mixing implementation, use the
-  separate `shaft-data-center` development skill.
+- Never overwrite or delete original images without explicit authorization.
+- Never promote derived rows or model prelabels to source truth when raw/`gt_standard` exists.
+- Never augment validation/test with train-only views.
+- Keep temporary handoff artifacts outside raw; persistent rebuild logic belongs in
+  `scripts/tasks/`.
+- Keep selection manifests identity-only when authoritative attributes/geometry can be reread from
+  source truth. Do not create a parallel target truth in selection or SFT.
+- Preserve compact raw `parameters`, including ordered line `points`. For normalized imports,
+  normalize importer-native `shapes`, `shape_type`, `group_id`, and flags before maintenance.
+- `grounding_layout` consumes only `shape/icon/image/line` bbox; it excludes `full_text` and does
+  not consume reconstruction parameters.
+- Same-label/same-bbox line instances are not duplicates when their ordered paths differ.
+- If work changes `ShaftDataCenter`, registry behavior, or mixing implementation, leave this data
+  skill and follow repository architecture, extension, and feature-review requirements.
 
 ## Validation Checklist
 
-- JSON/image coverage and missing pairs are counted.
-- Label distribution is checked before and after destructive cleanup.
-- Degenerate boxes and same-label same-bbox duplicates are checked when touching annotations.
-- Raw schemas expose `instances`; layout instances use `label + bbox + extra`, while arrow
-  instances use `label + bbox + linestrip + subattr + extra`.
-- No maintained raw instance has live `points`, `shape_type`, `group_id`, or `flags`.
-- Split boundaries are explicit before augmentation.
-- Derived JSONL rows and image files are aligned.
-- Validation data is not silently augmented with train-only views.
-- Raw README reflects the current schema and notable caveats.
+- JSON/image coverage, parse errors, decoded dimensions, and missing pairs are counted.
+- Train/val/test membership is explicit and pairwise disjoint before augmentation.
+- Labels, degenerate boxes, and semantic duplicates are checked without bbox-only line dedupe.
+- Active compact rows keep `size + layout`; normalized imports expose their documented
+  `instances` contract. Neither is silently converted in place.
+- Every derived JSONL media path exists, is task-local where required, and has a unique sample id.
+- Structured and SFT rows align one-to-one; SFT target and `prompt_args` can be recomputed from
+  structured/source truth.
+- Runtime catalog names and prompt pools match the published training config exactly.
+- Validation data is clean and unaugmented; intentional empty validation is documented as
+  train-only rather than mistaken for a missing artifact.

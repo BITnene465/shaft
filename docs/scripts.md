@@ -3,8 +3,8 @@
 本文档说明仓库 `scripts/` 目录下的正式脚本如何使用。
 
 范围约束：
-- 只覆盖正式脚本入口
-- 覆盖 `scripts/tasks/` 下的任务脚本
+- 覆盖顶层正式入口和当前受维护的 v5.7 数据任务脚本
+- 历史 converter 和已退出正式 mix 的任务不再作为推荐流程记录
 - **不覆盖 `scripts/tmp/`**；`tmp` 目录视为临时实验区，不属于稳定接口
 
 ## 1. 设计原则
@@ -13,11 +13,7 @@
 - CLI 解析与命令编排放在 `src/shaft/cli`
 - `scripts/*.py` 只负责调用对应 CLI 主入口
 
-当前唯一例外是：
-- `scripts/tasks/convert_grounding_structured_to_sft.py`
-- `scripts/tasks/convert_grounding_structured_to_sft_row_major.py`
-
-它属于明确的任务数据准备脚本，不是训练内核入口。
+`scripts/tasks/*.py` 是明确的离线数据准备入口，不是训练内核 CLI。
 
 ## 2. 顶层脚本
 
@@ -174,17 +170,29 @@ workload 一致，只允许 batch/sequence contract 作为实验轴变化。`--a
 
 ## 3. `scripts/tasks/`
 
-`scripts/tasks/` 用于**任务级数据准备或转换脚本**。
+`scripts/tasks/` 只承载可复现的离线数据准备与转换，不承载训练循环。Banana v5.7 的
+数据目录、行数、prompt 映射和完整性基线见 [docs/data_v5_7.md](data_v5_7.md)。
 
-这类脚本可以：
-- 读写数据文件
-- 生成训练前产物
-- 服务具体业务任务
+### `scripts/tasks/prepare_gt_standard_v5_7.py`
 
-但不应：
-- 承载训练内核语义
-- 复制一套新的训练 CLI
-- 替代 `src/shaft/cli`
+用途：审计 v9 synthetic `gt_standard`，确认 train/val 无交叉，然后生成 shape、line 和
+synthetic multi-branch line-points 的 source-identity selection。
+
+```bash
+uv run python scripts/tasks/prepare_gt_standard_v5_7.py \
+  --dataset-root data/regulated_layout_dataset_v9_20260802 \
+  --output-root data/reconstruction_v5_7_selection \
+  --workers 8
+```
+
+只审计不写 selection：
+
+```bash
+uv run python scripts/tasks/prepare_gt_standard_v5_7.py --audit-only --workers 8
+```
+
+任何 source 级错误或 train/val 交叉都会 fail fast；少量实例级 bbox/points 错误保留在审计
+摘要中，但不会进入 selection。
 
 ### `scripts/tasks/build_grounding_structured.py`
 
@@ -206,7 +214,7 @@ uv run python scripts/tasks/build_grounding_structured.py \
   --clean
 ```
 
-默认多尺度约束：
+当前多尺度约束：
 - 目标像素在 `200704..2000000` 内按 log 空间连续采样，最终宽高按 `32` 对齐
 - 离线线性放大不超过 `2x`，同源尺度像素量至少相差 `1.35x`
 - clean resize、padding、degraded resize、density crop、hard negative 的目标比例分别约为
@@ -214,45 +222,13 @@ uv run python scripts/tasks/build_grounding_structured.py \
 - padding 为非对称随机偏移；退化只使用单一 Gaussian blur 或 Gaussian noise
 - validation/test 只保留 native clean full-image
 
-`--augmentation-profile legacy` 只保留历史生成代码路径，不应与当前多尺度数据混合；复现旧数据时还
-必须显式传入旧版 ratio 参数，不能沿用当前默认值。
-
-### `scripts/tasks/build_grounding_layout_sync_structured.py`
-
-用途：
-- 从 `regulated_layout_dataset_v9_20260802/gt_standard` 构建独立的合成 detection 数据集
-- 读取审计后的 train split，显式排除 `val.txt`
-- 每个源图生成一条全尺寸 `synthetic_realism_v1` 视图；每条必须包含 Gaussian noise，且可叠加
-  resample round-trip、Gaussian blur 或 JPEG compression，不保留 clean 视图
-- 输出任务名固定为 `grounding_layout_sync`，不写入或合并到真实 `grounding_layout`
-
-构建命令：
-
-```bash
-uv run python scripts/tasks/build_grounding_layout_sync_structured.py \
-  --dataset-root data/regulated_layout_dataset_v9_20260802 \
-  --split-file data/reconstruction_v5_7_selection/clean_train.txt \
-  --output-root data/grounding_layout_sync \
-  --workers 40 \
-  --chunksize 4 \
-  --seed 42 \
-  --png-compress-level 1 \
-  --clean
-```
-
-关键行为：
-- 读取 `gt_standard` 的 `shape/icon/image/line`，源 `arrow` 统一为 `line`
-- 过滤面积达到画布 90% 的 synthetic background shape 和退化 bbox
-- 增强后 RGB 像素写入 task-local PNG；structured/SFT 不得直接引用 clean source PNG
-- 像素增强保持原图宽高，bbox 坐标和 grounding target 不变；增强计划按 sample ID 和 seed 确定
-- 只生成 train；正式 eval 仍使用真实 benchmark
+正式 v5.7 只构建真实 `grounding_layout`。synthetic `grounding_layout_sync` 不在当前 catalog 中，
+不应在默认流程中构建或混入。
 
 ### `scripts/tasks/build_sft_from_structured.py`
 
-用途：
-- 把当前 maintained structured 数据转成框架可训练的 `jsonl_sft`
-- 同时支持 `grounding_layout`、`grounding_layout_sync` 和 `point_line`
-- grounding 统一使用当前 Qwen `0..999` bbox codec 和 v5.0 canonical order
+用途：把当前 `grounding_layout` structured 数据转成 `jsonl_sft`。默认 prompt 是已跟踪的
+`grounding_layout.v5.7.yaml`。
 
 当前 detection 转换命令：
 
@@ -260,10 +236,7 @@ uv run python scripts/tasks/build_grounding_layout_sync_structured.py \
 uv run python scripts/tasks/build_sft_from_structured.py \
   --data-root data \
   --task grounding_layout \
-  --task grounding_layout_sync \
-  --prompt-config grounding_layout=/path/to/grounding_layout_prompt_pool.yaml \
-  --prompt-config grounding_layout_sync=/path/to/grounding_layout_sync_prompt_pool.yaml \
-  --workers 40 \
+  --workers 8 \
   --clean
 ```
 
@@ -273,67 +246,26 @@ uv run python scripts/tasks/build_sft_from_structured.py \
 - canonical order 为
   `row_bucket(y1,20) -> x1 -> y1 -> -area -> x2 -> y2 -> label`
 - `system_prompt` 和 `user_prompt` 保持为空；训练时由 prompt pool 注入
-- 默认保持向后兼容的 tracked `grounding_layout.v5.0`；v5.3 重建必须通过
-  `--prompt-config TASK=PATH` 显式选择本地 prompt pool。v5.3 prompt 文件按当前配置策略保持 ignored，
-  tracked 测试使用临时最小 fixture，不依赖工作区本地配置。
 - 所有 prompt 和 structured split 会在 `--clean` 删除旧 SFT 之前完成预检。
-
-`convert_grounding_structured_to_sft.py` 和
-`convert_grounding_structured_to_sft_row_major.py` 仅用于历史数据复现，不能用于当前 v5.1 数据重建。
-
-### `scripts/tasks/build_region_reconstruction_sft.py`
-
-用途：
-- 将既有 shape、line、image reconstruction 筛选 manifest 转换为整图区域重建任务
-- 保持原筛选、采样、类别分布和 sample ID 不变，仅把输入从 crop 改为源整图
-- 生成 `shape_region_reconstruction`、`line_region_reconstruction` 和
-  `image_region_reconstruction` 的 structured/SFT 数据
-
-构建命令：
-
-```bash
-uv run python scripts/tasks/build_region_reconstruction_sft.py \
-  --workers 50 \
-  --clean
-```
-
-关键行为：
-- SFT 直接引用源整图，不生成或复制 crop 图片
-- `prompt_args.bbox_2d` 按整图宽高量化为 Qwen 整数 `0..999`
-- shape/line target 内的所有控制点、body bbox 和 tail 点也按同一整图宽高量化；不得改成目标框局部坐标
-- `system_prompt` 和 `user_prompt` 留空，由对应 v5.2 prompt pool 在运行时注入
-- 旧 reconstruction structured 数据只作为确定性选择 manifest；shape/line 参数回查
-  `gt_standard`，image bbox 与已 review 的 image type 回查 raw JSON 真源
-- 只生成 train，validation 保持为空；筛选与采样策略不在该转换中改变
 
 ### `scripts/tasks/build_context_reconstruction_sft.py`
 
 用途：
-- 从 v5.2 region structured manifest 选择 shape、line、image 实例，但重新从 `gt_standard` / raw
-  reviewed JSON 读取属性与几何真值
+- 从 v9 selection 选择 shape/line 实例，每次从 `gt_standard` 重新读取属性与几何真值
+- 从 reviewed compact raw 构建 image type 和真实 line points
 - 为每个实例生成一个确定性的宽松 contextual crop，并以近似一阶段
   `prompt_args.proposal_bbox_2d` 指定目标
-- 生成 `shape_context_reconstruction`、`line_context_reconstruction`、
-  `image_context_reconstruction`、真实弱监督 `shape_context_attributes`，以及真实/合成线点子任务
-  `line_context_points` 的 task-local PNG、structured/SFT、README 与 build summary
+- 生成 v5.7 正式任务的 task-local PNG、structured/SFT、README 与 build summary
 
 正式构建命令：
 
 ```bash
 uv run python scripts/tasks/build_context_reconstruction_sft.py \
   --output-root data \
+  --shape-selection data/reconstruction_v5_7_selection/shape/train.jsonl \
+  --line-selection data/reconstruction_v5_7_selection/line/train.jsonl \
   --workers 8 \
   --chunksize 8 \
-  --clean
-```
-
-只重建真实 shape 属性辅助任务：
-
-```bash
-uv run python scripts/tasks/build_context_reconstruction_sft.py \
-  --tasks shape_context_attributes \
-  --shape-attribute-max-rectangle-fraction 0.5 \
-  --workers 8 \
   --clean
 ```
 
@@ -359,7 +291,6 @@ uv run python scripts/tasks/build_context_reconstruction_sft.py \
   --line-point-synthetic-selection \
     data/reconstruction_v5_7_selection/line_points/train.jsonl \
   --line-point-synthetic-limit 15000 \
-  --line-point-prompt-pool /path/to/line_context_points_prompt_pool.yaml \
   --tasks line_context_points \
   --workers 40 \
   --chunksize 8 \
@@ -377,12 +308,7 @@ uv run python scripts/tasks/build_context_reconstruction_sft.py \
 - 所有像素扰动严格保持 crop 宽高、坐标和 target 不变；真实 image crop 不做合成扰动
 - 每个 task 写入自包含的 `selection/train.jsonl`，后续重建只从中恢复 source identity，target 仍回查
   `gt_standard` / raw reviewed JSON
-- `shape_context_attributes` 是显式例外：输入来自版本化 API weak-label sidecar，selection snapshot
-  保留属性和模型 provenance；target 只含 shape type/border/fill/effect，不含任何控制点或 geometry
-- weak-label sidecar 与 SFT builder 都执行 exact nested-key schema gate；不允许 `border.color2`、
-  `border.fill`、`fill.effect` 等 prompt 合同之外的字段进入 `target_text`
-- 属性任务默认保留全部非矩形，并按 border/fill/effect strata 确定性下采样矩形，使矩形最多占最终数据的
-  50%；`--shape-attribute-max-rectangle-fraction` 可显式调整该上限
+- `shape_context_attributes` 不属于 v5.7；不要在默认构建或 catalog 中加回该历史弱标签任务
 - `line_context_points` 不复用历史 tight crop：真实数据从 active compact raw 回查 bbox 与有序
   `parameters.points`，保留全部非空 line，不做采样；为补齐分叉监督，同一任务还从 v9
   `gt_standard` 真值中加入维护的 15,000 条 `is_single=false` 合成多分支线。两类 source 都重新生成

@@ -9,6 +9,8 @@
 - `src/shaft/config/data.py`
 - `src/shaft/config/training.py`
 - `src/shaft/config/algorithm.py`
+- `src/shaft/config/generation_backend.py`
+- `src/shaft/config/opd.py`
 - `src/shaft/config/runtime.py`
 
 `src/shaft/config/schema.py` 只作为配置类型的聚合出口，不再承载全部 dataclass 实现。
@@ -35,7 +37,7 @@ RuntimeConfig
 │       ├── lora_r / lora_alpha / lora_dropout / lora_bias / use_rslora
 │       └── qlora_load_in_4bit / qlora_use_double_quant / qlora_quant_type / qlora_compute_dtype
 ├── algorithm                          训练目标选择
-│   ├── name: sft | dpo | ppo | grpo
+│   ├── name: sft | dpo | ppo | grpo | opd
 │   └── params
 │       └── auxiliary_loss_weights.<term_name>（仅 SFT，稀有覆写）
 ├── data                               从记录到 local microbatch
@@ -58,6 +60,8 @@ RuntimeConfig
 │   ├── per_device_train_batch_size / gradient_accumulation_steps
 │   ├── optimizer_name / scheduler_name / loss_name / loss_scale
 │   ├── learning_rate / warmup_ratio / weight_decay / max_grad_norm
+│   ├── scheduler_num_cycles / scheduler_power
+│   ├── adam_beta1 / adam_beta2 / adam_epsilon
 │   ├── bf16 / fp16 / gradient_checkpointing / full_determinism
 │   ├── save_strategy / save_steps / save_epoch_interval / save_total_limit
 │   ├── load_best_model_at_end / save_final_model / save_final_state
@@ -868,9 +872,15 @@ data:
       train_only: true
       seed: 42
       pools:
-        grounding_arrow: ../prompts/pools/grounding_arrow.v2.4.yaml
-        point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
+        grounding_layout: ../prompts/pools/grounding_layout.v5.7.yaml
+        shape_context_reconstruction: ../prompts/pools/shape_context_reconstruction.v5.7.yaml
+        line_context_reconstruction: ../prompts/pools/line_context_reconstruction.v5.7.yaml
+        line_context_points: ../prompts/pools/line_context_points.v5.7.yaml
+        image_context_reconstruction: ../prompts/pools/image_context_reconstruction.v5.3.yaml
 ```
+
+Banana v5.7 的五个数据源、版本例外和可复现配置见
+[docs/data_v5_7.md](data_v5_7.md)。
 
 Prompt pool 示例：
 
@@ -1038,10 +1048,16 @@ algorithm.name
 - `no_decay_name_patterns`
 - `optimizer_name`
 - `scheduler_name`
+- `scheduler_num_cycles`
+- `scheduler_power`
 - `loss_name`
 - `loss_scale`
+- `adam_beta1`
+- `adam_beta2`
+- `adam_epsilon`
 - `weight_decay`
 - `warmup_ratio`
+- `lr_scheduler_type`
 - `max_grad_norm`
 - `bf16`
 - `fp16`
@@ -1049,6 +1065,7 @@ algorithm.name
 - `full_determinism`
 - `logging_steps`
 - `save_strategy`
+- `save_epoch_interval`
 - `save_steps`
 - `save_total_limit`
 - `ddp_find_unused_parameters`

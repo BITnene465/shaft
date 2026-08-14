@@ -1,287 +1,115 @@
 # Grounding Augmentation
 
-Grounding targets should stay simple: `label + bbox` in the model-facing `instances`. Rich
-structure belongs in `extra`.
+Use this reference for the maintained real `grounding_layout` dataset. Model-facing targets are
+only `label + bbox`; source-only details remain in raw data or minimal derived audit metadata.
 
-## Split First
+## Source and Split Contract
 
-- Decide train/val/test before augmentation.
-- Validation defaults to full-image views only.
-- Do not apply resize, crop, hard negative, blur, noise, or padding augmentation to validation
-  unless the user explicitly asks.
+- Source truth is compact `data/raw/json` plus `data/raw/images`.
+- Use `data/raw/splits/grounding_layout.train.txt` and `.val.txt` explicitly.
+- Exclude `data/raw/splits/vlm.test.json` from train selection.
+- Grounding labels are `shape`, `icon`, `image`, and `line`. `full_text` is not a target.
+- Ordered line points and reconstruction parameters do not affect grounding targets.
+- A labeled source with no four-class target keeps one native empty row and receives no
+  augmentation. Image-only inventory is not a negative sample.
 
-## Crop Integrity
+Split before augmentation. Validation/test contains only native clean full-image rows; never add
+resize, padding, degradation, density crop, or hard-negative views there.
 
-For every crop candidate:
+## Maintained Profile
 
-1. Keep GT boxes fully inside the crop and translate them into crop coordinates.
-2. Ignore GT boxes with no intersection.
-3. Reject the entire crop if any GT is partially intersected.
+Rebuild with `scripts/tasks/build_grounding_structured.py` and the `layout_multiscale_v1` profile.
+The verified 2026-08-14 artifact has 20,060 train sources and 58,440 rows:
 
-Never train on clipped partial GT boxes.
+| view | rows | target ratio over 19,953 positive sources |
+| --- | ---: | ---: |
+| native clean full | 20,060 | one per source |
+| continuous clean resize | 17,882 | about `0.9x` |
+| random padded clean | 1,995 | about `0.1x` |
+| degraded resize | 14,965 | about `0.75x` |
+| density crop | 2,993 | about `0.15x` |
+| hard-negative crop | 545 | bounded by `0.03x` feasibility |
 
-## Train Views
+The 107 sources containing only non-target `full_text` account for the native empty rows.
+Additional quotas use positive sources only. Hard-negative count may stay below its nominal quota
+when no safe crop exists.
 
-- `full_image`
-- `continuous_resize_full` as the primary multi-resolution view
-- `random_padded_full` as a small, asymmetric spatial-context view
-- `degraded_resize_full` for bounded blur/noise robustness across selected resolutions
-- `density_crop`
-- controlled `hard_negative_crop`
-- local task-owned image copies for every row
+Every row uses a task-local image under `data/grounding_layout`; structured/SFT rows must never
+point into `data/raw`. SFT conversion is one-to-one and does not change augmentation distribution.
 
-Validation remains native full-image only. Do not apply continuous resize, crop, hard negative,
-JPEG, blur, noise, padding, or resize degradation to validation.
+## Continuous Resize
 
-## Maintained Grounding Task
-
-For v5.0 and later, new detection training should use the unified `grounding_layout` task.
-It emits model-facing labels `shape`, `icon`, `image`, and `line`; raw `arrow` and raw `line`
-instances are both normalized to `line`.
-
-Use the current raw split manifest, especially `data/raw/splits/vlm.test.json`, as the train
-exclusion source. Do not derive train rows from VLM test items.
-
-## Current Layout Multi-Resolution Profile
-
-The maintained `data/grounding_layout` dataset was rebuilt on 2026-08-04 from the active compact
-human annotations, with direct aspect-preserving resize as its primary multi-resolution
-augmentation. Historical snapshots remain separate and must not be mixed into this rebuild.
-
-The active train split has 20,060 sources, of which 19,953 contain at least one four-class target.
-The structured rebuild contains 58,440 rows under the 2M generated-view budget:
-
-- native clean full images: 20,060 rows;
-- continuous clean resize views: 17,882 rows;
-- random padded clean views: 1,995 rows;
-- degraded resize views: 14,965 rows;
-- density crops: 2,993 rows;
-- hard-negative crops: 545 rows.
-
-Every source keeps one native clean row. The 107 sources containing only non-target `full_text`
-keep one empty native row and receive no augmentation. Additional view quotas are based on the
-19,953 positive sources. Degraded, density, and hard-negative views are deterministic stratified
-subsets; hard negatives may remain below quota when no bbox-disjoint crop is feasible. Native full
-rows may exceed 2M because they preserve source truth and are resized by the runtime processor;
-generated resize, padding, and degraded views must stay within 2M. Padding replaces part of the
-one-view clean augmentation budget rather than increasing the total dataset. The structured rows
-were later converted one-to-one into 58,440 v5.7 grounding SFT rows; this does not change the
-augmentation distribution.
-
-### Continuous Resize Sampling
-
-For a source with `source_pixels = width * height`, use this requested target-pixel interval:
+For `source_pixels = width * height`, request target pixels in:
 
 ```text
 lower = 200704
-upper = min(configured_max_pixels, source_pixels * 4)
+upper = min(2000000, source_pixels * 4)
 ```
 
-The `source_pixels * 4` cap means linear upscale is at most `2x`. If `upper < lower`, do not create
-an offline upscale that violates this cap; keep the native row and let the ordinary processor
-contract handle that exceptional tiny source.
+The `source_pixels * 4` cap limits linear upscale to `2x`. Sample candidates continuously in log
+space, preserve aspect ratio, and align final dimensions to the Qwen processor factor `32`.
+Selected views from the same source should differ by at least about `1.35x` in pixel count; remove
+a resize within 10% of the effective native processor size.
 
-Generate candidate target pixels continuously in log space. The reporting/quota bands are not
-fixed resize levels; only bands inside the configured runtime budget are eligible. Stratify by
-source-resolution quartile and object-count quartile. Two selected resize views from the same
-source must differ by at least about `1.35x` in pixel count, and a resize within 10% of the
-effective native processor size should be deduplicated.
+Clean downscale uses antialiased bicubic/Lanczos/area resampling; area is downscale-only. Clean
+upscale uses bicubic/Lanczos. Do not use neural super-resolution because it can redraw target
+boundaries. Record requested/actual sizes and kernel in structured `extra`.
 
-Preserve aspect ratio and align final width/height to the Qwen processor factor
-`patch_size * merge_size` (currently `16 * 2 = 32`). Recheck actual pixel count after alignment.
-The training processor must still receive call-time `min_pixels` / `max_pixels`; the checkpoint's
-persisted processor defaults are not the training budget.
+## Degraded Resize
 
-### Resize Kernels
+Build a degraded row at an already selected clean-resize geometry. Apply resize first and exactly
+one of Gaussian blur or Gaussian noise. Keep output dimensions and coordinates unchanged.
 
-Clean resize uses high-quality antialiased resampling rather than treating every resize as
-bilinear interpolation:
+- family balance: about 50% blur and 50% noise;
+- severity balance: L1/L2/L3 about 40/35/25%;
+- no L3 in the lowest pixel band;
+- a second degraded view from one source must differ by family, severity, or resolution.
 
-- clean downscale: 60% bicubic with antialiasing, 25% Lanczos, 15% area resampling;
-- clean upscale: 75% bicubic, 25% Lanczos;
-- when linear downscale is below `0.5x`, progressive area/Lanczos reduction may be used before the
-  final aligned resize;
-- area resampling is downscale-only;
-- neural super-resolution is forbidden for grounding GT because it can redraw text, icons, lines,
-  and boundaries.
-
-Record the selected kernel and actual source/output sizes in structured `extra`.
-
-### Degraded Resize Views
-
-Build degraded rows from already selected clean resize dimensions so each degraded image has a
-clean counterpart with identical geometry. Select approximately 50% Gaussian blur and 50%
-Gaussian noise. Severity quotas are approximately L1 40%, L2 35%, and L3 25%:
-
-```text
-Gaussian blur:
-  L1 radius = max(0.4, output_short_edge * 0.0004)
-  L2 radius = max(0.8, output_short_edge * 0.0008)
-  L3 radius = max(1.2, output_short_edge * 0.0015)
-
-Gaussian noise on 0..255 pixels:
-  L1 sigma = 2
-  L2 sigma = 5
-  L3 sigma = 10
-```
-
-Apply resize first and exactly one degradation second. Do not combine blur and noise in one row.
-Do not use L3 in the lowest target-pixel band. A source's second degraded row must differ in
-family, severity, or selected resolution from its first row. Clip noisy pixels back to the valid
-range and keep image dimensions unchanged.
-
-This clean-backbone/single-degradation contract is specific to grounding. Synthetic v5.3
-shape/line context reconstruction intentionally has no clean crop rows and may stack one to three
-weak size-preserving operations; its separate contract is documented in `derived-datasets.md` and
-`counterintuitive-rules.md`.
-
-## Maintained Generator
-
-Use `scripts/tasks/build_grounding_structured.py` for rebuilds instead of temporary scripts. Keep
-the command line in run notes or the generated README, but keep this skill focused on method:
-
-- derive each grounding subtask independently from the same image-level split source;
-- filter by required raw coverage before producing rows;
-- write task-local row images instead of referencing raw images;
-- keep train-only augmentation out of validation;
-- clean stale generated images so each image file is referenced by a structured row;
-- seed randomness by stable source identity so rebuilds are approximately reproducible when raw
-  data, split files, PIL behavior, and script code are unchanged.
-
-## Density Crop Selection
-
-For `grounding_layout`, train augmentation should prefer high-density local regions instead of
-mechanically cropping every image:
-
-- Keep the full-image row for every train sample.
-- Do not reference raw images directly from structured rows. Copy or render every row image under
-  the task dataset directory, for example `data/grounding_layout/images/train/`.
-- For train, each covered source image contributes one clean `full_image` row.
-- Add positive `density_crop` rows at about `0.25x` of the clean full-image source count in the
-  current profile.
-  Density crops are useful for dense regions and small objects, but they are not a perfect match
-  for the full-image business standard and should remain limited.
-- Keep hard-negative crops as a separately reported, bounded `0.03x` family. Negative samples
-  should remain a minority and should not dominate positive local views. The current snapshot's
-  2,280 density crops and 274 hard negatives are audit counts, not one combined quota.
-- Generate hard negatives only from clean raw sources whose GT is complete for the task. A hard
-  negative is a crop with no full GT and no partial GT overlap; do not use partially annotated
-  raw JSON as a source for negative sampling.
-- Candidate crops should be random but density-biased, not fixed-size tiles. Sample crop width
-  and height from image-relative ranges so the view scale follows the source image size. Use a
-  wider crop-ratio range for large images and reject crops that are effectively full-image
-  duplicates.
-- Use image-relative crop size ranges keyed by source resolution rather than fixed-size tiles.
-- Candidate centers may be lightly randomized around target-instance centers or dense regions.
-- Bias crop centers around target instances or target clusters, then score by contained target
-  count.
-- Score candidates primarily by the number of fully contained task GT instances.
-- Reject a crop if any task GT partially intersects the crop boundary. Do not train on clipped
-  partial GT.
-- Reject crops that are too close to the full image; a local crop should materially reduce the
-  visible canvas, not duplicate the full-image row.
-- Require enough fully contained target GT before accepting a crop; tune this threshold by task
-  density instead of using one global value.
-- Deduplicate selected crops by high overlap and identical contained instance sets.
-- Validation remains full-image only.
-
-## Legacy Blur Rows
-
-The historical `data/archive2/grounding_layout_v5.1_bak0714` snapshot has `blur_full` and
-`blur_crop` rows totaling about `1.0x` of clean sources. Do not carry that row policy into a
-current multi-resolution rebuild. Use the bounded `degraded_resize_full` profile above while
-preserving the rule that degradation never replaces the native clean backbone.
-
-- Apply only to train rows.
-- Do not apply to validation.
-- Use exactly one degradation per blur row.
-- `gaussian_blur`: light-to-moderate Gaussian blur.
-- `resize_blur`: downscale and resize back to the original view size.
-- `jpeg_compression`: light-to-moderate JPEG round-trip compression.
-- Historical `blur_full + blur_crop` counts are audit information, not the next-profile quota.
-- Sample blur rows from both full-image and density-crop views. Keep the source view dimensions
-  unchanged after degradation so coordinates remain unchanged.
-- Keep degradation strength light to moderate. Do not use severe corruption as the default
-  grounding robustness policy.
-
-Record the selected degradation in structured row `extra.pixel_augmentation`. Keep coordinates
-unchanged because the output view dimensions stay unchanged.
+This single-degradation rule is grounding-specific. Synthetic reconstruction uses a different
+`synthetic_realism_v1` contract.
 
 ## Random Padded Full
 
-Random full-image padding is geometry zoom-out, not YOLO-style input-resolution multi-scale. It is
-kept as a small complementary family in the current direct-resize profile.
+- Sample from native or clean-resize train views only.
+- Expand horizontal and vertical canvas independently by `0.05..0.25`.
+- Sample the source offset independently; padding is intentionally asymmetric.
+- Align the final canvas to factor 32 and keep it within the configured pixel budget.
+- Transform bbox coordinates with the exact resize and padding offsets.
+- Record the operation in `extra.spatial_augmentation`.
 
-- The historical row count was `0.2x` of the clean full-image source count.
-- The current-profile row count is about `0.1x`; these rows replace the same amount of the
-  continuous-clean-resize quota so the total remains approximately 50k.
-- Sample base views from native or selected continuous clean resize views, stratified by source
-  resolution and object-count quartiles.
-- Apply only to clean train views.
-- Do not apply to density crops, blur rows, hard negatives, validation, or test rows.
-- Sample total horizontal and vertical canvas expansion independently, then sample the image's
-  `x` and `y` offset uniformly within the available canvas. Do not force centered or symmetric
-  padding: left/right/top/bottom padding may differ, so the original image can appear anywhere on
-  the expanded canvas.
-- Keep expansion bounded and continuous rather than using fixed levels. The default total
-  expansion range is `0.05-0.25` of the base width and independently `0.05-0.25` of the base
-  height.
-- Choose a base resolution that leaves room for padding, align the final canvas to the processor
-  factor, and keep the final canvas within the configured pixel budget.
-- Transform `bbox` / `linestrip` coordinates by the exact base resize and padding offsets before
-  encoding them into Qwen `0..999` coordinates.
-- Record the padding settings in structured row `extra.spatial_augmentation`.
+Padding replaces part of the clean-resize budget; it does not increase the overall clean-view
+quota.
 
-## Density Crop
+## Crop Integrity
 
-- Build candidates around instance centers or dense regions.
-- Keep only crops that fully contain all retained instances.
-- Limit minimum instances, maximum instances, and maximum crops per scale.
-- Deduplicate by instance set and crop overlap.
+For density and hard-negative candidates:
 
-## Hard Negatives
+1. Retain only boxes fully inside the crop and translate them exactly.
+2. Ignore boxes with no intersection.
+3. Reject the whole crop if any target box is partially intersected.
 
-- Use only clean empty windows with no full GT and no partial overlap.
-- Keep empty ratio controlled and small relative to positive/full rows. For `grounding_layout`,
-  hard negatives are tracked separately at about `0.03x`, while remaining much smaller than the
-  positive `density_crop` family.
-- Do not augment hard negatives with blur by default.
-- Hard negative candidates should use the same image-relative crop philosophy as positive crops,
-  then be sampled down after candidates are generated.
-- Hard negative correctness depends on raw annotation completeness. If an annotation source is
-  partial, remove it from the training raw/split rather than adding visual heuristics to the
-  negative sampler.
+Density crops are image-relative, biased toward instance centers/dense regions, and scored by the
+number of fully contained targets. Reject nearly full-image duplicates and deduplicate by retained
+instance set plus crop overlap.
 
-## Deduplication
+Hard negatives require complete raw annotation and zero full or partial target overlap. Keep them
+rare, separate in reporting, clean by default, and never manufacture them from partially annotated
+or image-only sources.
 
-Deduplicate near-identical crop views by instance set and crop overlap. The goal is to avoid
-letting repetitive views dominate training.
+## Bbox Boundary Rule
 
-## Minimal Rebuild Summary
+Source bboxes use image-boundary coordinates: `x2 == width` and `y2 == height` are valid. Clip in
+`[0,width] x [0,height]`, verify positive area, then quantize to Qwen `0..999`. Do not clip to
+`width-1/height-1` before quantization; that can collapse a right/bottom 1px line.
 
-For derived datasets, prefer a short README over long reports. Include split row counts, view
-type counts, source/output pixel-band distributions, resize-kernel counts, degradation family and
-severity counts, empty-sample ratio, augmentation settings, and validation invariants. State
-whether the artifact is the historical snapshot or the current multi-resolution rebuild.
+## Rebuild Validation
 
-## Rebuild Validation Invariants
-
-After a grounding rebuild, check:
-
-- Every structured row image path exists.
-- No structured row image path points into `data/raw_data`.
-- Number of files in `images/train` equals `structured/train.jsonl` rows.
-- Number of files in `images/val` equals `structured/val.jsonl` rows.
-- Train `full_image` row count equals the covered train source count.
-- Selected continuous clean resize rows are approximately `0.9x` and random padded clean rows are
-  approximately `0.1x` of covered train sources; together they retain the v5.3 `1.0x` clean
-  scale/spatial-view budget.
-- Selected degraded resize rows are approximately `0.75x` of covered train sources and satisfy the
-  blur/noise and severity matrices.
-- Target-pixel quota bands are balanced without collapsing to four fixed resolutions.
-- Every offline upscale has linear scale at most `2x`.
-- Final resized dimensions are processor-factor aligned and remain within the configured pixel
-  budget.
-- Density crops remain about `0.15x` and hard negatives about `0.03x` for the current profile.
-- Val contains only clean `full_image` rows with `pixel_augmentation.name == "none"`.
-- All bboxes are positive-area and inside the row image dimensions.
+- Row counts equal task-local media file counts for each split.
+- Every source has exactly one native row; only positive train sources have augmented views.
+- Clean resize, padding, degraded, density, and hard-negative counts match the current profile.
+- Offline scale is at most `2x`; generated dimensions are factor-32 aligned and within 2M pixels.
+- Every bbox has positive area and fits its row image under the boundary-coordinate rule.
+- Validation contains only native clean rows.
+- Structured and SFT rows align one-to-one and targets recompute exactly.
+- Build summary records seed, profile, view counts, pixel bands, kernels, degradation, empty rows,
+  split boundaries, and media invariants.

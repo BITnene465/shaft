@@ -1,0 +1,57 @@
+# Banana v5.7 SFT dataset catalog.
+#
+# Fresh full-model training mix from the Qwen3-VL-4B-Instruct base model.
+# Formal training excludes synthetic grounding replay. Shape and line reconstruction use the v5.7
+# contextual-crop contract; line points combine all usable real paths with the maintained synthetic
+# multi-branch supplement. The reviewed 13-class image-type task is unchanged from v5.3. Background
+# and the historical shape_context_attributes weak-label task are excluded.
+datasets:
+  grounding_layout:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_layout/sft/train.jsonl
+    val_path: ../../data/grounding_layout/sft/val.jsonl
+    weight: 8.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.7 / multiscale real unified layout grounding
+    tags: [banana, v5.7, grounding, layout, shape, icon, image, line, real, sft]
+
+  shape_context_reconstruction:
+    source_type: jsonl_sft
+    train_path: ../../data/shape_context_reconstruction/sft/train.jsonl
+    val_path: ../../data/shape_context_reconstruction/sft/val.jsonl
+    weight: 5.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.7 / contextual-crop bbox-conditioned V9 shape reconstruction
+    tags: [banana, v5.7, shape, context_crop, bbox_conditioned, proposal_noise, crop_local, synthetic, v9, gt_standard, sft]
+
+  line_context_reconstruction:
+    source_type: jsonl_sft
+    train_path: ../../data/line_context_reconstruction/sft/train.jsonl
+    val_path: ../../data/line_context_reconstruction/sft/val.jsonl
+    weight: 4.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.7 / contextual-crop bbox-conditioned V9 line reconstruction
+    tags: [banana, v5.7, line, context_crop, bbox_conditioned, proposal_noise, crop_local, synthetic, v9, gt_standard, sft]
+
+  line_context_points:
+    source_type: jsonl_sft
+    train_path: ../../data/line_context_points/sft/train.jsonl
+    val_path: ../../data/line_context_points/sft/val.jsonl
+    weight: 4.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.7 / all usable real line paths plus synthetic multi-branch geometry
+    tags: [banana, v5.7, line, points, subset, context_crop, bbox_conditioned, crop_local, real, synthetic, multi_segment, sft]
+
+  image_context_reconstruction:
+    source_type: jsonl_sft
+    train_path: ../../data/image_context_reconstruction/sft/train.jsonl
+    val_path: ../../data/image_context_reconstruction/sft/val.jsonl
+    weight: 1.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.7 / contextual-crop bbox-conditioned reviewed 13-class image type
+    tags: [banana, v5.7, image, image_type, context_crop, bbox_conditioned, crop_local, real, reviewed, sft]

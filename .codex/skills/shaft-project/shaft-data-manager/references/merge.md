@@ -29,7 +29,9 @@ raw datasets.
 ## Negative Samples
 
 Negative samples are valid only when the task definition says absence of target instances is
-meaningful. Keep them as empty `shapes` and document why they exist.
+meaningful. Use an empty `layout` in the active compact contract, or an empty `instances` plus a
+completed annotation layer in the normalized contract. Never preserve importer-native `shapes`
+as the maintained representation. Document why the negative is trustworthy.
 
 ## Do Not
 

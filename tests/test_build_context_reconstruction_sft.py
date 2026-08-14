@@ -96,6 +96,28 @@ def _read_one(path: Path) -> dict:
     return rows[0]
 
 
+def test_current_cli_defaults_use_v9_and_v5_7_prompts() -> None:
+    module = _load_module()
+
+    assert module.DEFAULT_SYNTHETIC_ROOT == "data/regulated_layout_dataset_v9_20260802"
+    assert module.DEFAULT_SHAPE_SELECTION.endswith(
+        "reconstruction_v5_7_selection/shape/train.jsonl"
+    )
+    assert module.DEFAULT_LINE_SELECTION.endswith(
+        "reconstruction_v5_7_selection/line/train.jsonl"
+    )
+    assert module.DEFAULT_LINE_POINT_SYNTHETIC_SELECTION.endswith(
+        "reconstruction_v5_7_selection/line_points/train.jsonl"
+    )
+    assert module.DEFAULT_SHAPE_PROMPT_POOL.endswith(
+        "shape_context_reconstruction.v5.7.yaml"
+    )
+    assert module.DEFAULT_LINE_PROMPT_POOL.endswith(
+        "line_context_reconstruction.v5.7.yaml"
+    )
+    assert module.DEFAULT_LINE_POINT_PROMPT_POOL.endswith("line_context_points.v5.7.yaml")
+
+
 def test_context_view_is_deterministic_asymmetric_and_contains_gt() -> None:
     module = _load_module()
     first = module._sample_context_view(

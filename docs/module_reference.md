@@ -182,12 +182,13 @@
 - Grounding bbox 使用图像边界坐标，右/下边界 `x2/y2` 可分别等于 `width/height`；SFT 派生必须先在
   `[0,width] x [0,height]` 上裁剪，再由共享 coordinate codec 量化到 `0..999`。不得提前裁到
   `width-1/height-1`，否则贴右或贴底的 1px line 会退化。
-- v5.3 contextual reconstruction 由 `scripts/tasks/build_context_reconstruction_sft.py` 离线生成；
-  v5.2 region manifest 只选择实例，proposal/crop 审计信息留在 derived `extra`，训练主链只消费标准
-  `jsonl_sft`、动态 `prompt_args` 和 task prompt pool，不解释 proposal 或几何字段语义。
-- 真实 API 弱监督 shape 属性使用独立 `shape_context_attributes` dataset/task；它复用 v5.3 contextual
-  crop/proposal 输入合同，但 target 有意省略 geometry，不能并入完整 `shape_context_reconstruction`。
-- line 点监督使用独立 `line_context_points` dataset/task；它同样复用 v5.3 contextual crop/proposal
+- v5.7 contextual reconstruction 由 `scripts/tasks/build_context_reconstruction_sft.py` 离线生成；
+  v9 selection manifest 只保存 source/instance identity，属性与几何真值每次回查
+  `regulated_layout_dataset_v9_20260802/gt_standard`。proposal/crop 审计信息留在 derived
+  `extra`，训练主链只消费标准 `jsonl_sft`、动态 `prompt_args` 和 task prompt pool。
+- v5.7 正式 mix 不包含历史 `shape_context_attributes` API 弱标签任务，也不包含
+  region-reconstruction 或 background 数据；完整数据合同见 `docs/data_v5_7.md`。
+- line 点监督使用独立 `line_context_points` dataset/task；它复用 v5.7 contextual crop/proposal
   输入合同，但 target 只允许完整 line DSL 的 `is_single + points` 子集。当前真实源是 active compact
   raw 中全部非空 `parameters.points`，不采样；合成补充只保留 v9 中维护的 15,000 条多分支线，并使用
   `synthetic_realism_v1`。真实 crop 保持 clean，两类源都不创建 resize/multi-scale 副本。训练主链仍

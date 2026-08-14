@@ -1,372 +1,126 @@
 # Counterintuitive Data Rules
 
-These are the rules that are easy to get wrong because the wrong action looks reasonable at
-first glance. Read this reference before doing raw data cleanup, merge, or rebuild work.
+Read this before changing Shaft data. These rules capture cases where a seemingly harmless cleanup
+or shortcut changes the training contract.
 
-## Raw Data Is Usually the Truth
+## 1. Active Raw Is Compact by Design
 
-Do not use a derived dataset to rewrite raw semantics when the original raw annotation still
-exists. Derived structured/SFT data may have already dropped attributes, normalized labels, or
-collapsed task details.
+`data/raw/json` uses `size + layout[].type/bbox/parameters`. It is not an incomplete normalized
+record. Do not manufacture `schema`, `annotation`, `instances`, or `extra` merely for uniformity.
+Normalized imports may retain their documented `instances` contract; adaptation belongs at the
+derived boundary.
 
-Example: old arrow structured rows may say only `single_arrow` or `double_arrow`, but the raw
-`c0-c7` bbox label also encodes straight/curved and solid/dashed. Use the raw `c0-c7` label as
-the semantic source.
+## 2. Image-Only Inventory Is Not a Negative
 
-## A Label May Encode Attributes, Not Just Class
+An image without reviewed JSON says “unlabeled,” not “no targets.” Only a completed annotation
+record can support a negative. Compact labeled rows with only `full_text` have no four-class
+grounding target and keep one native empty row; they receive no train augmentation.
 
-Do not blindly replace source labels with the final model-facing class. First ask whether the
-source label encodes attributes that must survive in `subattr` or `extra`.
+## 3. Full Text Is Raw Truth but Not a Grounding Label
 
-Example: legacy arrow labels all become model-facing `label: "arrow"`, but `c0-c7` still map to
-`arrow_type`, `geometry`, and `line_style`.
+`full_text` remains in compact human annotations. `grounding_layout` consumes only
+`shape/icon/image/line` bboxes and must not delete `full_text` from raw or reinterpret it as
+background.
 
-## Missing Semantics Should Stay Unknown
+## 4. Same Bbox Does Not Prove Duplicate Line Semantics
 
-Do not infer a missing attribute just to make the dataset look complete. If the source does not
-distinguish single-headed and double-headed arrows, keep `arrow_type=unknown` unless the user
-approves a heuristic.
+Two lines can share label and bbox while their ordered paths cross, reverse, or branch differently.
+Compare `parameters.points`/`linestrip` before dedupe. The current raw set has known valid examples
+of this case.
 
-Example: connector groups provide geometry shapes, not single/double arrow labels.
+## 5. Boundary Coordinates Include Width and Height
 
-## Point Order Is Annotation Order
+`x2 == width` and `y2 == height` are valid image-boundary coordinates. Clip to
+`[0,width] x [0,height]`, require positive area, then quantize to `0..999`. Clipping to
+`width-1/height-1` can erase a right/bottom 1px line.
 
-Do not sort points by coordinate unless the source schema explicitly says order is irrelevant.
-For route-like annotations, the JSON order is often the only path information.
+## 6. Split Before Augmentation
 
-Example: connector `rectangle + point` groups become `linestrip` by preserving point shape order
-from the original JSON.
+Use explicit train/val/test manifests and prove they are disjoint before generating views. Never
+derive train rows from `vlm.test.json`. Empty v5.7 validation JSONL is intentional train-only
+semantics, not a reason to invent validation or augment it.
 
-## LabelMe Fields Are Import Artifacts
+## 7. Partial Crop Intersection Invalidates the Crop
 
-Do not keep LabelMe `shape_type`, `points`, or `group_id` as live fields in maintained raw
-annotations. They are useful when importing, but raw maintenance should normalize them into a
-stable schema: `bbox` for boxes, `linestrip` for arrow paths, and `extra` for source provenance.
+For grounding, every retained bbox must be fully contained. A crop that cuts through any target
+is rejected rather than treating the clipped fragment as a new object. Hard negatives require no
+full target and no partial overlap, plus complete source annotation.
 
-Example: arrow bbox and route information should live in one instance. `group_id` may be kept in
-`extra.source_group_id` for traceability, but downstream code must not rely on it to join shapes.
+## 8. Derived Media Is Task-Local
 
-## Same Image Name Does Not Mean Same Annotation Layer
+Grounding and context structured/SFT rows reference task-owned images, not raw/source images.
+This makes geometry, degradation, and snapshot identity explicit. Never overwrite original media
+to make a derived crop or resize fit.
 
-Do not collapse files only because basenames match. The same image can have separate icon/image,
-shape, arrow, connector, or negative-sample annotations.
+## 9. Prompt Text Is Runtime State
 
-Before merging, decide whether the incoming JSON is a replacement, another layer, or a negative
-sample.
+With prompt sampling enabled, SFT row `system_prompt` and `user_prompt` remain empty. The training
+YAML maps every dataset name to one versioned pool. Empty row prompts are therefore correct; a
+missing/incompatible pool is not.
 
-## Unlabeled Images Are Not Labeled Samples
+## 10. Selection Is Identity, Not a Second Truth
 
-When counting raw dataset coverage, JSON coverage defines labeled samples unless the user says
-to include unlabeled images. Extra images in an image directory are not automatically missing
-annotations; they may be pre-annotation inventory.
+V9 selections store source/instance identity and sampling strata. Shape/line attributes and
+geometry are reread from `gt_standard` on every rebuild. Copying full targets into selection makes
+later source fixes invisible and creates a competing truth.
 
-## Zero-Area Boxes Are Noise
+## 11. Proposal Bbox Is Not Ground Truth
 
-Zero-width or zero-height boxes are usually annotation errors for bbox grounding. Delete those
-instances from raw annotations after backing up, then document the cleanup in the raw README.
+Context reconstruction uses a noisy `proposal_bbox_2d` to identify the intended target. Proposal
+and output geometry share the entire contextual crop's Qwen `0..999` coordinate frame; target
+geometry may extend outside the proposal. Do not normalize output against the proposal box or ask
+the model to copy it.
 
-## Duplicate Means Same Semantics, Not Just Same Box
+## 12. Synthetic Reconstruction Has No Clean Twin
 
-Same label and same bbox is a useful duplicate check, but grouped tasks can carry route, style,
-direction, or source-group differences. Do not dedupe arrows or connectors without checking
-`linestrip`, `subattr`, and source group identity.
+Every v5.7 synthetic shape/line crop uses deterministic `synthetic_realism_v1` with 1–3
+size-preserving operations; extremely small targets get one mild operation. Store the exact plan
+in derived `extra` and do not repeat it online. This differs intentionally from grounding, where
+degraded rows have a clean geometry twin and exactly one degradation.
 
-## Validation Should Stay Boring
+## 13. Real and Synthetic Line Points Share Schema, Not Pixel Policy
 
-Do not apply train-only augmentation to validation data. Validation should normally be full-image
-and deterministic, even if train gets crops, hard negatives, or blur.
+`line_context_points` keeps all 122,218 usable real paths and adds 15,000 audited v9 multi-branch
+paths. Real crops stay clean; synthetic crops use the realism profile. Target keys are exactly
+`is_single + points`. Do not add synthetic single paths, fabricate missing real points, reorder
+segments, or add style fields.
 
-Exception: `point_arrow` validation is crop-level by task definition. It should be deterministic
-arrow crops, not raw full images.
+## 14. Image Prompt v5.3 Is an Intentional v5.7 Exception
 
-## VLM Samples And Requests Are Image-First
+The reviewed real image task still uses its unchanged 13-class
+`image_context_reconstruction.v5.3.yaml` pool. Do not rename it to v5.7 without a semantic change,
+and do not map synthetic `image_type=N/A` to `other` to increase volume.
 
-For Qwen3VL training, eval, and runtime inference, multimodal user content must be image-first:
-image content comes before the text instruction in the user message.
+## 15. A Builder Existing Does Not Make a Dataset Active
 
-Use this order for all model-facing paths:
+Synthetic `grounding_layout_sync` has a builder but is not materialized or registered in the
+formal v5.7 catalog. Background, shape weak attributes, region reconstruction, and legacy
+arrow/point tasks are also excluded. The catalog and training YAML, not script presence, define
+the active mix.
 
-- HF/local chat messages: `{"type": "image"}` before `{"type": "text", "text": ...}`.
-- OpenAI/vLLM-compatible messages: `{"type": "image_url", ...}` before
-  `{"type": "text", "text": ...}`.
-- Derived SFT rows and prompt/template helpers must preserve the same semantic order.
+## 16. Config Validity Is Not Runtime Readiness
 
-Do not switch to text-first when writing temporary eval scripts, production wrappers, or data
-conversion utilities. Message order is part of the runtime contract; results from image-first and
-text-first runs should not be treated as directly comparable unless that difference is explicitly
-being tested. New eval/review summaries should record `message_order: image_first` when they create
-model requests.
+Strict config loading proves schema/path resolution for catalog and prompts. It does not prove
+model weights, CUDA libraries, world size, or initialization checkpoints exist. In particular,
+the v5.7-re config requires its declared `checkpoint-4000`; report it as structurally complete but
+not runnable when that artifact is absent.
 
-## Clean Full Images Are The Grounding Backbone
+## 17. Do Not Fix Data Semantics in Training Code
 
-Compact human JSON is not an incomplete normalized record. The active `size + layout[]` source
-must not be expanded with invented fields or reconstruction attributes. For `grounding_layout`,
-read only `shape/icon/image/line` type+bbox pairs: exclude `full_text`, ignore line `points`, and do
-not split a multi-branch line into multiple detection boxes.
+Task field parsing, source adaptation, crop geometry, augmentation, and target construction belong
+in raw/derived preparation. `ShaftDataCenter`, sampler, collator, trainer, and pipeline consume
+generic validated records and must not reconstruct task truth or carry parallel special cases.
 
-For grounding train data, every covered source image should keep one clean `full_image` row. This
-row is the detection backbone and must not be replaced by crop, blur, or padded variants.
+## 18. Audit the Published Bundle as One Contract
 
-The historical snapshot at `data/archive2/grounding_layout_v5.1_bak0714` contains clean full images,
-density/hard-negative crops, `1.0x` legacy blur rows, and `0.2x` random-padded rows. Do not mix
-those rows with the maintained multi-resolution dataset.
+Before training or release, verify together:
 
-The maintained `data/grounding_layout` rebuild policy is:
+- raw/v9 split membership and source validity;
+- selection/source identity and exclusions;
+- structured/SFT/media one-to-one alignment;
+- exact target recomputation and prompt-argument schema;
+- catalog names/weights/eval flags and prompt versions across all configs;
+- model and checkpoint prerequisites.
 
-- native clean full images: `1.0x`
-- continuous clean resize views: about `0.9x`
-- random padded clean views: about `0.1x`
-- degraded resize views: about `0.75x`, with exactly one bounded Gaussian blur or noise operation
-- density crops: about `0.15x`
-- hard-negative crops: about `0.03x`
-
-These are bounded sampled views, not a Cartesian product of source images, scales, kernels, and
-degradation levels.
-
-Validation and VLM test data should remain clean full-image only.
-
-Synthetic layout detection remains a separate replay source named `grounding_layout_sync`. Do not
-run the real layout multiscale augmentation profile on it or merge its files into
-`grounding_layout`. The maintained v5.7 source materializes one full-image
-`synthetic_realism_v1` view per V9 train id: every row must contain Gaussian noise and may stack
-resample round-trip, blur, or JPEG compression, while image dimensions and bbox coordinates remain
-unchanged. It has no clean row and is train-only.
-
-## Canonical Order Needs GT Validation
-
-For detection-style SFT targets, canonical order is part of the training signal, not harmless
-formatting. Do not pick or change `grounding_layout` target order only because the rule sounds
-natural or is simple to implement.
-
-Before regenerating SFT data with a new order, analyze the current GT distribution and record the
-result. At minimum check parent-before-child behavior for large containing boxes, y-direction
-backtracking, stability under small bbox jitter, dense-sample truncation risk, and existing model
-response sortedness as a secondary diagnostic.
-
-The 2026-07-09 review found that the old `row_bucket(y_center)` order was a poor fit for business
-diagram images: large containers were often placed after their children. Keep the living analysis
-under `notes/canonical_order/`.
-
-## JPEG Is Optional, Not An Implicit Default
-
-JPEG compression may be used by an explicitly selected legacy or experimental profile, but the
-next direct-resize profile uses Gaussian blur and Gaussian noise only. Do not silently add JPEG,
-resize-back blur, or combined corruptions to that profile. Any optional degradation must remain
-bounded and must not replace the native clean row.
-
-## Zoom Out Is Different From Pixel Budget
-
-Processor pixel budget controls the final visual token budget, but it does not replace geometry
-augmentation. The current profile obtains scale diversity through direct, aspect-preserving resize;
-padding remains a distinct zoom-out transform at a bounded `0.1x` quota. Sample padding
-asymmetrically so the image can appear anywhere on the expanded canvas, and transform `bbox` /
-`linestrip` coordinates exactly. Padding replaces `0.1x` of the continuous-clean-resize budget;
-it does not increase the approximately 50k total.
-
-The training call must still pass runtime `min_pixels` / `max_pixels`. Persisted processor
-defaults inside a checkpoint are not proof that the intended training pixel budget is active.
-
-## Multi-Resolution Does Not Mean Fixed Five Sizes
-
-Sample target pixel counts continuously in log space from each source's feasible interval. Cap
-offline enlargement at `2x` linear scale, align output dimensions to the processor factor, and
-select only a bounded number of sufficiently separated views per source. Pixel ranges such as
-`0.2-0.5M`, `0.5-1M`, `1-2M`, and `2-4M` are quotas for balancing and reporting, not fixed resize
-levels.
-
-Use antialiased bicubic, Lanczos, and downscale-only area resampling according to resize direction;
-do not reduce every path to bilinear interpolation. Neural super-resolution is unsuitable for
-grounding augmentation because it can redraw supervised text, icons, lines, and boundaries.
-
-## Rebuild Derived Data Cleanly
-
-Derived image directories can contain stale files from earlier runs. Do not assume files on disk
-are referenced. When rebuilding derived datasets, either clean the derived output directory first
-or write to a fresh directory, then verify every JSONL image reference exists and every generated
-image is referenced.
-
-## Qwen 0..999 Coordinates Need One Codec
-
-Model-facing geometry coordinates use the project-standard Qwen-style integer `0..999` space.
-Do not hand-roll conversions in task scripts, eval parsers, or visualization code.
-
-Use the shared `shaft.codec.coordinates` helpers. Encoding must use nearest-integer rounding,
-not `int()` truncation. Decoding must use the same `0..999` scale. Mixing
-`pixel / (size - 1) * 999` during SFT generation with `bin / 1000 * size` during eval creates a
-small but systematic right/bottom shrink, which shows up as predicted boxes being shifted left/up
-or too tight.
-
-## Derived Data Is Not A Metadata Backup
-
-Do not copy raw `extra`, `subattr`, importer fields, or audit details into structured/SFT rows
-just because the information might be useful later. Raw data is the source of truth for rich
-metadata. Derived data should be a small rebuildable training artifact: image reference, minimal
-source id, and model-facing target fields.
-
-For weak-label datasets, this is still true even if there is no human raw truth yet. Keep
-weak-label audit information such as `evidence`, `confidence`, `abstain_reason`, source model,
-and source job id out of `target_text`; store only minimal traceability in `extra`.
-
-## Full-Image Region Reconstruction Has No Bbox-Local Coordinate Frame
-
-The v5.2 `*_region_reconstruction` tasks receive the full image and identify the target with
-`prompt_args.bbox_2d`. Both that prompt bbox and every model-facing target geometry field use the
-same Qwen integer `0..999` space normalized against the full image. Do not normalize shape corners,
-callout body/tail geometry, or line points against the selected bbox merely because historical
-crop reconstruction used crop-local coordinates. The selected bbox identifies the object; it does
-not establish a second perceptual coordinate frame.
-
-## Context-Crop Proposal Bbox Is Still Not A Bbox-Local Coordinate Frame
-
-The active v5.3 `*_context_reconstruction` tasks receive a bounded contextual crop and identify
-the target with `prompt_args.proposal_bbox_2d`. The proposal bbox may be shifted or loose because
-it represents a simulated first-stage detection, not GT.
-
-Both the proposal bbox and every model-facing target geometry field use Qwen integer `0..999`
-coordinates normalized against the entire contextual crop. Do not normalize shape corners,
-callout body/tail geometry, or line points against the proposal bbox. The target may extend outside
-the proposal when supervision corrects detector error.
-
-Random crop padding alone does not simulate detector error. The builder must separately perturb
-the proposal center/scale/edges, keep the full visible GT geometry inside the contextual crop, and
-record proposal noise, crop box, GT coverage, and coordinate-space provenance for audit.
-Build all three tasks with `scripts/tasks/build_context_reconstruction_sft.py`; v5.2 region
-manifests select instances only, while attributes and geometry must be reloaded from source truth.
-
-## Synthetic Context Reconstruction Must Not Keep Clean Crops
-
-The active v5.3 synthetic shape/line context-reconstruction media must use
-`synthetic_realism_v1` on every crop. A record must contain one to three non-empty,
-size-preserving operations selected from resample round-trip, Gaussian blur, Gaussian noise, and
-JPEG compression. Operations may be stacked because real screenshots commonly contain several
-weak acquisition/rendering artifacts at once. The output width and height, crop box, proposal,
-target coordinates, and target DSL must remain unchanged.
-
-Tiny targets need protection rather than a clean bypass: if the crop-local target short span is
-below `80/999`, use exactly one mild operation. Real `image_context_reconstruction` crops are not
-synthetic and must keep `profile=none` unless a separate reviewed real-image policy is introduced.
-
-This is a task-specific exception to the grounding augmentation rule that keeps a native clean
-backbone and applies exactly one degradation to a selected degraded row. Do not copy the mandatory
-stacked reconstruction policy into grounding, and do not preserve a clean synthetic reconstruction
-anchor merely to make the two task families look uniform.
-
-## Shape Attributes Follow The Editable Outer Container
-
-For shape subattribute prelabeling, classify the editable outer container or base shape, not the
-most salient semantic content inside the crop.
-
-Example: a gear icon inside a visible square/rectangular tile should be `shape_type=rectangle`,
-not `shape_type=other`. A number inside a circular badge should be `shape_type=oval`. Only use
-`other` when there is no visible geometric container or the instance is genuinely a complex
-freeform symbol/decoration.
-
-The rectangular pixel boundary of an icon or image crop is not an editable rectangle container.
-When the crop is the icon/image asset itself and no independent outer geometric container is
-visible, the shape reconstruction fallback is `shape_type=other`. If a distinct tile, badge, or
-panel encloses that asset, classify the enclosing editable shape instead.
-
-## Reconstruction Negatives Must Match The Invocation Contract
-
-Do not add raw `icon` or raw `image` crops to `shape_reconstruction` merely to teach
-`shape_type=other`. In the maintained pipeline, upstream detection chooses the task label first;
-`shape_reconstruction` is invoked on a crop already classified as `shape`. Cross-label visual
-negatives change the task into joint rejection/classification and encourage the shortcut
-"complex, low-resolution, or asset-like content => other".
-
-Within `shape_reconstruction`, reserve `other` for source instances whose label is genuinely
-`shape` but whose editable outer geometry cannot be represented by the current DSL. A visible
-rectangle/oval/callout container remains that shape even when it contains text, icons, or images.
-If robustness to upstream detection mistakes is needed, evaluate it as a separate routed-system
-experiment; do not silently change the reconstruction target distribution.
-
-The v5.0-re `balanced_v2` snapshot contains 10,000 `icon_as_other` and 10,000
-`image_as_other` rows. The 2026-07-12 checkpoint-8000 audit found this design counterproductive and
-it must not be repeated in the next shape reconstruction rebuild.
-
-## Shape Fill Means Independent Fill, Not Pixel Color
-
-For shape subattribute prelabeling, `fill` describes whether the editable shape has its own fill
-layer. If the shape interior is transparent or visually the same as the immediate background or
-parent container, use `fill.type=none` even when the pixels inside the bbox are white, gray, or
-lightly tinted.
-
-Example: a white rectangle on a white page, or a same-gray label area on a gray parent panel,
-should not be marked as `solid #FFFFFF` merely because the crop pixels are white. Treat it as
-transparent/no fill unless there is an independent visible fill different from the background.
-
-## Weak Labels Are Training Hints, Not Evaluation Truth
-
-Do not silently turn model-generated weak labels into validation or benchmark data. They can be
-useful for beta training, but formal eval should remain on human-maintained validation/benchmark
-sources unless the user explicitly requests a weak-label eval experiment.
-
-## V5.7 Synthetic And Historical Real Attribute Domains Are Different
-
-Do not infer a single reconstruction value domain from isolated examples in the annotation PDF.
-The v9 synthetic `gt_standard` source uses `shape.fill.type=uniform|complex`,
-`shape.effect.type=none|exist`, nested line `fill` / `border`, and `image_type=N/A`. Under the
-current v5.7 contract, both shape and line collapse any visual gradient or other non-uniform fill
-to exactly `{\"type\":\"complex\"}`. Never output gradient type, direction, endpoint colors, or
-stops for either task. The historical v5.3 real shape attribute task may still contain transparent
-fill, directional gradients, and distinct shadow/glow values, but it is not part of v5.7 training
-and must not be used to expand the current output domain. A complex line fill is valid current
-supervision; do not delete or reinterpret it as an unsupported arrow gradient.
-
-This is a versioned contract, not a claim that explicit gradients will never be supported. The
-current training data is valid and must not be rebuilt merely because a future version may add a
-richer gradient schema. Introduce that schema as an explicit new-version migration across data,
-prompts, codec, evaluation, and rendering; do not retroactively mark current `complex` targets as
-wrong.
-
-Keep these as explicit task contracts. Never pair a new prompt with old v5.3 shape-attribute
-targets, register the historical task in a v5.7 mix, rewrite synthetic `N/A` image type to `other`,
-or mix legacy `fill_color`/`has_border` line targets into the v5.7 nested schema.
-
-The v9 image display schema also allows `clip_shape=none` and polygon clips such as
-`regular_hexagon`; `oval` may carry an explicitly empty `corners` list. These are valid source
-records, not malformed rectangles. They remain outside the 13-class `image_type` task while the
-synthetic source reports `image_type=N/A`.
-
-For v9 line truth, `corner_style` belongs to any bent `straight` line, including shape-style solid
-arrows. Do not reject it merely because `line_style != path`. Curved segments are different: the
-v5.7 contract requires exactly four representative points per segment, so source rows with 3, 5,
-6, or 7 curved points must be excluded from reconstruction selection rather than silently
-resampled into invented geometry.
-
-Card `splits[].split_corners` are model-facing geometry. Context builders must include them when
-expanding the geometry coverage box and quantize them into the same full contextual-crop `0..999`
-space as outer `corners`; preserving their original pixel coordinates creates a mixed-coordinate
-target even when the rest of the card looks valid.
-
-## Schema-Valid Requires Exact Nested Keys
-
-Checking required values is not enough for weak-label promotion. Every nested training object
-must reject fields outside the prompt contract; otherwise API extras such as `border.color2` can
-pass the gate and be copied verbatim into SFT `target_text`.
-
-Run the same exact-key validator both when promoting API output and when consuming its sidecar in
-the SFT builder. Filter invalid rows before balancing classes, then cap dominant classes only in
-the derived selection so clean rare labels remain available in the maintained sidecar.
-
-## Small Datasets Can Cap Interleave Sampling
-
-With `mix_strategy=interleave_under`, the smallest dataset relative to its configured weight can
-limit the whole mixed epoch. Do not judge a new task's effect from YAML weights alone; compute the
-actual mixed quotas from current row counts before deciding whether the ratio is reasonable.
-
-## Preview Is Inspection, Not Data
-
-Do not regenerate previews as a side effect of raw cleaning or derived rebuilds. Generate previews
-only when requested or when needed for a small suspicious subset. Prefer drawing boxes directly
-on original images; avoid zoom panels unless they answer a specific inspection question.
-
-## Keep Routine State in README, Not Long Reports
-
-For raw directories, a short README is the maintenance surface. Long JSON reports are only for
-explicit audit needs or machine handoff. Do not create a second, stale source of truth.
-
-## Use Conservative Parallelism
-
-Data jobs can be parallel, but too many workers can crash the machine or thrash I/O. Use 8 workers
-by default for large preview/cleanup tasks unless the user explicitly chooses a higher number.
+Counts alone are insufficient: a dataset can have the expected number of rows while pairing the
+wrong prompt, stale target schema, or missing continuation artifact.

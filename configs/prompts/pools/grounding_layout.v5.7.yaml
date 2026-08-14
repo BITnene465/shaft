@@ -1,0 +1,122 @@
+metadata:
+  id: shaft.grounding_layout.prompt_pool.v5.7
+  version: v5.7
+  name: grounding layout detection prompt pool
+  task: grounding
+  subtask: grounding_layout
+  target_labels: [icon, image, shape, line]
+  output_schema: qwen_bbox_2d_list
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments,
+      explanations, or surrounding text.
+    user_prompt: |
+      Detect all visible non-text layout objects.
+
+      Allowed labels:
+      - shape: an independent geometric container or geometric shape.
+      - icon: an icon, symbol, or small non-photographic visual element.
+      - image: a coherent raster, picture, screenshot, chart, table, document, or diagram image region.
+      - line: a line, curve, polyline, connector, separator, or solid arrow.
+
+      Return a JSON array:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+
+      Use integer bbox_2d coordinates normalized to 0..999 against the full image. Each bbox must
+      cover the complete visible object, including its visible border or arrowheads. Do not output
+      the page background or text-only regions. A border belonging to a shape or image is not a
+      separate line. An internal divider that is part of one card or container is not a separate
+      line object.
+
+      Treat one connected straight, curved, bent, multi-segment, forked, branched, or multi-way
+      line structure as one line instance. Return one bbox covering the complete connected
+      structure. Merge branches only when they visibly belong to the same line object; incidental
+      crossings between independent lines remain separate. Disconnected line objects are also
+      separate instances. Return [] if none.
+
+  - id: semantic_boundaries
+    sampling_weight: 1.0
+    system_prompt: >
+      Output valid compact JSON only. No markdown or extra text.
+    user_prompt: |
+      Find every visible non-text layout target and label it as shape, icon, image, or line.
+
+      A shape is an independent geometric container or form. An icon is a compact symbol or small
+      non-photographic graphic. An image is one coherent raster or picture region, including an
+      embedded screenshot, chart, table, document, or diagram image. A line includes connectors,
+      separators, curves, polylines, and solid arrows.
+
+      Output:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+
+      bbox_2d uses full-image integer coordinates in 0..999 and covers the complete visible
+      object, including visible borders and arrowheads. Ignore the page background and text-only
+      regions. Do not duplicate a shape or image border as a line, and do not split an internal
+      card/container divider into a separate line.
+
+      One connected multi-segment or multi-branch line is one instance with one bbox around the
+      whole connected structure. Merge only branches belonging to that line object; independently
+      crossing lines and disconnected line objects remain separate. Return [] when empty.
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with compact JSON only. Do not add explanations.
+    user_prompt: |
+      Return exactly this JSON array schema:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+
+      Detect all visible non-text instances of:
+      - shape: independent geometric container or shape
+      - icon: icon, symbol, or small non-photographic graphic
+      - image: coherent raster or picture region
+      - line: line, connector, separator, curve, polyline, or solid arrow
+
+      Use integer 0..999 coordinates normalized against the full image. A bbox covers the whole
+      visible target, including visible borders and arrowheads. Exclude the page background and
+      text-only regions. Shape/image borders and internal card/container dividers are parts of
+      their owning objects, not separate line targets.
+
+      Keep a connected bent, multi-segment, forked, branched, or multi-way line as one line bbox.
+      Merge only branches visibly belonging to that line object. Incidental crossings between
+      independent lines and disconnected line objects remain separate. Empty result: [].
+
+  - id: line_connectivity
+    sampling_weight: 1.0
+    system_prompt: >
+      Return JSON only. Do not include markdown, comments, or prose.
+    user_prompt: |
+      Locate all visible non-text shape, icon, image, and line objects.
+      Return:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+
+      shape means an independent geometric container or form; icon means a compact symbol or
+      small graphic; image means a coherent raster or picture region; line includes paths,
+      connectors, separators, curves, polylines, and solid arrows.
+
+      Use full-image normalized integer coordinates in 0..999. Cover each complete visible object,
+      including visible borders and arrowheads. Ignore text-only regions and the page background.
+      Do not relabel a shape/image border or an internal card/container divider as a separate line.
+
+      Connectivity defines line instances: all connected arms, bends, segments, forks, and
+      branches belonging to one line object use one bbox. Incidental crossings between independent
+      lines and disconnected line objects remain separate. Return [] if no target exists.
+
+  - id: minimal_contract
+    sampling_weight: 1.0
+    system_prompt: >
+      Return valid compact JSON only.
+    user_prompt: |
+      Detect visible non-text layout objects using labels shape, icon, image, and line.
+      Output:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+
+      Use full-image integer 0..999 coordinates. Each bbox covers the complete visible object,
+      including borders and arrowheads. Ignore background and text-only regions. Shape/image
+      borders and internal card/container dividers are not separate lines. A connected
+      multi-segment or multi-branch line is one line instance. Merge only branches visibly
+      belonging to it; independently crossing and disconnected lines remain separate. Return []
+      if none.

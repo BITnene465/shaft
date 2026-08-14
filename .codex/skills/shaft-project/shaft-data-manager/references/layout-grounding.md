@@ -18,10 +18,12 @@ task.
 
 ## Cleaning
 
-- Remove zero-area instances.
-- Deduplicate same-label same-bbox instances within each JSON file.
-- Keep image inventory samples as raw JSON with `annotation.layers=[]`; do not count them as
-  layout negatives unless a completed `layout` layer explicitly contains no layout instances.
+- Reject or review zero-area instances before a derived rebuild.
+- Deduplicate only semantic duplicates. Same-label/same-bbox lines with different ordered paths
+  are distinct routes and must remain.
+- Image-only inventory is not a layout negative. A compact labeled row with no four-class target
+  may become one native empty grounding row; a normalized row needs an explicitly completed empty
+  layout layer.
 
 ## Derived Grounding Policy
 
@@ -31,8 +33,6 @@ task.
   paths such as `json/gemini_0001.json` only when the JSON exists.
 - Validation and test use native clean full-image rows only.
 - Train keeps one native clean full-image row for every covered source image.
-- The historical full/crop/blur/padded snapshot is retained as
-  `data/archive2/grounding_layout_v5.1_bak0714`.
 - The 2026-08-04 structured rebuild contains 58,440 rows from 20,060 sources. It uses
   `native clean = 20,060`, `continuous clean resize = 17,882`,
   `random padded clean = 1,995`, `degraded resize = 14,965`,

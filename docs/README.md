@@ -13,6 +13,7 @@
 
 ### 专项设计与能力矩阵
 
+- [data_v5_7.md](data_v5_7.md)：Banana v5.7 数据、prompt、训练配置、构建链与完整性基线。
 - [training_batch_planning_design.md](training_batch_planning_design.md)：mixing、grouping、cardinality、packing、
   varlen、sharded sampler 与 committed resume。
 - [online_eval_design.md](online_eval_design.md)：共享 codec、dataset policy、在线 metric 与 score 聚合。

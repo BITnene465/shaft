@@ -19,6 +19,19 @@ def _load_module():
     return module
 
 
+def test_current_defaults_select_only_v5_7_grounding() -> None:
+    module = _load_module()
+
+    assert module.DEFAULT_TASK_NAMES == ("grounding_layout",)
+    task_map = {task.name: task for task in module.TASKS}
+    assert task_map["grounding_layout"].prompt_config.endswith(
+        "grounding_layout.v5.7.yaml"
+    )
+    assert task_map["grounding_layout_sync"].prompt_config.endswith(
+        "grounding_layout.v5.7.yaml"
+    )
+
+
 def test_build_output_row_uses_qwen_grounding_schema(tmp_path: Path) -> None:
     module = _load_module()
 

@@ -45,6 +45,7 @@ configs/data/*.yaml
 !configs/data/banana_v5_0_re.yaml
 !configs/data/banana_v5_0_re2.yaml
 !configs/data/banana_v5_1.yaml
+!configs/data/banana_v5_7.yaml
 configs/prompts/*.yaml
 configs/prompts/**/*.yaml
 !configs/prompts/example.yaml
@@ -53,6 +54,11 @@ configs/prompts/**/*.yaml
 !configs/prompts/pools/line_reconstruction.v5.0.yaml
 !configs/prompts/pools/image_reconstruction.v5.0.yaml
 !configs/prompts/pools/background.v5.0.yaml
+!configs/prompts/pools/grounding_layout.v5.7.yaml
+!configs/prompts/pools/shape_context_reconstruction.v5.7.yaml
+!configs/prompts/pools/line_context_reconstruction.v5.7.yaml
+!configs/prompts/pools/line_context_points.v5.7.yaml
+!configs/prompts/pools/image_context_reconstruction.v5.3.yaml
 configs/train/*.yaml
 !configs/train/sft_4b.yaml
 !configs/train/dpo_4b.yaml
@@ -62,6 +68,12 @@ configs/train/*.yaml
 !configs/train/banana_sft_4b_v5_0_re.yaml
 !configs/train/banana_sft_4b_v5_0_re2.yaml
 !configs/train/banana_sft_4b_v5_1.yaml
+!configs/train/banana_sft_4b_v5_7.yaml
+!configs/train/banana_sft_4b_v5_7_trial.yaml
+!configs/train/banana_sft_27b_qwen36_v5_7_full_zero3.yaml
+!configs/train/banana_sft_27b_qwen36_v5_7_lora.yaml
+!configs/train/banana_sft_27b_qwen36_v5_7_qlora.yaml
+!configs/train/banana_sft_27b_qwen36_v5_7_re_full_zero3.yaml
 experimental/
 /scripts/acc_exp/
 /deployment/

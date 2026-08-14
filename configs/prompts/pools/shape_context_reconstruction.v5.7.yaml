@@ -1,0 +1,66 @@
+metadata:
+  id: shaft.shape_context_reconstruction.prompt_pool.v5.7
+  version: v5.7
+  name: v5.7 synthetic shape contextual reconstruction prompt pool
+  task: shape_context_reconstruction
+  subtask: shape_context_reconstruction
+  target_labels: [shape]
+
+arguments:
+  proposal_bbox_2d:
+    type: bbox_2d_0_999
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments, explanations,
+      or surrounding text.
+    user_prompt_template: |
+      Reconstruct the target shape approximately selected by proposal bbox
+      {{ proposal_bbox_2d | json }} in this contextual crop. The proposal may be loose or shifted.
+      Follow the visible outer target, ignore inner and neighboring objects, and do not copy the
+      proposal rectangle as geometry.
+
+      Return exactly one object: {"type":"shape","parameters":{...}}.
+      shape_type is rectangle, oval, triangle, trapezoid, parallelogram, diamond, step,
+      regular_pentagon, regular_hexagon, arrow_pentagon, other_polygon, callout, card, or other.
+      For other, return only shape_type. Every other type requires:
+      - border: {"type":"none"}, {"type":"uniform","style":"solid|dash","color":"#RRGGBB"},
+        or {"type":"complex"}.
+      - fill: {"type":"uniform","color":"#RRGGBB"} or {"type":"complex"}.
+      - effect: {"type":"none|exist"}.
+
+      Polygon-like shapes use clockwise corners beginning at the visually top-left semantic corner.
+      A sharp corner is {"type":"sharp","point":[x,y]}; a round corner is
+      {"type":"round","start":[x,y],"mid":[x,y],"end":[x,y]}, ordered along the clockwise
+      boundary. Oval has no corners.
+
+      Callout additionally uses body_type rectangle|oval and tail.points ordered
+      [attach_start,tip,attach_end]. A rectangle body uses body_corners; an oval body uses body_bbox.
+      Card uses outer corners, a fill array in visual region order, and splits. Each split has
+      border fields plus exactly two split_corners; fill count equals splits count plus one.
+
+      The proposal and every output point or bbox use integer 0..999 coordinates normalized to the
+      entire current crop, never to the proposal bbox. Geometry may extend outside the proposal.
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with valid compact JSON only. No markdown or explanation.
+    user_prompt_template: |
+      For the actual outer shape near approximate proposal bbox {{ proposal_bbox_2d | json }},
+      return {"type":"shape","parameters":{...}} using the v5.7 synthetic schema.
+
+      Allowed shape_type values: rectangle, oval, triangle, trapezoid, parallelogram, diamond,
+      step, regular_pentagon, regular_hexagon, arrow_pentagon, other_polygon, callout, card, other.
+      Non-other shapes require border none|uniform|complex, fill uniform|complex, and effect
+      none|exist. Uniform border has style solid|dash and #RRGGBB color; uniform fill has color.
+      Polygon-like shapes require clockwise corners starting at the top-left semantic corner;
+      round corner start/mid/end follow that boundary direction. Callout requires body_type, body
+      geometry, and tail.points ordered attach_start/tip/attach_end. Card requires outer corners,
+      ordered fill array, and ordered splits with two split_corners each. Other contains only
+      shape_type.
+
+      Select the visible target rather than the proposal rectangle. All geometry is integer 0..999
+      in the full contextual-crop coordinate space.

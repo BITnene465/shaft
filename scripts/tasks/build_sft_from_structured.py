@@ -45,11 +45,11 @@ class ConvertConfig:
 
 TASKS: tuple[TaskSpec, ...] = (
     TaskSpec("grounding_arrow", "grounding", "configs/prompts/pools/grounding_arrow.v2.4.yaml"),
-    TaskSpec("grounding_layout", "grounding", "configs/prompts/pools/grounding_layout.v5.0.yaml"),
+    TaskSpec("grounding_layout", "grounding", "configs/prompts/pools/grounding_layout.v5.7.yaml"),
     TaskSpec(
         "grounding_layout_sync",
         "grounding",
-        "configs/prompts/pools/grounding_layout.v5.0.yaml",
+        "configs/prompts/pools/grounding_layout.v5.7.yaml",
     ),
     TaskSpec("grounding_shape", "grounding", "configs/prompts/pools/grounding_shape.v2.4.yaml"),
     TaskSpec(
@@ -61,7 +61,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec("point_line", "point_line", "configs/prompts/pools/point_line.v5.0.yaml"),
 )
 
-DEFAULT_TASK_NAMES: tuple[str, ...] = ("grounding_layout", "point_line")
+DEFAULT_TASK_NAMES: tuple[str, ...] = ("grounding_layout",)
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
