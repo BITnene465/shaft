@@ -2,6 +2,8 @@
 
 `shaft-mark.svg` is the geometry source. Other SVG and PNG files are usage variants or previews.
 
+`shaft-readme-hero.svg` is the repository README banner.
+
 ## Usage
 
 - Default: `shaft-mark.svg` (`#111318`)

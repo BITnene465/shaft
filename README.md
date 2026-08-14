@@ -1,4 +1,17 @@
-# shaft（重构中）
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/shaft-mark-white.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/shaft-mark.svg">
+    <img alt="Shaft logo" src="assets/brand/shaft-mark.svg" width="88" height="88">
+  </picture>
+  <h1>Shaft</h1>
+  <p><strong>HF-first multimodal training and inference infrastructure</strong></p>
+  <p><sub>面向工程师与研究者 · 重构中</sub></p>
+</div>
+
+<p align="center">
+  <img src="assets/brand/shaft-readme-hero.svg" alt="Shaft — HF-first multimodal training and inference" width="100%">
+</p>
 
 Shaft 是一个 `HF-first` 的多模态训练与推理框架。训练入口按 `SFT / RL / OPD` 三个并列域组织；当前
 生产主线仍是 Qwen 多模态 SFT，RL 与 on-policy distillation 按各自能力门禁逐步验收。

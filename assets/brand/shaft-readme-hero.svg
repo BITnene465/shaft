@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" fill="none">
+  <title>Shaft README hero</title>
+  <desc>Shaft logo with a restrained technical overview for multimodal training and inference.</desc>
+  <rect width="1200" height="320" rx="16" fill="#0D0F12"/>
+  <rect x=".5" y=".5" width="1199" height="319" rx="15.5" stroke="#252A32"/>
+
+  <g stroke="#1B2027" stroke-width="1">
+    <path d="M40 0V320M80 0V320M120 0V320M160 0V320M200 0V320M240 0V320M280 0V320"/>
+    <path d="M0 40H320M0 80H320M0 120H320M0 160H320M0 200H320M0 240H320M0 280H320"/>
+  </g>
+
+  <!-- Mark geometry is derived from shaft-mark.svg, the single source of truth. -->
+  <svg x="58" y="46" width="204" height="228" viewBox="0 0 24 24">
+    <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M6 2H18V8H12L16 11H18V22H6V16H12L8 13H6ZM11 4H13V20H11Z"
+          fill="#F7F8FA"/>
+  </svg>
+
+  <line x1="320" y1="48" x2="320" y2="272" stroke="#303640"/>
+  <rect x="376" y="64" width="44" height="4" fill="#4F46C8"/>
+  <text x="376" y="126" fill="#F7F8FA"
+        font-family="Inter, ui-sans-serif, system-ui, sans-serif"
+        font-size="58" font-weight="700" letter-spacing="8">SHAFT</text>
+  <text x="380" y="160" fill="#AEB4BF"
+        font-family="Inter, ui-sans-serif, system-ui, sans-serif"
+        font-size="15" font-weight="600" letter-spacing="2">HF-FIRST MULTIMODAL TRAINING &amp; INFERENCE</text>
+
+  <line x1="376" y1="202" x2="1124" y2="202" stroke="#303640"/>
+  <line x1="376" y1="198" x2="376" y2="206" stroke="#69717E"/>
+  <line x1="563" y1="198" x2="563" y2="206" stroke="#69717E"/>
+  <line x1="750" y1="198" x2="750" y2="206" stroke="#69717E"/>
+  <line x1="937" y1="198" x2="937" y2="206" stroke="#69717E"/>
+  <line x1="1124" y1="198" x2="1124" y2="206" stroke="#69717E"/>
+
+  <g fill="#F7F8FA" font-family="Inter, ui-sans-serif, system-ui, sans-serif"
+     font-size="13" font-weight="650" letter-spacing="1.6">
+    <text x="376" y="232">DATA</text>
+    <text x="563" y="232">MODEL</text>
+    <text x="750" y="232">TRAIN</text>
+    <text x="937" y="232">EVAL</text>
+    <text x="1124" y="232" text-anchor="end">INFER</text>
+  </g>
+  <text x="376" y="270" fill="#747C89"
+        font-family="Inter, ui-sans-serif, system-ui, sans-serif"
+        font-size="12" letter-spacing="1.1">ONE BACKBONE · REPRODUCIBLE RUNTIME · RELIABLE INFRASTRUCTURE</text>
+</svg>
