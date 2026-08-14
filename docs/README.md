@@ -13,7 +13,6 @@
 
 ### 专项设计与能力矩阵
 
-- [data_v5_7.md](data_v5_7.md)：Banana v5.7 数据、prompt、训练配置、构建链与完整性基线。
 - [training_batch_planning_design.md](training_batch_planning_design.md)：mixing、grouping、cardinality、packing、
   varlen、sharded sampler 与 committed resume。
 - [online_eval_design.md](online_eval_design.md)：共享 codec、dataset policy、在线 metric 与 score 聚合。
@@ -27,11 +26,12 @@
 - [scripts.md](scripts.md)：正式 CLI 与 task 脚本使用说明。
 - [../docker/inference/README.md](../docker/inference/README.md)：推理镜像和服务契约 smoke。
 
-## 当前待办
+## 唯一总 TODO
 
-- [20260811_todo.md](20260811_todo.md)：只记录尚未实现、尚未验收或必须 fail closed 的事项。
+- [TODO.md](TODO.md)：仓库唯一的当前待办真源，只记录尚未实现、尚未验收或必须 fail closed 的事项。
 
-完成项不要继续堆在 TODO；稳定能力写入正式参考文档，事故与迁移过程写入开发日志。
+不要新增算法级、模型级或 feature 级平行 TODO。完成项立即从总 TODO 删除；稳定能力写入正式参考文档，
+事故与迁移过程写入开发日志。
 
 ## 历史记录
 

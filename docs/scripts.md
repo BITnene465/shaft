@@ -3,8 +3,8 @@
 本文档说明仓库 `scripts/` 目录下的正式脚本如何使用。
 
 范围约束：
-- 覆盖顶层正式入口和当前受维护的 v5.7 数据任务脚本
-- 历史 converter 和已退出正式 mix 的任务不再作为推荐流程记录
+- 覆盖顶层正式入口，以及 `scripts/tasks/` 与框架之间的职责边界
+- 具体项目的数据版本、业务合同和构建基线与对应 task 脚本放在一起维护
 - **不覆盖 `scripts/tmp/`**；`tmp` 目录视为临时实验区，不属于稳定接口
 
 ## 1. 设计原则
@@ -170,159 +170,9 @@ workload 一致，只允许 batch/sequence contract 作为实验轴变化。`--a
 
 ## 3. `scripts/tasks/`
 
-`scripts/tasks/` 只承载可复现的离线数据准备与转换，不承载训练循环。Banana v5.7 的
-数据目录、行数、prompt 映射和完整性基线见 [docs/data_v5_7.md](data_v5_7.md)。
-
-### `scripts/tasks/prepare_gt_standard_v5_7.py`
-
-用途：审计 v9 synthetic `gt_standard`，确认 train/val 无交叉，然后生成 shape、line 和
-synthetic multi-branch line-points 的 source-identity selection。
-
-```bash
-uv run python scripts/tasks/prepare_gt_standard_v5_7.py \
-  --dataset-root data/regulated_layout_dataset_v9_20260802 \
-  --output-root data/reconstruction_v5_7_selection \
-  --workers 8
-```
-
-只审计不写 selection：
-
-```bash
-uv run python scripts/tasks/prepare_gt_standard_v5_7.py --audit-only --workers 8
-```
-
-任何 source 级错误或 train/val 交叉都会 fail fast；少量实例级 bbox/points 错误保留在审计
-摘要中，但不会进入 selection。
-
-### `scripts/tasks/build_grounding_structured.py`
-
-用途：
-- 从 raw bbox 标注和显式 split 生成 task-local grounding 图片与 structured JSONL
-- 默认使用 `layout_multiscale_v1`，生成 native、连续多尺度、随机 padding、分级退化、density crop
-  和 hard negative 视图
-
-当前 `grounding_layout` 重建命令：
-
-```bash
-uv run python scripts/tasks/build_grounding_structured.py \
-  --raw-root data/raw \
-  --output-root data \
-  --train-split data/raw/splits/grounding_layout.train.txt \
-  --val-split data/raw/splits/grounding_layout.val.txt \
-  --task grounding_layout \
-  --workers 8 \
-  --clean
-```
-
-当前多尺度约束：
-- 目标像素在 `200704..2000000` 内按 log 空间连续采样，最终宽高按 `32` 对齐
-- 离线线性放大不超过 `2x`，同源尺度像素量至少相差 `1.35x`
-- clean resize、padding、degraded resize、density crop、hard negative 的目标比例分别约为
-  `0.9x / 0.1x / 0.75x / 0.15x / 0.03x`
-- padding 为非对称随机偏移；退化只使用单一 Gaussian blur 或 Gaussian noise
-- validation/test 只保留 native clean full-image
-
-正式 v5.7 只构建真实 `grounding_layout`。synthetic `grounding_layout_sync` 不在当前 catalog 中，
-不应在默认流程中构建或混入。
-
-### `scripts/tasks/build_sft_from_structured.py`
-
-用途：把当前 `grounding_layout` structured 数据转成 `jsonl_sft`。默认 prompt 是已跟踪的
-`grounding_layout.v5.7.yaml`。
-
-当前 detection 转换命令：
-
-```bash
-uv run python scripts/tasks/build_sft_from_structured.py \
-  --data-root data \
-  --task grounding_layout \
-  --workers 8 \
-  --clean
-```
-
-关键行为：
-- `bbox` 会量化到 `1000` bins，输出为 `bbox_2d`
-- `target_text` 是纯 JSON array
-- canonical order 为
-  `row_bucket(y1,20) -> x1 -> y1 -> -area -> x2 -> y2 -> label`
-- `system_prompt` 和 `user_prompt` 保持为空；训练时由 prompt pool 注入
-- 所有 prompt 和 structured split 会在 `--clean` 删除旧 SFT 之前完成预检。
-
-### `scripts/tasks/build_context_reconstruction_sft.py`
-
-用途：
-- 从 v9 selection 选择 shape/line 实例，每次从 `gt_standard` 重新读取属性与几何真值
-- 从 reviewed compact raw 构建 image type 和真实 line points
-- 为每个实例生成一个确定性的宽松 contextual crop，并以近似一阶段
-  `prompt_args.proposal_bbox_2d` 指定目标
-- 生成 v5.7 正式任务的 task-local PNG、structured/SFT、README 与 build summary
-
-正式构建命令：
-
-```bash
-uv run python scripts/tasks/build_context_reconstruction_sft.py \
-  --output-root data \
-  --shape-selection data/reconstruction_v5_7_selection/shape/train.jsonl \
-  --line-selection data/reconstruction_v5_7_selection/line/train.jsonl \
-  --workers 8 \
-  --chunksize 8 \
-  --clean
-```
-
-先从 active compact raw 选择全部非空真实 line points：
-
-```bash
-uv run python scripts/tasks/prepare_real_line_context_points.py \
-  --raw-root data/raw \
-  --train-split data/raw/splits/grounding_layout.train.txt \
-  --output data/reconstruction_v5_7_selection/line_points_real/train.jsonl \
-  --workers 40 \
-  --clean
-```
-
-再生成真实 points，并合并维护的 15,000 条合成多分支数据：
-
-```bash
-uv run python scripts/tasks/build_context_reconstruction_sft.py \
-  --raw-root data/raw \
-  --synthetic-root data/regulated_layout_dataset_v9_20260802 \
-  --line-point-real-selection \
-    data/reconstruction_v5_7_selection/line_points_real/train.jsonl \
-  --line-point-synthetic-selection \
-    data/reconstruction_v5_7_selection/line_points/train.jsonl \
-  --line-point-synthetic-limit 15000 \
-  --tasks line_context_points \
-  --workers 40 \
-  --chunksize 8 \
-  --clean
-```
-
-关键行为：
-- proposal center/scale/edge noise 与四边独立 context padding 分开采样；crop 始终覆盖完整可见 bbox
-  和显式 shape/line 几何
-- proposal bbox 与 target 几何共享当前 crop-local Qwen 整数 `0..999` 坐标，proposal 不建立第二个
-  bbox-local target frame
-- 保留 line 的多 segment/forked 结构，shape 只消费 source `label=shape`，不加入 icon/image-as-other
-- shape/line 每张合成 crop 默认使用 `synthetic_realism_v1`：确定性选择 1–3 个 resize round-trip、
-  Gaussian blur/noise、JPEG 扰动并允许叠加；极小 target `<80/999` 只使用 mild 单扰动
-- 所有像素扰动严格保持 crop 宽高、坐标和 target 不变；真实 image crop 不做合成扰动
-- 每个 task 写入自包含的 `selection/train.jsonl`，后续重建只从中恢复 source identity，target 仍回查
-  `gt_standard` / raw reviewed JSON
-- `shape_context_attributes` 不属于 v5.7；不要在默认构建或 catalog 中加回该历史弱标签任务
-- `line_context_points` 不复用历史 tight crop：真实数据从 active compact raw 回查 bbox 与有序
-  `parameters.points`，保留全部非空 line，不做采样；为补齐分叉监督，同一任务还从 v9
-  `gt_standard` 真值中加入维护的 15,000 条 `is_single=false` 合成多分支线。两类 source 都重新生成
-  proposal/context crop；target 严格只有 `is_single + points`，合成单叉不会进入该任务，也不得补造
-  样式、颜色或箭头端点属性
-- 空 points 不进入任务；真实 source 中相邻重复点和 Qwen 量化后产生的相邻重复点只在派生 target 中
-  清理，不删除对应实例。真实/合成每个入选实例都只有一张 crop，不生成多尺度副本
-- `line_context_points` 中真实 crop 保持 clean；合成多叉 crop 强制使用 `synthetic_realism_v1`，不能因其
-  与真实数据共处一个 task 而跳过像素域扰动
-- 真实 selection 只读取 active train split，并再次排除当前 test manifest；model-facing label 始终为
-  `line`
-- real image 训练排除 `data/raw/splits/vlm.test.json`；validation 明确为空
-- 先写同盘 staging，task 完整成功后原子发布；发布根目录权限固定为 `0755`
-- 默认最大 crop aspect ratio 为 `60`；PNG 尺寸保持原 crop 尺寸，训练时再由配置的 Qwen pixel budget 处理
+`scripts/tasks/` 承载具体项目的可复现离线数据准备与转换，不是 Shaft 框架入口，也不代表框架能力。
+任务脚本不得承载训练循环；其数据版本、构建命令、业务字段和完整性基线应与脚本放在一起维护，不进入
+框架模块参考。具体任务说明由对应 task 目录内的 README 维护。
 
 
 ## 4. 维护规则

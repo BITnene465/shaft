@@ -168,6 +168,211 @@ train:
         )
 
 
+def test_save_only_model_config_is_normalized(tmp_path: Path) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_strategy: steps
+  save_only_model: "true"
+""",
+        )
+    )
+
+    assert config.train.save_only_model is True
+
+
+def test_save_only_model_rejects_exact_resume(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="save_only_model.*resume_from_checkpoint"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_strategy: steps
+  save_only_model: true
+  resume_from_checkpoint: checkpoint-10
+""",
+            )
+        )
+
+
+def test_save_only_model_requires_periodic_save_strategy(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires train.save_strategy"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_strategy: no
+  save_only_model: true
+""",
+            )
+        )
+
+
+def test_save_only_model_rejects_unvalidated_algorithm(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="model-only periodic checkpoints.*SFT"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+algorithm:
+  name: dpo
+data:
+  datasets:
+    - dataset_name: ds1
+      source_type: jsonl_dpo
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_strategy: steps
+  save_only_model: true
+""",
+            )
+        )
+
+
+def test_fsdp_save_only_model_requires_full_state_dict(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="FSDP model-only.*full_state_dict"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_strategy: steps
+  save_only_model: true
+  distributed:
+    strategy: fsdp
+    fsdp:
+      state_dict_type: sharded_state_dict
+""",
+            )
+        )
+
+
+def test_deepspeed_zero3_save_only_model_requires_gathered_weights(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="stage3_gather_16bit_weights_on_model_save=true"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_strategy: steps
+  save_only_model: true
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config:
+        zero_optimization:
+          stage: 3
+""",
+            )
+        )
+
+
+def test_deepspeed_zero3_save_only_model_accepts_gathered_weights(
+    tmp_path: Path,
+) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_strategy: steps
+  save_only_model: true
+  load_best_model_at_end: false
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config:
+        zero_optimization:
+          stage: 3
+          stage3_gather_16bit_weights_on_model_save: true
+""",
+        )
+    )
+
+    assert config.train.save_only_model is True
+
+
+def test_deepspeed_save_only_model_rejects_best_model_reload(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="incompatible with.*load_best_model_at_end"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_strategy: steps
+  save_only_model: true
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config:
+        zero_optimization:
+          stage: 3
+          stage3_gather_16bit_weights_on_model_save: true
+""",
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "filename",
+    (
+        "banana_sft_27b_qwen36_v5_7_full_zero3.yaml",
+        "banana_sft_27b_qwen36_v5_7_re_full_zero3.yaml",
+    ),
+)
+def test_27b_full_recipes_keep_four_model_only_snapshots(filename: str) -> None:
+    config = load_config(Path("configs/train") / filename)
+
+    assert config.train.save_strategy == "steps"
+    assert config.train.save_steps == 2000
+    assert config.train.save_total_limit == 4
+    assert config.train.save_only_model is True
+    assert config.train.save_final_model is False
+    assert config.train.save_final_state is False
+
+
 def test_eval_metric_switches_normalize_quoted_booleans(tmp_path: Path) -> None:
     config = load_config(
         write_config_yaml(

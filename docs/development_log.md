@@ -3015,3 +3015,160 @@
   fallback。
 - 新增 PEFT/FSDP wrapper 形式前必须先取得真实 runtime/saved key，并补 canonicalization 反例与幂等测试。
 - 任何显式 LR group 都必须在 canary summary 中非空；长训练启动前审计三项：group、LR、参数量。
+
+## 2026-08-14：框架能力口径审计与唯一总 TODO 收口
+
+### 现象
+
+- README 将 SFT、DPO、PPO、GRPO 并列在“当前能力”和训练命令中，但真实成熟度并不相同：SFT 是生产主线，
+  DPO/GRPO 尚缺真实 Qwen release gate，PPO 只有 debug smoke。
+- DPO/GRPO 的 FSDP+PEFT exact resume 只在 SFT 完成恢复验收；本轮用现有 DPO/GRPO 配置做只读预检时，
+  `LoRA + FSDP + full_state_dict + periodic checkpoint` 仍都被配置层接受。
+- required CI 只覆盖 CPU framework 与 tiny/fake smoke，不能代表 distributed、GPU、真实模型或长程收敛；
+  推理 API 也只有单样本同步合同，没有原生 batch/streaming/async 服务层。
+- 当前 TODO 虽已合并为一份，但文件名仍绑定日期，README、配置注释和参考文档需要共同维护具体日期路径。
+
+### 根因
+
+- 文档混用了“代码可装配”“CPU contract 通过”“真实发布权重 gate 通过”和“生产验收完成”四种证据层级。
+- 通用 FSDP+PEFT 校验表达的是 SFT 已验证约束，没有为 DPO/GRPO 的未验证恢复组合建立算法级 fail-closed。
+- TODO 使用日期化文件名，把稳定导航入口和一次审计日期耦合；正式文档中也散落少量行动性待办措辞。
+
+### 影响范围
+
+- 使用者可能把 RL 命令可见、配置可加载或 required CI 绿灯误解为生产支持，并选择未验收的 checkpoint/
+  resume 组合。
+- PPO 默认示例保持安全关闭 debug 开关，但若仍作为普通训练命令展示，会形成“官方命令存在却不是可用生产
+  入口”的错误预期。
+- 这是能力声明、测试证据与文档真源问题；不是模型能力退化，也不是 eval、codec、metric 或 data 标准误判。
+- 本轮不修改 `src/shaft`、配置语义、训练/推理行为或测试实现。
+
+### 修复方式
+
+- 将日期化 TODO 收敛为唯一稳定入口 `docs/TODO.md`；删除旧文件，不保留 redirect 或算法级平行 TODO。
+- 总 TODO 统一记录 RL fail-closed、release gate、OPD 容量、batching/并行、推理/eval 与生态扩展事项；正式
+  文档只描述当前能力和明确拒绝边界。
+- README 将 SFT 标为生产主线、DPO/GRPO 标为实验能力、PPO 标为 debug-only，并从普通训练命令块移除
+  PPO；OPD 保持专项能力口径。
+- 架构、配置、模块和测试文档明确：FSDP+PEFT exact resume 当前只对 SFT 验收，DPO/GRPO 即使通过通用
+  配置预检也不得使用；required CPU 绿灯不能外推为真实 GPU/模型生产门禁。
+- 推理文档补充单样本、同步、图片必需和无原生 batch/streaming/async 服务层的当前合同。
+
+### 回归测试
+
+- 文档审计前当前工作树已通过 `1523` 项 framework 与 `30` 项 smoke；本轮只改文档和 PPO 配置首行注释，
+  未重复执行训练测试。
+- 补跑配置加载 focused 回归：`uv run --locked pytest -q tests/test_config_loader.py`，结果 `29 passed`。
+- 对仓库 Markdown 相对链接执行存在性检查，并检查旧 TODO 路径、平行 TODO 文件、活动文档 TODO 引用和
+  `git diff --check`。
+- 只读配置探针保留为问题证据：DPO、GRPO 的 FSDP+PEFT periodic-checkpoint 组合当前均显示 `ACCEPTED`，
+  因此总 TODO 的 P0 不能仅靠文档关闭。
+
+### 后续防线
+
+- 仓库当前待办永远只维护 `docs/TODO.md`；完成项立即删除，历史过程写开发日志，当前支持行为写正式参考。
+- 对外使用“支持”一词时必须同时注明算法、模型、finetune mode、batching、distributed topology、checkpoint
+  和证据级别；注册表存在、CLI 可见或配置可加载都不能单独作为支持声明。
+- 未完成的 fail-closed 属于 P0；文档可以提前标明“不支持”，但不能把文档声明当成运行时防线。
+
+## 2026-08-14：框架参考与当前数据任务文档解耦
+
+### 现象
+
+- `docs/data_v5_7.md` 被列入根 README 的重点文档和 `docs/` 当前真源，并被模块、配置、脚本文档引用。
+- `docs/module_reference.md` 与 `docs/scripts.md` 还直接记录 Banana v5.7 的数据组成、标注规则、构建命令和
+  完整性基线，使具体数据生产任务看起来像 Shaft 公共能力合同。
+
+### 根因
+
+- 文档按“当前工作重要性”组织，而不是按“框架公共接口”与“具体项目任务”组织。
+- 离线 task 脚本属于仓库可复现工具，但其业务数据版本和运行基线不因此成为框架模块语义。
+
+### 影响范围
+
+- 框架使用者会误把 Banana v5.7 当成理解或使用 Shaft 的必读前置，也可能误认为框架 data 层绑定该任务的
+  label、prompt、selection 和数据规模。
+- 这是文档归属和模块边界漂移，不是模型能力问题，也不是 eval、codec、metric 或 data 处理结果误判；
+  `src/shaft` 和运行行为不受影响。
+
+### 修复方式
+
+- 将任务说明从 `docs/data_v5_7.md` 迁到 `scripts/tasks/banana_v5_7.md`，明确其是当前 Banana v5.7 数据生产
+  任务说明，不是框架能力文档。
+- 从根 README、`docs/README.md`、模块参考和配置参考中移除 Banana v5.7 的重点入口与业务合同；配置参考的
+  prompt sampling 示例改为通用 dataset。
+- `docs/scripts.md` 只保留 task 脚本与框架的通用边界，具体构建命令和基线由 task 文档维护。
+
+### 回归测试
+
+- 检查 `README.md` 与 `docs/`，确认不再把 Banana v5.7 列为框架重点文档或模块能力。
+- 检查仓库 Markdown 本地链接、旧路径引用与 `git diff --check`；本轮不需要训练或推理回归。
+
+### 后续防线
+
+- `docs/` 只维护 Shaft 架构、公共配置、模块接口、通用设计、测试和运行参考。
+- 具体客户、数据版本、单次训练 bundle、业务 prompt 和完整性数字应与 `scripts/tasks/`、recipe 或外部任务
+  目录共置；即使当前优先级很高，也不得进入框架重点文档列表。
+
+## 2026-08-14：27B 周期 checkpoint 只保留模型态
+
+### 现象
+
+- 27B full fine-tune 每到 `checkpoint-4000/8000` 都同时保存模型权重、optimizer、scheduler、RNG 与
+  DeepSpeed/FSDP native state。可恢复训练态远大于单份部署权重，两个阶段快照会快速耗尽训练盘。
+- 实际需求只是在固定 step 留下可部署、可供后续 `init_from_checkpoint` 的权重，不需要从这些目录 exact
+  resume；仅关闭 root `save_final_state` 不会改变 periodic checkpoint 的内容。
+
+### 根因
+
+- Shaft 配置没有暴露 HF `TrainingArguments.save_only_model`，训练层默认把所有 periodic save 都解释成
+  resumable generation。
+- Shaft 的 commit、input identity、plugin neutrality 与 resume resolver 也按“未来一定 exact resume”校验；
+  如果只把 HF 参数透传为 true，DDP manifest 会继续错误要求 optimizer/RNG，分片后端还可能留下旧训练态或
+  发布不完整 shard。
+- 这是 checkpoint 存储与恢复语义问题，不是模型能力、data、eval、codec 或 metric 误判。
+
+### 影响范围
+
+- 新字段只影响 SFT 的 periodic `checkpoint-*`；默认 `save_only_model=false` 保持既有 exact-resume 行为。
+- model-only checkpoint 可由标准 HF/PEFT loader 部署或作为 `init_from_checkpoint`，但不能恢复 optimizer、
+  scheduler、scaler、RNG、数据 cursor 或 Trainer schedule。
+- DPO/PPO/GRPO/OPD 未经各自保存门禁，不会因为共享字段存在而静默扩大支持面。
+
+### 修复方式
+
+- `train.save_only_model` 成为唯一用户配置真源，并直接映射 HF `TrainingArguments`；training config 内部只派生
+  `disabled / model_only / resumable` 三态，不增加第二个可配置 checkpoint mode。
+- model-only 保存复用 Trainer 的标准 HF/PEFT 权重路径和 Shaft 的 all-rank callback convergence，提交前拒绝
+  optimizer、scheduler、scaler、每-rank RNG、DeepSpeed/FSDP native state 与 resumable marker 残留，再原子
+  发布 `shaft_model_only_checkpoint.json`。marker 绑定 step、full/adapter 类型和必需模型文件尺寸，但不对
+  51GiB 权重做第二遍全量 hash。
+- direct checkpoint resume 明确拒绝 model-only marker；run-root resolver 跳过这类 generation。
+  `save_only_model + resume_from_checkpoint` 在配置阶段直接失败，并提示改用 `init_from_checkpoint`。
+- FSDP 只接受 `full_state_dict`；DeepSpeed ZeRO-3 只接受
+  `stage3_gather_16bit_weights_on_model_save=true`；sharded backend 同时禁止
+  `load_best_model_at_end=true`，确保每个发布目录本身就是完整 HF/PEFT artifact。
+- 两份 Banana v5.7 27B full ZeRO-3 配置改为每 2000 step 仅保存模型态、最多四份，并关闭 root final model/
+  state 重复保存，8000-step 训练保留 `checkpoint-2000/4000/6000/8000`。
+
+### 回归测试
+
+- 单进程真实 Trainer 执行一步保存，验证标准 HF 权重可由 `from_pretrained` 重载，且目录没有 optimizer、
+  scheduler、scaler、RNG 或 native backend state；resume resolver 必须拒绝同一目录。
+- 两进程 CPU DDP/torchrun 真实执行两步并发布两个快照，两个 rank 均成功收敛；`checkpoint-1/2` 都通过
+  model-only validator，run-root resume 不会把它们识别为恢复点。
+- 配置测试覆盖 bool normalize、SFT-only、禁止 resume/no-save、FSDP full-state、ZeRO-3 gather 与
+  sharded best-model 互斥；checkpoint 单测覆盖 backend-native publication wrapper、残留清理、marker 损坏和
+  input/plugin exact-resume 门禁解耦。
+- 27B YAML 继续由 config loader 回归读取；没有目标 GPU 资源时，不能把 CPU DDP 与配置门禁表述成真实
+  27B ZeRO-3 训练验收，正式长训练仍应先做目标机器保存 canary。
+- 本轮完整回归结果为 framework `1538 passed`、smoke `30 passed`、distributed `51 passed / 3 skipped`；
+  ruff、`git diff --check` 与 Python compileall 同步通过。
+
+### 后续防线
+
+- 新算法若要开放 model-only periodic save，必须显式声明能力并分别通过单卡、多 rank、full/adapter、
+  deploy/init reload 与禁止 resume 的门禁；不能只复用 SFT profile。
+- 新分片 backend 必须证明保存时能聚合完整标准模型 artifact，并保证目标目录不存在 native optimizer state，
+  否则配置层保持 fail closed。
+- model-only marker 是发布完成证明，不是自定义权重格式；模型目录始终保持 HF/PEFT 标准布局。

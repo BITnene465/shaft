@@ -15,6 +15,10 @@
 - 允许本地 HF 与 vLLM OpenAI 兼容后端并存。
 - 让 codec 负责文本到结构化结果的收口。
 
+当前公共 API 的执行单位是一个包含至少一张图片的样本；一次 `run()` 同步、顺序执行各 stage。框架不提供
+原生多样本 batch、streaming、async queue 或 Shaft 自有在线服务层。外部 vLLM 服务负责服务端 batching，
+但这不改变 Shaft 请求侧的单样本合同。
+
 ## 2. 核心对象
 
 ### 2.1 配置对象

@@ -90,6 +90,7 @@ class AlgorithmProfile:
     config_normalizer: Callable[[Any], None] = _noop_config_normalizer
     supports_planned_batching: bool = False
     supports_checkpoint: bool = True
+    supports_model_only_checkpoint: bool = False
     supports_loss_eval: bool = True
     supports_online_eval: bool = False
     supports_eval_pixel_budget: bool = True
@@ -140,6 +141,7 @@ register_algorithm_profile(
         source_types=frozenset({"jsonl_sft"}),
         params_normalizer=normalize_sft_algorithm_params,
         supports_planned_batching=True,
+        supports_model_only_checkpoint=True,
         supports_online_eval=True,
     )
 )

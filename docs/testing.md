@@ -27,6 +27,10 @@ Framework suite membership 的唯一真源是 `tests/conftest.py` 中的 `_SUITE
 | `task` | 临时数据构建、迁移与 review task | 否 |
 | `visual` | render/overlay/dashboard 观感检查 | 否 |
 
+required 的 framework/smoke 绿灯只证明 CPU contract 与 tiny/fake 最短主链。当前 DPO、GRPO 没有完整真实 Qwen
+训练 release gate，PPO 只做 debug smoke；distributed、integration、GPU 和真实模型证据必须单独查看，不能由
+required CI 外推。未完成门禁只维护在 [TODO.md](TODO.md)。
+
 Suite 负责“运行哪批文件”。pytest marker 仅补充描述 `unit/component/contract/smoke/integration/manual`
 等测试属性，不再决定 required gate membership。
 

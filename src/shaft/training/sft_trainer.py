@@ -39,7 +39,7 @@ from shaft.utils.distributed import (
     get_rank,
     get_world_size,
 )
-from .checkpointing import ShaftCheckpointCommitMixin
+from .checkpointing import ShaftCheckpointCommitMixin, reject_model_only_checkpoint_resume
 from .eval_policy import aggregate_weighted_dataset_values
 from .efficiency import (
     ShaftTrainingEfficiencyMonitor,
@@ -206,6 +206,9 @@ class ShaftSFTTrainer(
                 upstream_resume_from_checkpoint = str(resolved_checkpoint)
         elif resume_from_checkpoint not in (None, False):
             resolved_checkpoint = Path(str(resume_from_checkpoint)).resolve()
+
+        if resolved_checkpoint is not None:
+            reject_model_only_checkpoint_resume(resolved_checkpoint)
 
         if (
             resolved_checkpoint is not None

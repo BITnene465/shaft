@@ -567,6 +567,7 @@ class ShaftSFTPipeline:
                 train_dataset_type=type(train_dataset),
                 save_strategy=config.train.save_strategy,
                 resume_requested=resume_checkpoint is not None,
+                save_only_model=bool(config.train.save_only_model),
             )
             if resume_checkpoint is not None:
                 validate_batching_resume_contract(
@@ -668,10 +669,13 @@ class ShaftSFTPipeline:
             validate_train_input_checkpointability(
                 train_input_contract,
                 save_strategy=config.train.save_strategy,
+                save_only_model=bool(config.train.save_only_model),
             )
             if not train_input_contract.exact_resume_safe:
                 logger.warning(
-                    "[train-input-contract] checkpointing=off exact_resume_safe=false reasons=%s",
+                    "[train-input-contract] exact_resume=off save_only_model=%s "
+                    "exact_resume_safe=false reasons=%s",
+                    bool(config.train.save_only_model),
                     list(train_input_contract.incomplete_reasons),
                 )
             training_resume_contract = build_training_resume_contract(

@@ -1,4 +1,4 @@
-# 注意：PPO 当前为暂停项（仅 smoke/debug），详见 docs/ppo_todo.md。
+# 注意：PPO 当前为暂停项（仅 smoke/debug），详见 docs/TODO.md。
 experiment:
   name: qwen3vl-ppo-4b
   output_dir: outputs/qwen3vl-ppo/4b/default

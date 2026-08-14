@@ -33,8 +33,11 @@ from shaft.data import (
 )
 from shaft.training import ShaftEpochIntervalCallback
 from shaft.training.checkpointing import (
+    MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME,
     ShaftCheckpointProtocol,
+    ensure_hf_export_layout,
     resolve_resume_checkpoint,
+    validate_model_only_checkpoint,
     validate_training_checkpoint_commit,
 )
 from shaft.training.efficiency import ShaftTrainingEfficiencyCallback
@@ -508,6 +511,53 @@ def test_fixed_sft_commits_after_efficiency_on_save_and_is_resolvable(
         checkpoint,
         protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
     ) == str(checkpoint)
+
+
+def test_model_only_periodic_checkpoint_is_deployable_init_only_snapshot(
+    tmp_path: Path,
+) -> None:
+    model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=build_training_args(
+            output_dir=tmp_path,
+            max_steps=1,
+            save_strategy="steps",
+            save_steps=1,
+            save_total_limit=2,
+            save_only_model=True,
+            logging_strategy="no",
+            disable_tqdm=True,
+            remove_unused_columns=False,
+        ),
+        train_dataset=[{"input_ids": [1, 2, 3], "labels": [1, 2, 3]}],
+        data_collator=lambda rows: {
+            "input_ids": torch.tensor([row["input_ids"] for row in rows]),
+            "labels": torch.tensor([row["labels"] for row in rows]),
+        },
+    )
+
+    trainer.train()
+
+    checkpoint = tmp_path / "checkpoint-1"
+    snapshot = validate_model_only_checkpoint(checkpoint)
+    assert snapshot["global_step"] == 1
+    assert snapshot["kind"] == "full"
+    assert (checkpoint / MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME).is_file()
+    assert not (checkpoint / "optimizer.pt").exists()
+    assert not (checkpoint / "scheduler.pt").exists()
+    assert not (checkpoint / "scaler.pt").exists()
+    assert not list(checkpoint.glob("rng_state*.pth"))
+    assert not list(checkpoint.glob("global_step*"))
+    ensure_hf_export_layout(checkpoint, finetune_mode="full")
+    restored = _TinyCheckpointModel.from_pretrained(checkpoint)
+    for name, value in model.state_dict().items():
+        assert torch.equal(value, restored.state_dict()[name])
+    with pytest.raises(ValueError, match="model-only.*cannot.*resume"):
+        resolve_resume_checkpoint(
+            checkpoint,
+            protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
+        )
 
 
 def _assert_nested_state_equal(expected, actual) -> None:

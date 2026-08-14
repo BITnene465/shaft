@@ -63,7 +63,7 @@ RuntimeConfig
 │   ├── scheduler_num_cycles / scheduler_power
 │   ├── adam_beta1 / adam_beta2 / adam_epsilon
 │   ├── bf16 / fp16 / gradient_checkpointing / full_determinism
-│   ├── save_strategy / save_steps / save_epoch_interval / save_total_limit
+│   ├── save_strategy / save_steps / save_epoch_interval / save_total_limit / save_only_model
 │   ├── load_best_model_at_end / save_final_model / save_final_state
 │   ├── init_from_checkpoint / resume_from_checkpoint
 │   ├── efficiency
@@ -285,7 +285,7 @@ model:
   `transformers.models.qwen3_5` 模块是否存在；MoE profile 还要求 `transformers.models.qwen3_5_moe`。
   MoE padded SFT 已实现 router auxiliary objective、full/LoRA 保存恢复和 HF/PEFT 导出。Qwen3.6-27B
   dense 已有真实权重短程训练证据；MoE 证据仍主要来自 tiny upstream architecture 的 CPU 与 CUDA gate，
-  不能解释为真实 35B MoE 权重的生产容量。完整验收条件见 `docs/20260811_todo.md`。
+  不能解释为真实 35B MoE 权重的生产容量。完整验收条件见 `docs/TODO.md`。
 - **MTP 当前不在 Shaft 支持范围内。** Qwen3.5/3.6 上游 artifact 可能携带 `mtp.*` speculative-draft
   权重，但当前 Transformers 标准 Qwen3.5/3.6 model class 不实例化这些模块，并把它们作为 ignored
   unexpected keys。Shaft 因而不加载、不训练、不恢复、不导出 MTP，也没有 `mtp_loss` 或 MTP
@@ -698,7 +698,8 @@ layout=padded
   runtime、model/processor、tokenizer artifact 及 wrapper/backend package version、template、
   collator/input-policy、pixel/token limits；SFT 还绑定 sequence-execution fingerprint。`cost_cache_size`
   是性能审计字段，不参与 exact-resume fingerprint。
-- 只要 `save_strategy` 不是 `no`，训练输入契约就必须完整：active online transform 必须显式版本化，
+- 只要启用可恢复 checkpoint（`save_strategy != no` 且 `save_only_model=false`），训练输入契约就必须完整：
+  active online transform 必须显式版本化，
   `media_snapshot_id` 必须标识 immutable 媒体快照，Dataset/Pillow runtime 必须可稳定识别，tokenizer 必须
   提供完整 backend/声明式 artifact identity，input builder 必须声明 `SHAFT_INPUT_POLICY_VERSION`。未知的
   component/config state 不会退化成“只记录类型”，而会把契约标为 incomplete。data-side identity 与旧
@@ -717,8 +718,9 @@ layout=padded
   以及 planning state/spec/batch/resume contract。大模型/optimizer shard 不额外全量重读计算 SHA256，字节内容
   仍由 backend-native loader 校验；marker 保证该完整 shard 集合与 planning generation 不可拆分。
   direct-path 和 run-root resume 只接受 marker 与 backend artifact 同时有效的 generation，并跳过 pending、
-  torn、stale 或 generation 不匹配目录。PPO 不接入任一 resumable 协议，要求 `save_strategy: no` 且仍禁止 resume；这不影响
-  `save_final_model` 的 `best` 导出或 root final state。
+  torn、stale 或 generation 不匹配目录。FSDP+PEFT exact resume 当前只对 SFT 验收；DPO/GRPO 不属于支持
+  范围，且通用配置预检尚可能接受该组合，因此不能将“配置可加载”解释为可恢复。PPO 不接入任一 resumable
+  协议，要求 `save_strategy: no` 且仍禁止 resume；这不影响 `save_final_model` 的 `best` 导出或 root final state。
 - 所有 checkpoint 都在 stateful callback 中保存同一 canonical batch contract。exact resume 改变四轴、
   `per_device_train_batch_size`、DP world size 或 GA 会在模型加载前失败；旧 checkpoint 若没有该 callback，
   只能作为 `init_from_checkpoint` 权重来源启动新 schedule。planned commit extension 还会交叉验证该
@@ -872,15 +874,9 @@ data:
       train_only: true
       seed: 42
       pools:
-        grounding_layout: ../prompts/pools/grounding_layout.v5.7.yaml
-        shape_context_reconstruction: ../prompts/pools/shape_context_reconstruction.v5.7.yaml
-        line_context_reconstruction: ../prompts/pools/line_context_reconstruction.v5.7.yaml
-        line_context_points: ../prompts/pools/line_context_points.v5.7.yaml
-        image_context_reconstruction: ../prompts/pools/image_context_reconstruction.v5.3.yaml
+        dataset_a: /path/to/dataset_a_prompt_pool.yaml
+        dataset_b: /path/to/dataset_b_prompt_pool.yaml
 ```
-
-Banana v5.7 的五个数据源、版本例外和可复现配置见
-[docs/data_v5_7.md](data_v5_7.md)。
 
 Prompt pool 示例：
 
@@ -1068,6 +1064,7 @@ algorithm.name
 - `save_epoch_interval`
 - `save_steps`
 - `save_total_limit`
+- `save_only_model`
 - `ddp_find_unused_parameters`
 - `report_to`
 - `load_best_model_at_end`
@@ -1090,6 +1087,7 @@ algorithm.name
 | `train.per_device_train_batch_size` | 每卡 microstep 的 physical-pack 数量 `B` | 由 `data.batching.cardinality` 决定 `B` 是精确数量还是上限；world size 来自启动器，不写在该字段中 |
 | `train.gradient_checkpointing` | 模型侧 gradient checkpointing | FSDP 且 `distributed.fsdp.activation_checkpointing=true` 时，Shaft 关闭 Trainer 模型侧开关，由 FSDP activation wrapper 单独负责，避免双重 checkpointing |
 | `train.scheduler_name` | Shaft 自定义 scheduler 的执行真源 | 默认 `auto` 时从兼容字段 `lr_scheduler_type` 解析；显式设置后以 `scheduler_name` 为准 |
+| `train.save_only_model` | periodic `checkpoint-*` 的内容语义 | `false` 保存可 exact-resume 的完整训练态；`true` 只发布标准 HF/PEFT 模型态，允许部署或 `init_from_checkpoint`，禁止 resume |
 | `train.init_from_checkpoint` | 只加载权重/adapter，启动一个新 schedule | `resume_from_checkpoint` 恢复 Trainer、optimizer、scheduler、RNG 与可恢复的数据计划状态；两种语义应二选一 |
 
 推荐在新 YAML 中显式写 `scheduler_name`。`lr_scheduler_type` 目前仍会传入 HF
@@ -1112,6 +1110,18 @@ scheduler，使用 init。
 
 保存与恢复边界：
 
+- `save_only_model=false` 是默认值：periodic `checkpoint-*` 保留模型、optimizer、scheduler、scaler（若有）、
+  每 rank RNG、Trainer state 与 Shaft 可恢复 callback state，用于 exact resume。
+- `save_only_model=true` 只对 SFT 开放。periodic `checkpoint-*` 仍是可由 HF/PEFT 直接加载的标准模型目录，
+  并保留少量 `trainer_state.json` 等审计元数据；它不会保留 optimizer、scheduler、scaler、RNG 或
+  FSDP/DeepSpeed native training state。成功发布后会写
+  `shaft_model_only_checkpoint.json`，该 marker 只描述提交状态，不改变 HF/PEFT 权重布局。
+  这类目录可部署，也可传给 `init_from_checkpoint` 开启新 schedule，但不能传给
+  `resume_from_checkpoint`；direct path 会明确拒绝，run root resolver 会跳过它。
+- `save_only_model=true` 要求 `save_strategy=steps|epoch`，且不能同时配置 `resume_from_checkpoint`。
+  FSDP 要求 `state_dict_type=full_state_dict`；DeepSpeed ZeRO-3 要求
+  `stage3_gather_16bit_weights_on_model_save=true`；两种 sharded backend 都要求
+  `load_best_model_at_end=false`。未验收算法或无法形成完整 HF/PEFT 权重的组合会在加载数据和模型前失败。
 - `save_final_model=true` 把部署用 HF/PEFT 导出写入 `<output_dir>/best`。
 - `save_final_state=true` 把最终 `trainer_state.json` 保留在 run 根目录；finetune/optimizer summary 也属于
   run metadata，root layout 清理不得删除这些文件。
