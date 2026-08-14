@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+  <title>Shaft symbol mark</title>
+  <desc>A geometric S built around an uninterrupted vertical negative corridor.</desc>
+  <path fill-rule="evenodd" clip-rule="evenodd"
+        d="M6 2H18V8H12L16 11H18V22H6V16H12L8 13H6ZM11 4H13V20H11Z"
+        fill="#111318"/>
+</svg>

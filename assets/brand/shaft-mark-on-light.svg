@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <!-- Context preview derived from shaft-mark.svg; do not edit the mark geometry here. -->
+  <title>Shaft symbol mark on light background</title>
+  <rect width="64" height="64" fill="#F7F8FA"/>
+  <path fill-rule="evenodd" clip-rule="evenodd"
+        d="M6 2H18V8H12L16 11H18V22H6V16H12L8 13H6ZM11 4H13V20H11Z"
+        fill="#111318" transform="translate(8 8) scale(2)"/>
+</svg>
