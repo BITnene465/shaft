@@ -119,7 +119,9 @@ class FakePipelineProcessor:
 class FakePipelineModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.weight = torch.nn.Parameter(torch.ones(1))
+        # Keep the fake model structurally consistent with the smoke_vlm adapter
+        # used by pipeline tests so fail-closed optimizer grouping is exercised.
+        self.proj = torch.nn.Linear(1, 1, bias=False)
         self.config = SimpleNamespace(
             use_cache=False,
             eos_token_id=99,

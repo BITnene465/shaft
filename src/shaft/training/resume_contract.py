@@ -27,7 +27,7 @@ from .input_contract import callable_semantic_signature, component_semantic_sign
 from .distributed import all_gather_objects
 
 
-_TRAINING_RESUME_CONTRACT_VERSION = "shaft-training-resume-contract-v2"
+_TRAINING_RESUME_CONTRACT_VERSION = "shaft-training-resume-contract-v3"
 _DISTRIBUTED_STAGE_STATUS_KEYS = frozenset({"ok", "error_type", "error", "fingerprints"})
 _TRAINING_RESUME_POLICIES: dict[str, Any] = {}
 

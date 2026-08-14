@@ -7,7 +7,6 @@ import torch
 from transformers import TrainingArguments
 from transformers.trainer_callback import PrinterCallback
 
-from shaft.model.finetune_plan import ShaftResolvedFinetunePlan
 from shaft.model.types import ShaftModelAdapter
 from shaft.utils.distributed import is_rank_zero
 
@@ -15,7 +14,6 @@ from .optimizer import build_optimizer_and_plan, build_optimizer_from_plan
 from .optimizer_plan import (
     ShaftResolvedOptimizerPlan,
     build_resolved_optimizer_plan,
-    summarize_resolved_optimizer_plan,
     write_resolved_optimizer_summary,
 )
 from .scheduler import build_scheduler
@@ -35,7 +33,6 @@ class ShaftOptimizerMixin:
         adam_beta2: float = 0.999,
         adam_epsilon: float = 1e-8,
         model_adapter: ShaftModelAdapter | None = None,
-        finetune_plan: ShaftResolvedFinetunePlan | None = None,
         resolved_optimizer_plan: ShaftResolvedOptimizerPlan | None = None,
         param_group_lrs: dict[str, float] | None = None,
         no_decay_name_patterns: list[str] | None = None,
@@ -49,7 +46,6 @@ class ShaftOptimizerMixin:
         self.adam_beta2 = float(adam_beta2)
         self.adam_epsilon = float(adam_epsilon)
         self.model_adapter = model_adapter
-        self.finetune_plan = finetune_plan
         self.param_group_lrs = {
             str(key).strip().lower(): float(value)
             for key, value in dict(param_group_lrs or {}).items()
@@ -60,7 +56,6 @@ class ShaftOptimizerMixin:
             if str(pattern).strip()
         ]
         self.resolved_optimizer_plan = resolved_optimizer_plan
-        self.resolved_optimizer_summary = None
         super().__init__(*args, **kwargs)
         # Shaft uses a progress adapter; the default HF PrinterCallback only
         # duplicates step logs and breaks progress-bar readability.
@@ -77,7 +72,6 @@ class ShaftOptimizerMixin:
                 wrapped_plan = build_resolved_optimizer_plan(
                     model=optimizer_model,
                     args=self.train_args,
-                    finetune_plan=self.finetune_plan,
                     model_adapter=self.model_adapter,
                     param_group_lrs=self.param_group_lrs,
                     no_decay_name_patterns=self.no_decay_name_patterns,
@@ -102,7 +96,6 @@ class ShaftOptimizerMixin:
                     adam_beta1=self.adam_beta1,
                     adam_beta2=self.adam_beta2,
                     adam_epsilon=self.adam_epsilon,
-                    finetune_plan=self.finetune_plan,
                     model_adapter=self.model_adapter,
                     param_group_lrs=self.param_group_lrs,
                     no_decay_name_patterns=self.no_decay_name_patterns,
@@ -116,15 +109,14 @@ class ShaftOptimizerMixin:
                     adam_beta2=self.adam_beta2,
                     adam_epsilon=self.adam_epsilon,
                 )
-            self.resolved_optimizer_summary = summarize_resolved_optimizer_plan(self.resolved_optimizer_plan)
             if is_rank_zero():
                 write_resolved_optimizer_summary(
                     self.train_args.output_dir,
-                    self.resolved_optimizer_summary,
+                    self.resolved_optimizer_plan,
                 )
                 logger.info(
                     "[startup] resolved optimizer groups: %s",
-                    self.resolved_optimizer_summary.to_log_dict(),
+                    self.resolved_optimizer_plan.to_log_dict(),
                 )
         return self.optimizer
 

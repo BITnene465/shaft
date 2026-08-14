@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import hashlib
 import importlib.util
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping
 
 from packaging.version import InvalidVersion, Version
 import torch
@@ -151,13 +151,20 @@ class ShaftProcessorCostEstimate:
 
 @dataclass(frozen=True)
 class ModelModuleGroups:
+    STRUCTURAL_GROUP_NAMES: ClassVar[tuple[str, ...]] = (
+        "language_model",
+        "vision_tower",
+        "aligner",
+        "generator",
+    )
+
     language_model: tuple[str, ...] = ()
     vision_tower: tuple[str, ...] = ()
     aligner: tuple[str, ...] = ()
     generator: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        for key in ("language_model", "vision_tower", "aligner", "generator"):
+        for key in self.group_names():
             value = getattr(self, key)
             if isinstance(value, str):
                 coerced = (value,) if value.strip() else ()
@@ -165,9 +172,19 @@ class ModelModuleGroups:
                 coerced = _dedupe_non_empty(tuple(value))
             object.__setattr__(self, key, coerced)
 
+    @classmethod
+    def group_names(cls) -> tuple[str, ...]:
+        """Return the public structural-group contract in stable order."""
+
+        return cls.STRUCTURAL_GROUP_NAMES
+
+    @property
+    def has_structural_metadata(self) -> bool:
+        return any(self.prefixes_for_group(name) for name in self.group_names())
+
     def prefixes_for_group(self, group_name: str) -> tuple[str, ...]:
         normalized = str(group_name).strip().lower()
-        if normalized not in {"language_model", "vision_tower", "aligner", "generator"}:
+        if normalized not in self.group_names():
             raise KeyError(f"Unknown model module group: {group_name!r}")
         return getattr(self, normalized)
 
@@ -178,7 +195,7 @@ class ModelModuleGroups:
 
         best_group: str | None = None
         best_prefix_len = -1
-        for group_name in ("language_model", "vision_tower", "aligner", "generator"):
+        for group_name in self.group_names():
             for prefix in self.prefixes_for_group(group_name):
                 if not _matches_group_prefix(normalized_name, prefix):
                     continue

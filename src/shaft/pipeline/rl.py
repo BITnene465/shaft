@@ -420,7 +420,6 @@ class ShaftRLPipeline:
             resolved_optimizer_plan = build_resolved_optimizer_plan(
                 model=artifacts.model,
                 args=training_args,
-                finetune_plan=finetune_plan,
                 model_adapter=artifacts.model_adapter,
                 param_group_lrs=dict(config.train.param_group_lrs),
                 no_decay_name_patterns=list(config.train.no_decay_name_patterns),
@@ -574,7 +573,6 @@ class ShaftRLPipeline:
                 runtime_context,
                 trainer_inputs=trainer_inputs,
                 callbacks=callbacks_or_none,
-                finetune_plan=finetune_plan,
                 resolved_optimizer_plan=resolved_optimizer_plan,
             )
         assert trainer_spec is not None

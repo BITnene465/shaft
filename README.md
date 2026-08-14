@@ -181,6 +181,19 @@ token 与 vision 总预算为每个 rank 选择 `1..B` 个 pack，
 optimizer、scheduler 和 checkpoint。例如 `B=2`、8 rank、GA4 时，每个 optimizer step 处理 32–64 条
 logical samples；loss 按该 optimizer frame 内跨 rank 的真实有效 token 归一化。
 
+结构组学习率对 full、LoRA、DoRA、QLoRA 使用同一接口：
+
+```yaml
+train:
+  learning_rate: 1.0e-5
+  param_group_lrs:
+    vision_tower: 3.0e-6
+```
+
+`ModelModuleGroups` 按规范化后的真实模型路径确定 `language_model / vision_tower / aligner / generator`；
+PEFT 的 LoRA A/B、DoRA magnitude 与 `modules_to_save` 包装不会覆盖结构归属。显式配置但没有 trainable
+参数命中的组会在 optimizer 创建前报错。
+
 成本按 buffer 即时估算，图像只读 header，并使用容量受限的 LRU。多 rank 启动校验得到的首个 plan 会被
 正式 sampler 直接复用；为了在任何 forward 前原子验证完整 GA frame，首个 forward 前的成本调用上界为
 `buffer_size + (GA - 1) * world_size * per_device_train_batch_size`，仍与总 steps 无关。

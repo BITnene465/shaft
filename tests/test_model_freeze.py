@@ -107,8 +107,21 @@ def test_model_module_groups_resolve_most_specific_prefix() -> None:
         groups.resolve_group_for_name("model.visual.blocks.0.attn.q_proj.weight") == "vision_tower"
     )
     assert groups.resolve_group_for_name("model.visual.merger.mlp.0.weight") == "aligner"
+    assert (
+        groups.resolve_group_for_name("model.visual.deepstack_merger_list.0.proj.weight")
+        == "vision_tower"
+    )
     assert groups.resolve_group_for_name("lm_head.weight") == "generator"
     assert groups.resolve_group_for_name("model.visualish.proj.weight") == "language_model"
+
+
+def test_model_module_groups_publish_the_structural_group_contract() -> None:
+    assert ModelModuleGroups.group_names() == (
+        "language_model",
+        "vision_tower",
+        "aligner",
+        "generator",
+    )
 
 
 def test_qwen_module_groups_do_not_freeze_visual_paths_when_language_model_group_is_selected() -> (
@@ -140,6 +153,14 @@ def test_qwen_module_groups_do_not_fold_aligner_into_vision_tower() -> None:
 
     assert plan.should_train_name("model.visual.blocks.0.attn.qkv.weight") is False
     assert plan.should_train_name("model.visual.merger.linear_fc1.weight") is True
+    assert plan.should_train_name("model.visual.deepstack_merger_list.0.proj.weight") is True
+
+    assert (
+        adapter.module_groups.resolve_group_for_name(
+            "model.visual.deepstack_merger_list.0.proj.weight"
+        )
+        == "aligner"
+    )
 
 
 def test_smoke_module_groups_match_real_module_prefixes() -> None:

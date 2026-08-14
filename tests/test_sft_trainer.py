@@ -1051,7 +1051,6 @@ def test_shaft_trainer_uses_custom_components() -> None:
             build_resolved_optimizer_plan(
                 model=model,
                 args=args,
-                finetune_plan=None,
                 model_adapter=None,
                 param_group_lrs={},
             ),
@@ -1061,7 +1060,7 @@ def test_shaft_trainer_uses_custom_components() -> None:
         _, kwargs = mocked_build_optim.call_args
         assert kwargs["param_group_lrs"] == {}
         assert kwargs["model_adapter"] is None
-        assert kwargs["finetune_plan"] is None
+        assert "finetune_plan" not in kwargs
     with patch("shaft.training.optimizer_mixin.build_scheduler") as mocked_build_sched:
         mocked_build_sched.return_value = torch.optim.lr_scheduler.LambdaLR(
             trainer.optimizer, lambda _: 1.0

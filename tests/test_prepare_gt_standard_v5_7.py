@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +10,15 @@ from PIL import Image
 
 
 SCRIPT = Path("scripts/tasks/prepare_gt_standard_v5_7.py")
+
+
+def _load_script_module():
+    spec = importlib.util.spec_from_file_location("prepare_gt_standard_v5_7", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _sharp(point: list[int]) -> dict:
@@ -137,3 +147,27 @@ def test_audits_and_builds_deterministic_v5_7_selection_manifests(tmp_path: Path
     assert shape["extra"]["source_instance_index"] == 0
     assert line["extra"]["source_instance_index"] == 1
     assert points == line
+
+
+def test_line_validator_reports_non_scalar_enums_instead_of_crashing() -> None:
+    module = _load_script_module()
+    parameters = _line()["parameters"]
+    parameters.update(
+        {
+            "line_type": ["straight"],
+            "line_style": ["path"],
+            "dash_style": ["solid"],
+            "begin_arrow": ["none"],
+            "end_arrow": ["triangle"],
+            "corner_style": ["sharp"],
+        }
+    )
+
+    issues = module._validate_line(parameters, width=200, height=200)
+
+    assert any(issue.startswith("line.line_type:") for issue in issues)
+    assert any(issue.startswith("line.line_style:") for issue in issues)
+    assert any(issue.startswith("line.dash_style:") for issue in issues)
+    assert any(issue.startswith("line.begin_arrow:") for issue in issues)
+    assert any(issue.startswith("line.end_arrow:") for issue in issues)
+    assert any(issue.startswith("line.corner_style:") for issue in issues)

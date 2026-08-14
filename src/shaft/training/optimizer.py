@@ -7,7 +7,6 @@ import torch
 from transformers import TrainingArguments
 from transformers.optimization import Adafactor
 
-from shaft.model.finetune_plan import ShaftResolvedFinetunePlan
 from shaft.model.types import ShaftModelAdapter
 from shaft.plugins import Registry
 
@@ -119,7 +118,6 @@ def build_optimizer(
     adam_beta1: float,
     adam_beta2: float,
     adam_epsilon: float,
-    finetune_plan: ShaftResolvedFinetunePlan | None = None,
     model_adapter: ShaftModelAdapter | None = None,
     param_group_lrs: dict[str, float] | None = None,
     no_decay_name_patterns: list[str] | None = None,
@@ -131,7 +129,6 @@ def build_optimizer(
         adam_beta1=adam_beta1,
         adam_beta2=adam_beta2,
         adam_epsilon=adam_epsilon,
-        finetune_plan=finetune_plan,
         model_adapter=model_adapter,
         param_group_lrs=param_group_lrs,
         no_decay_name_patterns=no_decay_name_patterns,
@@ -147,7 +144,6 @@ def build_optimizer_and_plan(
     adam_beta1: float,
     adam_beta2: float,
     adam_epsilon: float,
-    finetune_plan: ShaftResolvedFinetunePlan | None = None,
     model_adapter: ShaftModelAdapter | None = None,
     param_group_lrs: dict[str, float] | None = None,
     no_decay_name_patterns: list[str] | None = None,
@@ -155,7 +151,6 @@ def build_optimizer_and_plan(
     resolved_plan = build_resolved_optimizer_plan(
         model=model,
         args=args,
-        finetune_plan=finetune_plan,
         model_adapter=model_adapter,
         param_group_lrs=param_group_lrs,
         no_decay_name_patterns=no_decay_name_patterns,

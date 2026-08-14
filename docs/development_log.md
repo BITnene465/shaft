@@ -2761,3 +2761,257 @@
   无法清晰归属时才新增文件。
 - 当前 TODO 永远只保留一份；完成项立即删除并按需要写入正式文档或开发日志。
 - 框架参考不得登记未跟踪的业务配置、机器路径、磁盘余量或一次性实验结论。
+
+## 2026-08-12：real_v1 detection 金标更新与全量结果重算
+
+### 现象
+
+- Hugging Face `EditFigure/evaluation_and_results` 中 `layout_recognition/data/real_v1/gt` 更新；旧本地
+  GT 共 7,257 个实例，新版为 7,086 个实例，175 个 JSON 均发生变化。
+- 旧报告和临时排行榜中的 detection 指标基于旧 GT，不能与新版指标直接混用。
+
+### 根因
+
+- 评测金标本身发生版本更新，不是模型输出、codec 或 metric 实现变化；实例总量与类别分布均有调整。
+
+### 影响范围
+
+- 影响所有以 `data/real_v1/gt` 为真值的历史 detection precision、recall、F1、mIoU 和模型排序。
+- 不影响已经落盘的模型预测，也不代表模型能力在本轮发生变化。
+
+### 修复方式
+
+- 从数据集 revision `7f64de72b06f19e8ff1b84d60600712926c06e08` 拉取 175 份最新 GT，校验文件名集合与
+  JSON 有效性后，使用精确镜像方式覆盖本地 `data/real_v1/gt`。
+- 使用同 revision 的 `layout_recognition/eval.py`，对结果仓库现有 17 组完整预测和本地 4B v5.7
+  checkpoint-12000 4M 预测统一按 class-aware、greedy one-to-one、IoU >= 0.5 重算 detection 指标；结果写入
+  `temp/layout_recognition_detection_leaderboard_gt_20260812/`，未写入预测仓库的 `method.json` 或
+  `score.json`。
+
+### 回归测试
+
+- 本地 GT 与下载 staging 的 175 个文件逐字节一致，文件名无缺失/多余，全部可解析。
+- 18 组预测均覆盖 175 张图，prediction parse success 为 100%，无 missing/extra prediction；每组
+  overall GT 均为 7,086。
+- 独立复核 17 个 rank 连续、per-run JSON 数量一致，并验证汇总 precision/recall/F1 代数关系。
+
+### 后续防线
+
+- real_v1 指标产物必须记录 GT dataset revision、GT 实例数和 evaluator SHA256；缺少任一项时不得与其他
+  版本排行榜直接比较。
+- 旧版 7,257-GT 报告仅作为历史记录；后续部署选型与跨模型排名统一使用 7,086-GT 新版结果，或显式重算。
+
+## 2026-08-13：v5.7 训练集按 ID 隔离未阻止测试图别名泄漏
+
+### 现象
+
+- `data/raw/splits/vlm.test.json` 的 175 个测试 ID 与 v5.7 五个训练源的 `source_sample_id` /
+  `source_json` / `source_image` 直接交集为 0，但图片内容审计仍找到 12 张测试图的改名副本。
+- 11 对图片 SHA256 完全一致；`prod_034263.png` 与测试图 `00360.jpg` 是同尺寸重编码副本，
+  pHash 距离为 0，平均像素绝对差约 1.03。
+- 这 12 个真实训练源共派生 72 条 v5.7 SFT：`grounding_layout=29`、
+  `line_context_points=16`、`image_context_reconstruction=27`。合成 shape/line reconstruction 不受影响。
+
+### 根因
+
+- grounding split 和真实 reconstruction builder 只按 test manifest 的 `id` / 文件 stem 排除，没有将测试图的
+  精确哈希、感知哈希或已知别名映射纳入 split 合同。
+- 新一批人工数据将同一位图以 `prod_*` 重命名，因此绕过了基于 `pic_*` / 数字 ID 的排除。
+
+### 影响范围
+
+- v5.7 训练数据并非与 175 图测试集完全隔离；所有使用该数据训练的 checkpoint 在 real_v1 评估上都存在
+  小规模泄漏风险，相关指标不能当作严格无泄漏结果。
+- 使用 2026-08-12 刷新的 7,086-instance GT 隔离这 12 图后，4B ckpt14000 的 163 图 detection F1 为
+  `0.805634`，原 175 图 F1 `0.809527` 相对高 `0.003893`；另外三个 v5.7 checkpoint 的观测偏移介于
+  `+0.000174` 与 `+0.007047` F1。12 图主要抬高 recall；4B ckpt14000 的 matched-box mIoU 在移除后反而
+  从 `0.921571` 升至 `0.922373`。
+- 这是 data split 语义问题，不是模型能力、eval codec 或 metric 实现问题。
+
+### 修复方式
+
+- 本轮只进行只读审计，未删除 raw 或派生数据。修复时应将 12 个泄漏别名按源图组从真实 train split 排除，
+  重建受影响的 grounding、line points 和 image context 数据，不在最终 SFT JSONL 上就地打补丁。
+
+### 回归测试
+
+- 审计 v5.7 实际 catalog 的 816,842 条 SFT，所有行均有可追溯来源；直接 ID/路径比对命中 0，内容比对命中
+  12 个真实源组和 72 条派生样本。
+- 对 20,060 张真实 train 源图与 175 张 test 图执行 pHash 32x32 DCT 全量比对；Hamming `<=6`
+  仅命中上述 12 对，无解码错误。唯一距离 8 的候选经人工核验为不同图，是稀疏白底版式的假阳性。
+- V9 合成源 100,500 张图中，与 test 图共享字节大小的 12 个候选均无 SHA256 匹配。
+- 按同一 evaluator 分别微平均 175 图、干净 163 图、泄漏 12 图，并对四个 v5.7 结果交叉复算；4B
+  ckpt14000 的 12 图 F1 为 `0.853748`，11 张泄漏 PPT F1 为 `0.847953`，剩余 64 张干净 PPT 为
+  `0.793594`。该切片差异包含样本构成效应，不能代替清洗后重新训练的因果 A/B。
+
+### 后续防线
+
+- test split 必须是“内容组”而非“文件名集”：构建真实 train split 时先按 SHA256 排除完全副本，再以 pHash
+  Hamming `<=6` 产生近重复候选并对边界样本人工复核。
+- grounding/reconstruction builder 应共享一个版本化的 excluded source-group manifest，而不是各自仅读 ID；
+  发布派生数据前必须断言源图组与 eval 集交集为 0。
+
+## 2026-08-13：禁止将 GT-conditioned reconstruction 回填为正式两阶段预测
+
+### 现象
+
+- 向 `layout_recognition/result` 的 detection 结果补充 shape/line 子属性时，27B checkpoint-4000/8000 的
+  reconstruction 产物可按 `image_id + detection_index + label` 与各自 4M detection 一一对应。
+- 4B checkpoint-14000 现有 reconstruction 却来自 GT 派生 crop 与任务噪声：shape/line 请求数为
+  `2494/2051`，其正式 4M detection 只有 `2099/2002`，没有 detection index 合同。
+- 若仅按 bbox IoU 猜配后写回，JSON 仍可被 evaluator 正常解析，因而容易把 GT-conditioned 上限结果误当成
+  正式业务两阶段属性结果。
+
+### 根因
+
+- 旧的 reconstruction 离线评测协议与新的端到端协议共用了近似的结果 JSON 外观，但没有把 proposal 真源
+  作为结果安装门禁。
+- 属性 evaluator 只消费 bbox 匹配后的 parameters，不知道 reconstruction crop 是来自 GT 还是 detector，
+  因此无法在评分阶段自动识别这种数据泄漏。
+
+### 影响范围
+
+- 影响任何需要把独立 reconstruction 产物合并进 detection `pred/*.json` 的正式提交。
+- 若错误合并，detection 指标不会变化，但 shape/line 属性与几何分数可能被隐性抬高；这是 eval/data 协议误判，
+  不是模型真实端到端能力提升。
+
+### 修复方式
+
+- 新增临时可复现合并器 `temp/merge_detection_reconstruction_attributes.py`：只接受带精确
+  `detection_index` 的记录，并逐项核对 image size、label 与 reconstruction `proposal_bbox_full` 是否等于
+  目标 detection bbox；禁止 GT-crop 或 IoU 猜配。
+- crop 0..999 几何统一转换为原图整数像素；line 的 prompt `fill/border` 输出转换为当前 real_v1 GT/evaluator
+  使用的 `fill_color/has_border/border_style/border_color`。合同检查仍记录语义错误；用户确认后，对 JSON 和
+  evaluator 可解析的输出保留原始参数，交给自动评测按错误计分，只对无法建立结构化参数的输出 fail closed。
+- 本轮只安装并上传通过门禁的 27B checkpoint-4000/8000；4B checkpoint-14000 保持 detection-only，等待用
+  自身 4M detection proposal 重跑 reconstruction。
+
+### 回归测试
+
+- 两个 27B run 均保持 175 个文件，元素 type/bbox/顺序与原 detection 逐项一致；所有全局几何均在图像范围内。
+- checkpoint-4000/8000 分别消费 4,105/4,099 条 reconstruction，未缺失、未多用。
+- 其中 checkpoint-4000 有 24/4,105（0.58%）条、checkpoint-8000 有 52/4,099（1.27%）条语义
+  合同异常，全部保留后 evaluator prediction parse rate 仍为 100%。
+- 上传后分别下载远端含语义异常项的 `00127.json` 并与本地比较 SHA256，一致；run 中没有人工生成的
+  `method.json/score.json`。
+
+### 后续防线
+
+- 正式 attribute submission 必须记录 `proposal_source`、pixel budget、checkpoint identity 和
+  `gt_read=false`；缺少精确 detection index 时禁止安装。
+- GT-conditioned reconstruction 只能标为上限/诊断协议并保留在独立评测目录，不得通过 bbox matching 转换成
+  detection-driven 结果。
+- 长期应把 proposal provenance、坐标转换和 gt-standard 安装合同收口为正式 eval/export 模块与单测，避免
+  继续依赖临时脚本。
+
+## 2026-08-14：长尾推理超时与非法枚举使批量评测误报不完整
+
+### 现象
+
+- Qwen3.6-27B QLoRA 在 real_v1 的 1M/2M/4M detection sweep 中，极密集样本 `00345`、`pic_739`
+  在服务保持健康、generation token 持续增长时仍被 900 秒 HTTP timeout 中断，导致 174/175 的中间摘要。
+- detector-derived reconstruction 的 checkpoint-8000 记录 `00190__det_0017_line` 已成功返回 JSON，但模型把
+  一个枚举字段输出成 list；`_validate_line()` 直接执行集合成员判断，抛出
+  `TypeError("unhashable type: 'list'")`，使整条预测被当成请求错误并得到 3995/3996。
+
+### 根因
+
+- 请求超时是固定常量，没有与 27B、8k max output 和密集样本长尾解耦；批量运行也没有在失败后只恢复缺失
+  样本的完整合同。
+- GT-standard/重建合同校验器假设枚举一定是可哈希标量。校验器本应接收任意模型 JSON 并返回字段错误，却在
+  非法类型上自身崩溃。这是 codec/eval robustness 问题，不是该条预测未生成。
+
+### 影响范围
+
+- 固定 900 秒会把仍在正常生成的 detection/reconstruction 长尾误判为服务失败，造成重复加载模型、重复计算
+  和不完整汇总；不能通过缩短 8k output 或伪造空预测来规避。
+- 非法枚举触发异常时，该实例无法进入 review，也会把“contract-invalid 模型输出”错误升级为“请求失败”，
+  污染格式健康统计。
+
+### 修复方式
+
+- 临时 27B sweep runner 支持 2,400 秒请求上限、已有 raw/pred/pixel/viz 的逐样本恢复，以及预算子集并行；
+  完成判定仍要求 175/175、errors 为空、内部与官方指标逐项一致。
+- `scripts/tasks/prepare_gt_standard_v5_7.py::_validate_line()` 对 `line_type`、`line_style`、`dash_style`、
+  `begin_arrow`、`end_arrow`、`corner_style` 先做字符串类型检查，再做集合成员判断。非法 list 现在生成明确的
+  contract issue，预测原样保留给 review。
+- checkpoint-8000 只补跑缺失实例后达到 3996/3996、errors 为空；该非法输出计入 contract-invalid，不再丢样本。
+
+### 回归测试
+
+- `uv run pytest -q tests/test_prepare_gt_standard_v5_7.py`：2 tests passed；新增用例同时把六个枚举字段设为
+  list，断言校验器返回对应 issues 而不抛异常。
+- `uv run ruff check scripts/tasks/prepare_gt_standard_v5_7.py tests/test_prepare_gt_standard_v5_7.py` 通过。
+- 四个 QLoRA checkpoint × 1M/2M/4M 共 12 组均有 175 raw/pred/pixel/viz；7,086 GT 口径下内部/官方
+  P/R/F1/mIoU 全部一致。两个 detector-derived reconstruction 分别为 3996/3996 与 3942/3942、errors 为空。
+
+### 后续防线
+
+- VLM batch eval 的 HTTP timeout 必须是显式协议字段，并大于服务端允许的最坏 max-output 时长；长尾失败应按
+  sample id 恢复，不能删除已完成缓存。
+- 所有模型输出校验器都必须是 total function：任意合法 JSON 类型只能返回 contract issues，不能因不可哈希、
+  类型比较或字段缺失抛异常。新增枚举字段时应覆盖 list/dict/null/bool 等反例测试。
+- 汇总层只能消费完整摘要：样本数、errors、pixel budget、finish reason、官方/内部指标与 proposal provenance
+  均应纳入门禁。
+
+## 2026-08-14：PEFT 角色分组使结构组学习率静默失效
+
+### 现象
+
+- LoRA/DoRA/QLoRA 运行时，视觉参数如
+  `base_model.model.model.visual.blocks.*.lora_A.default.weight` 被 optimizer 优先归入
+  `lora_params`，而不是 `vision_tower`。
+- 因此配置 `train.param_group_lrs.vision_tower` 可以通过 schema，却不会命中视觉 adapter 参数；启动日志
+  只显示 PEFT 角色组时也很难直接发现结构 LR 未生效。
+
+### 根因
+
+- 旧 optimizer 同时维护“模型结构组”和“PEFT 参数角色组”，并让后者拥有更高优先级；分组逻辑还依赖
+  `resolved finetune plan` 判断 mode。这把模型装配/保存角色错误地提升成了学习率语义。
+- 运行时参数名只做了宽松 wrapper 删除，没有形成覆盖 PEFT saved key、DoRA、`modules_to_save` 与 FSDP
+  delayed wrap 的可审计规范化合同。
+- 这是训练 optimizer 语义错误，不是模型能力、数据或 eval 指标误判。
+
+### 影响范围
+
+- 影响所有曾在 adapter 模式下期望用 `language_model / vision_tower / aligner / generator` 设置差分 LR 的
+  训练。使用单一全局 LR 的 adapter run 数值语义不受组选择影响。
+- `lora_params/modules_to_save` LR key、resolved optimizer fingerprint 和 optimizer state group layout 均属
+  breaking migration；旧 checkpoint 不允许 exact resume。
+- 旧 full/PEFT 权重仍可 inference，也可显式 `init_from_checkpoint`，但必须创建新的 optimizer/scheduler，
+  不能把 init 偷换成 resume。
+
+### 修复方式
+
+- `ModelModuleGroups` 统一发布四个结构组名称和最长边界前缀解析；config、freeze、optimizer 不再各自维护
+  字符串集合。
+- optimizer 只按 `(module_group, decay)` 分组。finetune mode 只通过 `requires_grad` 影响参数集合，
+  optimizer 调用链删除 `finetune_plan`。
+- canonicalizer 只处理确认过的 `_fsdp_wrapped_module`、PEFT `base_model.model`、LoRA/DoRA adapter namespace
+  与 `modules_to_save` wrapper，保留真实层级和 PEFT tensor role，并保证 deterministic/idempotent。
+- 正式模型的 trainable 参数必须全部归属；无结构 metadata 时只有全局 LR 可使用；显式配置未命中也会在
+  optimizer 创建前报错。JSON、启动日志和 resume fingerprint 全部由同一个 resolved plan 派生。
+- training resume contract 升级到 v3，resolved optimizer plan 升级到 v2，旧 contract 在加载 optimizer state
+  前拒绝。
+
+### 回归测试
+
+- 配置测试拒绝 `lora_params/modules_to_save` LR key，并覆盖四个结构组的大小写归一化。
+- optimizer 测试覆盖 full/LoRA/DoRA/QLoRA、saved adapter key、fused target parameter、
+  `modules_to_save`、最长 aligner 前缀、coverage/unconsumed 错误、decay 与 raw/canonical summary。
+- FSDP wrapper 测试证明 wrap 前后 canonical plan fingerprint 一致；cosine warmup 全阶段保持视觉/语言 LR
+  比例 0.3。Qwen3.6-27B metadata 与真实权重 key 做只读审计，未解析 adapter trainable key 必须为 0。
+- 本机 1,513 项全量快速回归通过；最终新增的 summary JSON 用例随 optimizer 40 项 focused 回归通过，
+  当前 1,514 项均有通过证据。distributed suite 53 项为 50 passed、3 个可选环境门禁 skip。真实
+  Qwen3.6-27B meta 模型注入 r16 LoRA 后，1,212 个 trainable tensor 全部归属；language/vision/aligner
+  参数量为 116,727,808 / 7,699,968 / 303,104，LR 为 1e-5 / 3e-6 / 1e-5。
+- CUDA 0/1 的 1-step FSDP canary 未进入模型加载：gpu-holder 占用后只剩约 0.01/0.62 GiB，NCCL preflight
+  无法建立；保持最小 CUDA context 等待 180 秒后仍未自动释放，按硬超时退出。未操作 holder、未执行训练
+  step，因此 GPU runtime/checkpoint 保存验收仍标记为资源阻塞，不能宣称通过。
+
+### 后续防线
+
+- 新模型族必须在 `ModelModuleGroups` 声明完整 trainable 路径；不能通过 substring 猜组或添加 default
+  fallback。
+- 新增 PEFT/FSDP wrapper 形式前必须先取得真实 runtime/saved key，并补 canonicalization 反例与幂等测试。
+- 任何显式 LR group 都必须在 canary summary 中非空；长训练启动前审计三项：group、LR、参数量。

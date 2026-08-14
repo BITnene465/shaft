@@ -98,7 +98,6 @@ class PPOAlgorithm:
             "adam_beta2": train_config.adam_beta2,
             "adam_epsilon": train_config.adam_epsilon,
             "model_adapter": kwargs.pop("model_adapter"),
-            "finetune_plan": kwargs.pop("finetune_plan"),
             "resolved_optimizer_plan": kwargs.pop("resolved_optimizer_plan"),
             "param_group_lrs": dict(train_config.param_group_lrs),
             "no_decay_name_patterns": list(train_config.no_decay_name_patterns),

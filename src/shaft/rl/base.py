@@ -130,7 +130,6 @@ class RLRuntime(ABC):
         *,
         trainer_inputs: RLTrainerInputs,
         callbacks: list[Any] | None,
-        finetune_plan: Any,
         resolved_optimizer_plan: Any,
     ) -> ShaftTrainerSpec[Any]:
         raise NotImplementedError

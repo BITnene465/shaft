@@ -72,10 +72,12 @@ from .optimizer import (
     register_optimizer,
 )
 from .optimizer_plan import (
+    ShaftOptimizerParamGroup,
     ShaftResolvedOptimizerGroupSummary,
     ShaftResolvedOptimizerPlan,
     ShaftResolvedOptimizerSummary,
     build_resolved_optimizer_plan,
+    canonicalize_optimizer_parameter_name,
     resolved_optimizer_summary_path,
     summarize_resolved_optimizer_plan,
     write_resolved_optimizer_summary,
@@ -143,6 +145,7 @@ __all__ = [
     "build_optimizer_and_plan",
     "build_resolved_optimizer_plan",
     "build_scheduler",
+    "canonicalize_optimizer_parameter_name",
     "commit_training_checkpoint",
     "aggregate_weighted_dataset_values",
     "ensure_hf_export_layout",
@@ -162,6 +165,7 @@ __all__ = [
     "resume_checkpoint_consensus_fingerprints",
     "resolve_checkpoint_protocol",
     "resolved_optimizer_summary_path",
+    "ShaftOptimizerParamGroup",
     "summarize_resolved_optimizer_plan",
     "training_checkpoint_is_committed",
     "training_contract_section_fingerprint",

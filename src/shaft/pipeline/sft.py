@@ -628,7 +628,6 @@ class ShaftSFTPipeline:
             resolved_optimizer_plan = build_resolved_optimizer_plan(
                 model=artifacts.model,
                 args=training_args,
-                finetune_plan=finetune_plan,
                 model_adapter=artifacts.model_adapter,
                 param_group_lrs=dict(config.train.param_group_lrs),
                 no_decay_name_patterns=list(config.train.no_decay_name_patterns),
@@ -1009,7 +1008,6 @@ class ShaftSFTPipeline:
                 "online_eval_runner": online_eval_runner,
                 "eval_config": config.eval,
                 "model_adapter": artifacts.model_adapter,
-                "finetune_plan": finetune_plan,
                 "resolved_optimizer_plan": resolved_optimizer_plan,
                 "efficiency_monitor": efficiency_monitor,
                 "shaft_checkpoint_protocol": checkpoint_protocol,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,7 +22,9 @@ from shaft.training.optimizer_plan import (
     ShaftOptimizerParamGroup,
     ShaftResolvedOptimizerPlan,
     build_resolved_optimizer_plan,
+    canonicalize_optimizer_parameter_name,
     summarize_resolved_optimizer_plan,
+    write_resolved_optimizer_summary,
 )
 from shaft.training.scheduler import SCHEDULER_REGISTRY, build_scheduler
 from shaft.training.sft_trainer import ShaftSFTTrainer
@@ -38,6 +41,152 @@ def _build_smoke_model() -> SmokeVLMModel:
 
 def _build_smoke_adapter():
     return build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/smoke-vlm")
+
+
+class _ExactNamedParameterModel(torch.nn.Module):
+    def __init__(self, names: list[str]) -> None:
+        super().__init__()
+        self._exact_names = tuple(names)
+        self._exact_parameters = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.ones(2, 2)) for _ in names]
+        )
+
+    def named_parameters(self, *args, **kwargs):
+        _ = args, kwargs
+        return iter(zip(self._exact_names, self._exact_parameters, strict=True))
+
+
+@pytest.mark.parametrize(
+    ("raw_name", "expected"),
+    [
+        (
+            "model.language_model.layers.0.self_attn.q_proj.weight",
+            "model.language_model.layers.0.self_attn.q_proj.weight",
+        ),
+        (
+            "base_model.model.model.visual.blocks.0.attn.qkv.lora_A.default.weight",
+            "model.visual.blocks.0.attn.qkv.lora_A.weight",
+        ),
+        (
+            "base_model.model.model.visual.blocks.0.attn.qkv.lora_B.weight",
+            "model.visual.blocks.0.attn.qkv.lora_B.weight",
+        ),
+        (
+            "base_model.model.model.language_model.embed_tokens."
+            "lora_embedding_A.default",
+            "model.language_model.embed_tokens.lora_embedding_A",
+        ),
+        (
+            "base_model.model.model.language_model.embed_tokens.lora_embedding_B",
+            "model.language_model.embed_tokens.lora_embedding_B",
+        ),
+        (
+            "base_model.model.model.visual.blocks.0.attn.qkv."
+            "lora_magnitude_vector.default.weight",
+            "model.visual.blocks.0.attn.qkv.lora_magnitude_vector.weight",
+        ),
+        (
+            "base_model.model.model.visual.blocks.0.attn.qkv.lora_magnitude_vector",
+            "model.visual.blocks.0.attn.qkv.lora_magnitude_vector.weight",
+        ),
+        (
+            "base_model.model.lm_head.modules_to_save.default.weight",
+            "lm_head.weight",
+        ),
+        (
+            "_fsdp_wrapped_module.base_model.model.model.visual.merger."
+            "linear_fc1.lora_B.default.weight",
+            "model.visual.merger.linear_fc1.lora_B.weight",
+        ),
+        (
+            "base_model.model.model.language_model.layers.0.mlp.experts."
+            "base_layer.lora_A.default.weight",
+            "model.language_model.layers.0.mlp.experts.base_layer.lora_A.weight",
+        ),
+    ],
+)
+def test_optimizer_parameter_name_canonicalization(raw_name: str, expected: str) -> None:
+    canonical = canonicalize_optimizer_parameter_name(raw_name)
+
+    assert canonical == expected
+    assert canonicalize_optimizer_parameter_name(canonical) == canonical
+
+
+@pytest.mark.parametrize(
+    "raw_name",
+    [
+        "",
+        "base_model.model",
+        "lm_head.modules_to_save.default",
+        "model.visual.qkv.lora_A.default",
+        "model.visual.qkv.lora_magnitude_vector.default",
+    ],
+)
+def test_optimizer_parameter_name_canonicalization_rejects_incomplete_wrappers(
+    raw_name: str,
+) -> None:
+    with pytest.raises(ValueError, match="parameter name|PEFT wrapper"):
+        canonicalize_optimizer_parameter_name(raw_name)
+
+
+@pytest.mark.parametrize(
+    "raw_name",
+    [
+        "model.visual.blocks.0.attn.qkv.weight",
+        "base_model.model.model.visual.blocks.0.attn.qkv.lora_A.default.weight",
+        "base_model.model.model.visual.blocks.0.attn.qkv."
+        "lora_magnitude_vector.default.weight",
+        "base_model.model.model.visual.blocks.0.attn.qkv.lora_B.default.weight",
+    ],
+    ids=("full", "lora", "dora", "qlora"),
+)
+def test_optimizer_uses_identical_structural_grouping_for_all_finetune_modes(
+    raw_name: str,
+) -> None:
+    model = _ExactNamedParameterModel([raw_name])
+    adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="models/Qwen3.6-27B"
+    )
+    args = build_training_args(output_dir="/tmp/shaft_optimizer_mode_agnostic")
+
+    plan = build_resolved_optimizer_plan(
+        model=model,
+        args=args,
+        model_adapter=adapter,
+        param_group_lrs={"vision_tower": 3e-6},
+    )
+
+    assert {group.module_group for group in plan.groups} == {"vision_tower"}
+    assert all(group.lr == pytest.approx(3e-6) for group in plan.groups)
+
+
+def test_qwen36_observed_runtime_parameter_paths_resolve_all_structural_groups() -> None:
+    adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="models/Qwen3.6-27B"
+    )
+    expected = {
+        (
+            "base_model.model.model.language_model.layers.0.linear_attn."
+            "in_proj_qkv.lora_A.default.weight"
+        ): "language_model",
+        (
+            "base_model.model.model.visual.blocks.0.attn.qkv.lora_B.default.weight"
+        ): "vision_tower",
+        (
+            "base_model.model.model.visual.merger.linear_fc1.lora_A.default.weight"
+        ): "aligner",
+        "base_model.model.lm_head.modules_to_save.default.weight": "generator",
+    }
+
+    resolved = {
+        raw_name: adapter.module_groups.resolve_group_for_name(
+            canonicalize_optimizer_parameter_name(raw_name)
+        )
+        for raw_name in expected
+    }
+
+    assert resolved == expected
+    assert all(group is not None for group in resolved.values())
 
 
 def test_optimizer_and_scheduler() -> None:
@@ -110,13 +259,12 @@ def test_optimizer_supports_param_group_lrs_for_full_finetune() -> None:
     resolved = build_resolved_optimizer_plan(
         model=model,
         args=args,
-        finetune_plan=plan,
         model_adapter=adapter,
         param_group_lrs={"language_model": 2.5e-4},
     )
 
-    logical_groups = {group.logical_group for group in resolved.groups}
-    assert logical_groups == {"language_model"}
+    module_groups = {group.module_group for group in resolved.groups}
+    assert module_groups == {"language_model"}
     assert all(group.lr == pytest.approx(2.5e-4) for group in resolved.groups)
     assert {group.weight_decay for group in resolved.groups} == {0.1, 0.0}
 
@@ -135,13 +283,12 @@ def test_optimizer_supports_no_decay_name_patterns() -> None:
     baseline = build_resolved_optimizer_plan(
         model=model,
         args=args,
-        finetune_plan=plan,
         model_adapter=adapter,
     )
     baseline_group = next(
         group
         for group in baseline.groups
-        if any(name.endswith("embed_tokens.weight") for name in group.parameter_names)
+        if any(name.endswith("embed_tokens.weight") for name in group.raw_parameter_names)
     )
     assert baseline_group.decay is True
     assert baseline_group.weight_decay == pytest.approx(0.1)
@@ -149,20 +296,19 @@ def test_optimizer_supports_no_decay_name_patterns() -> None:
     resolved = build_resolved_optimizer_plan(
         model=model,
         args=args,
-        finetune_plan=plan,
         model_adapter=adapter,
         no_decay_name_patterns=["embed_tokens.weight"],
     )
     embed_group = next(
         group
         for group in resolved.groups
-        if any(name.endswith("embed_tokens.weight") for name in group.parameter_names)
+        if any(name.endswith("embed_tokens.weight") for name in group.raw_parameter_names)
     )
     assert embed_group.decay is False
     assert embed_group.weight_decay == pytest.approx(0.0)
 
 
-def test_optimizer_supports_param_group_lrs_for_lora_and_modules_to_save() -> None:
+def test_optimizer_groups_dora_and_modules_to_save_by_model_structure() -> None:
     model = _build_smoke_model()
     adapter = _build_smoke_adapter()
     finetune = FinetuneConfig(
@@ -179,27 +325,113 @@ def test_optimizer_supports_param_group_lrs_for_lora_and_modules_to_save() -> No
     resolved = build_resolved_optimizer_plan(
         model=wrapped,
         args=args,
-        finetune_plan=plan,
         model_adapter=adapter,
-        param_group_lrs={"lora_params": 5e-4, "modules_to_save": 2e-4},
+        param_group_lrs={"language_model": 5e-4, "generator": 2e-4},
     )
 
-    lora_groups = [group for group in resolved.groups if group.logical_group == "lora_params"]
-    modules_to_save_groups = [
-        group for group in resolved.groups if group.logical_group == "modules_to_save"
-    ]
-    assert lora_groups
-    assert modules_to_save_groups
-    assert all(group.lr == pytest.approx(5e-4) for group in lora_groups)
-    assert all(group.lr == pytest.approx(2e-4) for group in modules_to_save_groups)
+    language_groups = [group for group in resolved.groups if group.module_group == "language_model"]
+    generator_groups = [group for group in resolved.groups if group.module_group == "generator"]
+    assert language_groups
+    assert generator_groups
+    assert all(group.lr == pytest.approx(5e-4) for group in language_groups)
+    assert all(group.lr == pytest.approx(2e-4) for group in generator_groups)
     assert any(
-        "lora_magnitude_vector" in name for group in lora_groups for name in group.parameter_names
+        "lora_magnitude_vector" in name
+        for group in language_groups
+        for name in group.raw_parameter_names
     )
     assert any(
         ".modules_to_save." in name
-        for group in modules_to_save_groups
-        for name in group.parameter_names
+        for group in generator_groups
+        for name in group.raw_parameter_names
     )
+
+
+def test_optimizer_uses_longest_structural_prefix_for_aligner_lora() -> None:
+    raw_name = (
+        "base_model.model.model.visual.merger.linear_fc1.lora_A.default.weight"
+    )
+    model = _ExactNamedParameterModel([raw_name])
+    adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="models/Qwen3.6-27B"
+    )
+    args = build_training_args(output_dir="/tmp/shaft_optimizer_aligner")
+
+    plan = build_resolved_optimizer_plan(
+        model=model,
+        args=args,
+        model_adapter=adapter,
+        param_group_lrs={"aligner": 4e-6},
+    )
+
+    assert {group.module_group for group in plan.groups} == {"aligner"}
+    assert all(group.lr == pytest.approx(4e-6) for group in plan.groups)
+
+
+def test_optimizer_rejects_unresolved_trainable_parameter_for_formal_model() -> None:
+    model = _ExactNamedParameterModel(["model.unowned.weight"])
+    adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="models/Qwen3.6-27B"
+    )
+    args = build_training_args(output_dir="/tmp/shaft_optimizer_unresolved")
+
+    with pytest.raises(
+        ValueError,
+        match=r"raw_name='model\.unowned\.weight'.*canonical_name='model\.unowned\.weight'",
+    ):
+        build_resolved_optimizer_plan(model=model, args=args, model_adapter=adapter)
+
+
+def test_optimizer_rejects_differential_lr_without_structural_metadata() -> None:
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_optimizer_unstructured")
+
+    with pytest.raises(ValueError, match="requires model module-group metadata"):
+        build_resolved_optimizer_plan(
+            model=model,
+            args=args,
+            param_group_lrs={"vision_tower": 3e-6},
+        )
+
+
+def test_optimizer_rejects_non_positive_structural_lr_at_runtime_boundary() -> None:
+    model = _ExactNamedParameterModel(["model.visual.blocks.0.attn.qkv.weight"])
+    adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="models/Qwen3.6-27B"
+    )
+    args = build_training_args(output_dir="/tmp/shaft_optimizer_invalid_lr")
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        build_resolved_optimizer_plan(
+            model=model,
+            args=args,
+            model_adapter=adapter,
+            param_group_lrs={"vision_tower": 0.0},
+        )
+
+
+def test_optimizer_rejects_configured_group_that_has_no_trainable_parameters() -> None:
+    model = _ExactNamedParameterModel(
+        ["model.language_model.layers.0.self_attn.q_proj.weight"]
+    )
+    adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="models/Qwen3.6-27B"
+    )
+    args = build_training_args(output_dir="/tmp/shaft_optimizer_unconsumed")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"configured_group='vision_tower'.*configured_lr=3e-06.*"
+            r"trainable_groups=.*language_model.*model_type='qwen36vl'"
+        ),
+    ):
+        build_resolved_optimizer_plan(
+            model=model,
+            args=args,
+            model_adapter=adapter,
+            param_group_lrs={"vision_tower": 3e-6},
+        )
 
 
 def test_qwen35_moe_peft_auto_resolves_fused_experts_and_router(tmp_path: Path) -> None:
@@ -415,22 +647,49 @@ def test_optimizer_summary_reports_grouped_learning_rates() -> None:
     resolved = build_resolved_optimizer_plan(
         model=wrapped,
         args=args,
-        finetune_plan=plan,
         model_adapter=adapter,
-        param_group_lrs={"lora_params": 5e-4, "modules_to_save": 2e-4},
+        param_group_lrs={"language_model": 5e-4, "generator": 2e-4},
     )
     summary = summarize_resolved_optimizer_plan(resolved)
 
     assert summary.total_trainable_params > 0
     assert summary.group_count == len(summary.groups)
     assert any(
-        group.logical_group == "lora_params" and group.lr == pytest.approx(5e-4)
+        group.module_group == "language_model" and group.lr == pytest.approx(5e-4)
         for group in summary.groups
     )
     assert any(
-        group.logical_group == "modules_to_save" and group.lr == pytest.approx(2e-4)
+        group.module_group == "generator" and group.lr == pytest.approx(2e-4)
         for group in summary.groups
     )
+    assert all(group.sample_raw_parameter_names for group in summary.groups)
+    assert all(group.sample_canonical_parameter_names for group in summary.groups)
+    assert summary.to_log_dict() == resolved.to_log_dict()
+
+
+def test_optimizer_summary_json_is_derived_from_resolved_plan(tmp_path: Path) -> None:
+    model = _ExactNamedParameterModel(
+        ["base_model.model.model.visual.blocks.0.attn.qkv.lora_A.default.weight"]
+    )
+    adapter = build_model_meta("qwen36vl").resolve_adapter(
+        model_name_or_path="models/Qwen3.6-27B"
+    )
+    args = build_training_args(output_dir=tmp_path)
+    plan = build_resolved_optimizer_plan(
+        model=model,
+        args=args,
+        model_adapter=adapter,
+        param_group_lrs={"vision_tower": 3e-6},
+    )
+
+    path = write_resolved_optimizer_summary(tmp_path, plan)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    expected = json.loads(json.dumps(plan.summary().to_dict()))
+    assert payload == expected
+    assert payload["groups"][0]["module_group"] == "vision_tower"
+    assert payload["groups"][0]["sample_raw_parameter_names"]
+    assert payload["groups"][0]["sample_canonical_parameter_names"]
 
 
 def test_optimizer_summary_uses_deepspeed_global_parameter_counts() -> None:
@@ -441,11 +700,12 @@ def test_optimizer_summary_uses_deepspeed_global_parameter_counts() -> None:
     plan = ShaftResolvedOptimizerPlan(
         groups=(
             ShaftOptimizerParamGroup(
-                logical_group="language_model",
+                module_group="language_model",
                 decay=True,
                 lr=1e-5,
                 weight_decay=0.03,
-                parameter_names=("layer.ds_numel", "layer.ds_shape"),
+                raw_parameter_names=("layer.ds_numel", "layer.ds_shape"),
+                canonical_parameter_names=("layer.ds_numel", "layer.ds_shape"),
                 parameters=(ds_numel_param, ds_shape_param),
             ),
         )
@@ -473,9 +733,9 @@ def test_optimizer_grouping_uses_deepspeed_global_parameter_ndim() -> None:
 
     groups_by_decay = {group.decay: group for group in resolved.groups}
     assert set(groups_by_decay) == {False, True}
-    assert groups_by_decay[True].parameter_names == ("weight",)
+    assert groups_by_decay[True].raw_parameter_names == ("weight",)
     assert groups_by_decay[True].to_optimizer_group()["weight_decay"] == pytest.approx(0.03)
-    assert groups_by_decay[False].parameter_names == ("bias",)
+    assert groups_by_decay[False].raw_parameter_names == ("bias",)
     assert groups_by_decay[False].to_optimizer_group()["weight_decay"] == pytest.approx(0.0)
 
 
@@ -491,12 +751,10 @@ def test_optimizer_mixin_accepts_delayed_wrapped_model_and_validates_plan() -> N
     consumer.adam_beta1 = 0.9
     consumer.adam_beta2 = 0.999
     consumer.adam_epsilon = 1e-8
-    consumer.finetune_plan = None
     consumer.model_adapter = None
     consumer.param_group_lrs = {}
     consumer.no_decay_name_patterns = []
     consumer.resolved_optimizer_plan = plan
-    consumer.resolved_optimizer_summary = None
 
     with patch("shaft.training.optimizer_mixin.is_rank_zero", return_value=False):
         optimizer = consumer.create_optimizer(model=model)
@@ -510,6 +768,57 @@ def test_optimizer_mixin_accepts_delayed_wrapped_model_and_validates_plan() -> N
     consumer.resolved_optimizer_plan = plan
     with pytest.raises(ValueError, match="Wrapped-model optimizer plan differs"):
         consumer.create_optimizer(model=drifted)
+
+
+def test_fsdp_wrapper_prefix_preserves_optimizer_plan_fingerprint() -> None:
+    original_model = _TinyModel()
+    wrapped_model = torch.nn.Module()
+    wrapped_model._fsdp_wrapped_module = deepcopy(original_model)
+    args = build_training_args(output_dir="/tmp/shaft_optimizer_fsdp_prefix")
+
+    original = build_resolved_optimizer_plan(model=original_model, args=args)
+    wrapped = build_resolved_optimizer_plan(model=wrapped_model, args=args)
+
+    assert wrapped.fingerprint == original.fingerprint
+    assert all(
+        raw.startswith("_fsdp_wrapped_module.")
+        for group in wrapped.groups
+        for raw in group.raw_parameter_names
+    )
+    assert tuple(
+        name for group in wrapped.groups for name in group.canonical_parameter_names
+    ) == tuple(
+        name for group in original.groups for name in group.canonical_parameter_names
+    )
+
+
+def test_cosine_scheduler_preserves_structural_group_lr_ratio() -> None:
+    language = torch.nn.Parameter(torch.ones(1))
+    vision = torch.nn.Parameter(torch.ones(1))
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": [language], "lr": 1e-5},
+            {"params": [vision], "lr": 3e-6},
+        ]
+    )
+    scheduler = build_scheduler(
+        scheduler_name="cosine",
+        optimizer=optimizer,
+        num_warmup_steps=2,
+        num_training_steps=10,
+        num_cycles=0.5,
+    )
+
+    observed = []
+    for _ in range(9):
+        optimizer.step()
+        scheduler.step()
+        language_lr, vision_lr = scheduler.get_last_lr()
+        if language_lr > 0:
+            observed.append(vision_lr / language_lr)
+
+    assert observed
+    assert all(ratio == pytest.approx(0.3) for ratio in observed)
 
 
 def test_sft_trainer_hf_delayed_fsdp_optimizer_uses_wrapped_parameters(

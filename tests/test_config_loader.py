@@ -112,7 +112,7 @@ train:
   save_epoch_interval: 2
   param_group_lrs:
     Language_Model: 1.0e-5
-    modules_to_save: 2.5e-5
+    Vision_Tower: 2.5e-5
   no_decay_name_patterns: [" Embed_Tokens.Weight ", "", "LM_HEAD.WEIGHT", "embed_tokens.weight"]
 eval:
   epoch_interval: 3
@@ -146,7 +146,7 @@ progress:
     assert cfg.eval.epoch_interval == 3
     assert cfg.train.param_group_lrs == {
         "language_model": pytest.approx(1.0e-5),
-        "modules_to_save": pytest.approx(2.5e-5),
+        "vision_tower": pytest.approx(2.5e-5),
     }
     assert cfg.train.no_decay_name_patterns == ["embed_tokens.weight", "lm_head.weight"]
     assert cfg.model.finetune.mode == "dora"

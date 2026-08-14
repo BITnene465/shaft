@@ -62,7 +62,6 @@ class PPORuntime(RLRuntime):
         *,
         trainer_inputs: RLTrainerInputs,
         callbacks: list[Any] | None,
-        finetune_plan: Any,
         resolved_optimizer_plan: Any,
     ):
         algorithm = ALGORITHM_REGISTRY.get(self.name)()
@@ -81,7 +80,6 @@ class PPORuntime(RLRuntime):
             processing_class=context.artifacts.processor,
             callbacks=callbacks,
             model_adapter=context.artifacts.model_adapter,
-            finetune_plan=finetune_plan,
             resolved_optimizer_plan=resolved_optimizer_plan,
             data_collator=trainer_inputs.data_collator,
         )

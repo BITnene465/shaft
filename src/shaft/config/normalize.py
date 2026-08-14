@@ -33,15 +33,6 @@ _FSDP_AUTO_WRAP_POLICIES = {"none", "transformer", "size"}
 _FSDP_BACKWARD_PREFETCH = {"backward_pre", "backward_post"}
 _FSDP_STATE_DICT_TYPES = {"full_state_dict", "local_state_dict", "sharded_state_dict"}
 _ONLINE_EVAL_NORMALIZERS = {"identity", "range"}
-_FREEZE_GROUPS = {"language_model", "vision_tower", "aligner", "generator"}
-_PARAM_GROUP_LR_KEYS = {
-    "language_model",
-    "vision_tower",
-    "aligner",
-    "generator",
-    "lora_params",
-    "modules_to_save",
-}
 _EFFICIENCY_DEVICE_TIMING = {"auto", "off"}
 _MODEL_TORCH_DTYPES = {
     "auto",
@@ -54,6 +45,14 @@ _MODEL_TORCH_DTYPES = {
     "float32",
 }
 _COMPUTE_TORCH_DTYPES = _MODEL_TORCH_DTYPES - {"auto"}
+
+
+def _structural_model_group_names() -> tuple[str, ...]:
+    # Import only during semantic normalization to avoid a config/model import
+    # cycle at module load. ModelModuleGroups owns the structural names.
+    from shaft.model.types import ModelModuleGroups
+
+    return ModelModuleGroups.group_names()
 
 
 def _normalize_bool(value: object, field_name: str) -> bool:
@@ -394,10 +393,12 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     finetune.freeze.groups = _normalize_string_list(
         [str(value).lower() for value in finetune.freeze.groups]
     )
-    invalid_groups = sorted(set(finetune.freeze.groups) - _FREEZE_GROUPS)
+    structural_groups = _structural_model_group_names()
+    invalid_groups = sorted(set(finetune.freeze.groups) - set(structural_groups))
     if invalid_groups:
         raise ValueError(
-            f"Unsupported model.finetune.freeze.groups={invalid_groups!r}. Expected only {_FREEZE_GROUPS}."
+            "Unsupported model.finetune.freeze.groups="
+            f"{invalid_groups!r}. Expected only {structural_groups}."
         )
     finetune.freeze.prefixes = _normalize_string_list(finetune.freeze.prefixes)
     finetune.freeze.trainable_prefixes = _normalize_string_list(finetune.freeze.trainable_prefixes)
@@ -716,14 +717,15 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if float(train.scheduler_power) <= 0:
         raise ValueError("train.scheduler_power must be > 0.")
     normalized_param_group_lrs: dict[str, float] = {}
+    structural_groups = _structural_model_group_names()
     for key, value in dict(train.param_group_lrs).items():
         normalized_key = str(key).strip().lower()
         if not normalized_key:
             raise ValueError("train.param_group_lrs contains an empty key.")
-        if normalized_key not in _PARAM_GROUP_LR_KEYS:
+        if normalized_key not in structural_groups:
             raise ValueError(
                 f"Unsupported train.param_group_lrs key={normalized_key!r}. "
-                f"Expected only {_PARAM_GROUP_LR_KEYS}."
+                f"Expected only {structural_groups}."
             )
         try:
             normalized_value = float(value)

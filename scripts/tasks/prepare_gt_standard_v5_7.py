@@ -408,15 +408,16 @@ def _validate_line(parameters: Any, *, width: int, height: int) -> list[str]:
         issues.append(f"line.parameters.extra:{','.join(extra)}")
     line_type = parameters.get("line_type")
     line_style = parameters.get("line_style")
-    if line_type not in LINE_TYPES:
+    if not isinstance(line_type, str) or line_type not in LINE_TYPES:
         issues.append(f"line.line_type:{line_type}")
-    if line_style not in LINE_STYLES:
+    if not isinstance(line_style, str) or line_style not in LINE_STYLES:
         issues.append(f"line.line_style:{line_style}")
-    if parameters.get("dash_style") not in {"solid", "dash"}:
-        issues.append(f"line.dash_style:{parameters.get('dash_style')}")
+    dash_style = parameters.get("dash_style")
+    if not isinstance(dash_style, str) or dash_style not in {"solid", "dash"}:
+        issues.append(f"line.dash_style:{dash_style}")
     for field in ("begin_arrow", "end_arrow"):
         marker = parameters.get(field)
-        if marker not in ARROW_TYPES:
+        if not isinstance(marker, str) or marker not in ARROW_TYPES:
             issues.append(f"line.{field}:{marker}")
         if marker == "line" and line_style != "path":
             issues.append(f"line.{field}.line_requires_path")
@@ -443,7 +444,7 @@ def _validate_line(parameters: Any, *, width: int, height: int) -> list[str]:
         issues.append("line.is_single.segment_mismatch")
     corner_style = parameters.get("corner_style")
     if corner_style is not None:
-        if corner_style not in {"sharp", "round"}:
+        if not isinstance(corner_style, str) or corner_style not in {"sharp", "round"}:
             issues.append(f"line.corner_style:{corner_style}")
         if line_type != "straight":
             issues.append("line.corner_style.invalid_owner")

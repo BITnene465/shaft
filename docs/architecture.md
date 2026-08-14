@@ -483,7 +483,20 @@ ShaftOPDPipeline
 - 训练执行消费唯一 `resolved finetune plan`；adapter 导入与 merge/export 消费唯一
   `ResolvedModelPlan / ResolvedAdapterInit` 并共享 exact state loader，避免多处重复推导或宽松加载
 
-### 5.6 进度与终端输出边界
+### 5.6 Optimizer 结构分组边界
+
+- `resolved finetune plan` 负责确定模型装配、freeze、PEFT signature 与最终 `requires_grad`；optimizer
+  不再接收 finetune plan 或按 finetune mode 分支。
+- `ModelModuleGroups` 是 `language_model / vision_tower / aligner / generator` 名称、模型前缀和最长边界
+  前缀解析的唯一真源。config、freeze 与 optimizer 共用该合同。
+- optimizer 对每个 trainable parameter 执行：精确 canonicalize 运行时包装路径 → 解析结构组 → 应用
+  `param_group_lrs[group]` 或全局 LR → 按 decay 拆组。LoRA/DoRA/QLoRA 不改变这条链。
+- 正式模型不允许 `default` fallback。只有完全没有结构元数据、且没有请求差分 LR 的外部/测试模型可以
+  使用单一 `default` 组。
+- exact-resume contract 已升级；旧结构组语义的 optimizer/scheduler state 不能 resume。旧权重仍可用于
+  inference，或通过 `init_from_checkpoint` 启动新 optimizer/scheduler 轨迹。
+
+### 5.7 进度与终端输出边界
 
 - `ShaftProgressManager` 是进度任务、父子关系、current/total、metric 和生命周期的唯一状态真源；terminal、
   plain、JSON 都只消费同一份不可变 snapshot。task mutation 在 manager 内线性化，commit revision

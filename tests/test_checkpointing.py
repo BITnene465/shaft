@@ -4059,6 +4059,23 @@ def test_training_resume_preflight_preserves_resolved_experts_implementation() -
     )
 
 
+def test_training_resume_contract_rejects_pre_structural_optimizer_schema() -> None:
+    config = RuntimeConfig()
+    config.algorithm.name = "sft"
+    current = build_training_resume_contract(
+        config=config,
+        training_args=_resume_training_args(),
+        batch_contract_fingerprint=_fixed_batch_contract().fingerprint,
+    ).to_dict()
+    current["version"] = "shaft-training-resume-contract-v2"
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported training resume contract version",
+    ):
+        ShaftTrainingResumeContract.from_dict(current)
+
+
 def test_training_resume_contract_binds_best_model_selection_cadence() -> None:
     config = RuntimeConfig()
     config.train.load_best_model_at_end = True

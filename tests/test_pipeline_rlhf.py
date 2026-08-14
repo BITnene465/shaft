@@ -658,7 +658,7 @@ def test_run_rl_uses_data_center_for_dpo(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
     assert _FakeTrainer.last_kwargs["eval_dataset"] is None
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
-    assert _FakeTrainer.last_kwargs["finetune_plan"] is mocked_builder.return_value.finetune_plan
+    assert "finetune_plan" not in _FakeTrainer.last_kwargs
     metadata = load_batching_run_metadata(cfg.experiment.output_dir)
     assert metadata.grouping == "none"
     assert metadata.cardinality == "fixed"
@@ -752,7 +752,7 @@ def test_run_rl_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
     assert "finetune_mode" not in _FakeTrainer.last_kwargs
     assert "data_collator" not in _FakeTrainer.last_kwargs
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
-    assert _FakeTrainer.last_kwargs["finetune_plan"] is mocked_builder.return_value.finetune_plan
+    assert "finetune_plan" not in _FakeTrainer.last_kwargs
     grouped_contract = _FakeTrainer.last_kwargs["grouped_sample_contract"]
     assert grouped_contract == ShaftGroupedSampleContract(
         mini_repeat_count=2,

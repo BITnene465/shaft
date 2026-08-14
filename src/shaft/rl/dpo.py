@@ -97,7 +97,6 @@ class DPORuntime(RLRuntime):
         *,
         trainer_inputs: RLTrainerInputs,
         callbacks: list[Any] | None,
-        finetune_plan: Any,
         resolved_optimizer_plan: Any,
     ):
         algorithm = ALGORITHM_REGISTRY.get(self.name)()
@@ -113,7 +112,6 @@ class DPORuntime(RLRuntime):
             processing_class=context.artifacts.processor,
             callbacks=callbacks,
             model_adapter=context.artifacts.model_adapter,
-            finetune_plan=finetune_plan,
             resolved_optimizer_plan=resolved_optimizer_plan,
             shaft_checkpoint_protocol=context.checkpoint_protocol,
             train_sampler=context.dataset_bundle.train_sampler,

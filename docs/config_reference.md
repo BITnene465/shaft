@@ -1259,9 +1259,14 @@ train:
   - `vision_tower`
   - `aligner`
   - `generator`
-  - `lora_params`
-  - `modules_to_save`
 - 没有写进 `param_group_lrs` 的组，回退到全局 `train.learning_rate`。
+- 该语义对 `full / lora / dora / qlora` 完全一致：先把 FSDP/PEFT 运行时参数名规范为稳定路径，
+  再使用模型 adapter 的 `ModelModuleGroups` 最长边界前缀确定结构组。LoRA A/B、DoRA magnitude 和
+  `modules_to_save` 包装不会改变参数所属的模型结构。
+- `lora_params` 与 `modules_to_save` 不是合法 LR key。前者只是 PEFT 参数角色，后者仍是 adapter
+  装配/保存/导出合同；二者都不参与 optimizer 学习率分组。
+- 显式写入的结构组必须至少命中一个 trainable parameter，否则 optimizer 创建前报错。正式模型的所有
+  trainable parameter 也必须能被 module group metadata 覆盖，不能静默落入 `default`。
 - `no_decay_name_patterns` 用于把额外参数名并入 `no_decay` 规则。
   - 匹配语义是“参数规范名后缀匹配”，例如：
     - `embed_tokens.weight`
@@ -1269,20 +1274,7 @@ train:
   - 这条规则会叠加在默认 `no_decay` 规则之上；默认规则仍然包括：
     - `*.bias`
     - `ndim <= 1` 的参数
-- 结构组与训练语义组是两层概念：
-  - 结构组：
-    - `language_model`
-    - `vision_tower`
-    - `aligner`
-    - `generator`
-  - 训练语义组：
-    - `lora_params`
-    - `modules_to_save`
-- `full`
-  - 主要按结构组分学习率。
-- `lora / dora / qlora`
-  - `lora_params` 和 `modules_to_save` 会优先于结构组命中。
-  - 其余仍可训练的原始参数，再按结构组回退。
+- optimizer 只认识上述四个结构组；finetune mode 只决定 `requires_grad` 集合，不改变 LR 解析规则。
 - `loss_scale` 控制哪些粗粒度区段参与 loss 计算，当前内置：
   - `default`: 监督所有 assistant 回答（包括多轮对话中的历史 assistant，以及当前 target/response）
   - `last_round`: 只监督最后一轮 assistant 回答（当前 target/response）

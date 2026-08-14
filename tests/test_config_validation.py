@@ -551,6 +551,29 @@ train:
         load_config(config_path)
 
 
+@pytest.mark.parametrize("legacy_group", ["lora_params", "modules_to_save"])
+def test_legacy_adapter_role_param_group_lr_is_rejected(
+    tmp_path: Path,
+    legacy_group: str,
+) -> None:
+    payload = f"""
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  param_group_lrs:
+    {legacy_group}: 1.0e-5
+"""
+
+    with pytest.raises(
+        ValueError,
+        match=rf"Unsupported train\.param_group_lrs key='{legacy_group}'",
+    ):
+        load_config(write_config_yaml(tmp_path, payload))
+
+
 def test_invalid_param_group_lr_value_raises(tmp_path: Path) -> None:
     payload = """
 data:

@@ -836,27 +836,26 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
   并由 readiness/finalization fingerprint 与 `save_model()` 共用；任一 rank 路径漂移必须在 model save 前拒绝。
 
 - `src/shaft/training/optimizer_plan.py` 是分组学习率的运行时真源：
-  - 根据 `resolved finetune plan`、`model_adapter.module_groups` 和 `train.param_group_lrs`
-    解析真实 optimizer param groups
-  - 当前支持两层分组：
-    - 结构组：
-      - `language_model`
-      - `vision_tower`
-      - `aligner`
-      - `generator`
-    - 训练语义组：
-      - `lora_params`
-      - `modules_to_save`
+  - 只根据 trainable parameters、`model_adapter.module_groups` 和 `train.param_group_lrs` 解析真实
+    optimizer param groups；optimizer 不消费 resolved finetune plan
+  - 唯一 group key 是 `(module_group, decay)`，其中 module group 只能是 `language_model /`
+    `vision_tower / aligner / generator`
+  - canonicalizer 精确移除已确认的 `_fsdp_wrapped_module`、PEFT `base_model.model`、adapter namespace
+    和 `modules_to_save` 包装，同时保留真实模型层级及 LoRA A/B/DoRA tensor role
+  - 正式模型未归属 trainable parameter、无 metadata 的差分 LR、显式配置未消费都会 fail closed
+  - resolved plan 同时产出 optimizer groups、resume fingerprint、日志和 `shaft_optimizer_summary.json`；
+    summary 同时记录 raw/canonical name 样例，不维护第二份运行时分组状态
 - `src/shaft/training/optimizer_mixin.py` 把同一套 optimizer/scheduler 构造链复用到：
   - `ShaftSFTTrainer`
   - `ShaftDPOTrainer`
   - `ShaftPPOTrainer`
   - `ShaftGRPOTrainer`
-  - 并在 optimizer 创建后写出：
+  - 并在 optimizer 创建后从 resolved plan 写出：
     - `shaft_optimizer_summary.json`
     - 供 CLI 日志和外部诊断工具审计 resolved optimizer groups
   - `create_optimizer(model=None)` 与 Transformers 5.10 的 delayed optimizer consumer 对齐：FSDP1
-    wrap 后传入 model 时，先从 wrapped model 重建 optimizer plan，并要求其 name/group fingerprint 与
+    wrap 后传入 model 时，先从 wrapped model 重建 optimizer plan，并要求其 canonical-name/group
+    fingerprint 与
     启动时 plan 完全一致；随后 optimizer 只持有 wrapped model 的 `Parameter` 对象。名称、trainable
     参数或分组语义发生漂移会直接失败。
   - 上述重绑定只支持 `use_orig_params=true`；`FlatParameter` 的 name/group 映射尚未实现，配置层明确拒绝
@@ -893,7 +892,7 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
   在显式配置 `[auto]` 时解析 fused routed experts/router；DeepSpeed ZeRO-3 parameter-LoRA 在 model
   sharding policy 中提前拒绝。当前 tiny-validated 矩阵是 DDP/FSDP LoRA 与 ZeRO-3 full，不能外推到
   真实 35B 权重。
-- adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
+- full、LoRA、DoRA、QLoRA 共用同一结构组 LR 语义；PEFT 参数角色不会覆盖模型结构归属。
 
 ## 9. `codec`
 
