@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from shaft.config.training import train_requires_exact_resume_state
 from shaft.utils.contract_schema import (
     json_bool,
     json_int,
@@ -1299,10 +1300,7 @@ def _configured_plugin_identity(
             strict=True,
         )
     ]
-    checkpointable = (
-        str(config.train.save_strategy).strip().lower() != "no"
-        or config.train.resume_from_checkpoint is not None
-    )
+    checkpointable = train_requires_exact_resume_state(config.train)
     for role, instances in (
         ("hook", hook_instances),
         ("interceptor", interceptor_instances),

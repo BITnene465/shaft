@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 import json
 from pathlib import Path
 from typing import Any
@@ -29,9 +30,7 @@ class TrainDeepSpeedConfig:
     config: dict[str, Any] = field(default_factory=dict)
 
 
-def resolve_deepspeed_zero_stage(config: TrainDeepSpeedConfig) -> int:
-    """Resolve the canonical ZeRO stage from inline or file-backed config."""
-
+def _deepspeed_config_payload(config: TrainDeepSpeedConfig) -> dict[str, Any]:
     payload = dict(config.config)
     if not payload and config.config_path:
         with Path(config.config_path).open("r", encoding="utf-8") as handle:
@@ -39,6 +38,13 @@ def resolve_deepspeed_zero_stage(config: TrainDeepSpeedConfig) -> int:
         if not isinstance(loaded, dict):
             raise TypeError("DeepSpeed config root must be a mapping.")
         payload = loaded
+    return payload
+
+
+def resolve_deepspeed_zero_stage(config: TrainDeepSpeedConfig) -> int:
+    """Resolve the canonical ZeRO stage from inline or file-backed config."""
+
+    payload = _deepspeed_config_payload(config)
     zero_optimization = payload.get("zero_optimization")
     if not isinstance(zero_optimization, dict):
         return 0
@@ -46,6 +52,22 @@ def resolve_deepspeed_zero_stage(config: TrainDeepSpeedConfig) -> int:
     if type(stage) is not int:
         raise TypeError("DeepSpeed zero_optimization.stage must be an integer.")
     return int(stage)
+
+
+def resolve_deepspeed_gather_model_on_save(config: TrainDeepSpeedConfig) -> bool:
+    """Return the ZeRO-3 full-weight gathering contract for model-only saves."""
+
+    payload = _deepspeed_config_payload(config)
+    zero_optimization = payload.get("zero_optimization")
+    if not isinstance(zero_optimization, dict):
+        return False
+    value = zero_optimization.get("stage3_gather_16bit_weights_on_model_save", False)
+    if type(value) is not bool:
+        raise TypeError(
+            "DeepSpeed zero_optimization."
+            "stage3_gather_16bit_weights_on_model_save must be a boolean."
+        )
+    return value
 
 
 @dataclass
@@ -105,6 +127,7 @@ class TrainConfig:
     save_epoch_interval: int = 1
     save_steps: int = 200
     save_total_limit: int = 3
+    save_only_model: bool = False
     ddp_find_unused_parameters: bool = False
     report_to: list[str] = field(default_factory=lambda: ["none"])
     load_best_model_at_end: bool = True
@@ -114,6 +137,32 @@ class TrainConfig:
     resume_from_checkpoint: str | None = None
     efficiency: TrainEfficiencyConfig = field(default_factory=TrainEfficiencyConfig)
     distributed: TrainDistributedConfig = field(default_factory=TrainDistributedConfig)
+
+
+class TrainCheckpointSaveMode(StrEnum):
+    """Derived periodic-save semantics; this is not a second config source."""
+
+    DISABLED = "disabled"
+    MODEL_ONLY = "model_only"
+    RESUMABLE = "resumable"
+
+
+def resolve_train_checkpoint_save_mode(train: TrainConfig) -> TrainCheckpointSaveMode:
+    strategy = str(train.save_strategy).strip().lower()
+    if strategy == "no":
+        return TrainCheckpointSaveMode.DISABLED
+    if bool(train.save_only_model):
+        return TrainCheckpointSaveMode.MODEL_ONLY
+    return TrainCheckpointSaveMode.RESUMABLE
+
+
+def train_requires_exact_resume_state(train: TrainConfig) -> bool:
+    """Return whether startup or future saves require full training state."""
+
+    return bool(
+        train.resume_from_checkpoint is not None
+        or resolve_train_checkpoint_save_mode(train) is TrainCheckpointSaveMode.RESUMABLE
+    )
 
 
 @dataclass

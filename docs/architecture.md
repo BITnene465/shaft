@@ -162,7 +162,9 @@ sequenceDiagram
 - checkpoint 规则：
   - `inspect_checkpoint_layout()`
   - `commit_training_checkpoint()`
+  - `commit_model_only_checkpoint()`
   - `resolve_resume_checkpoint()`
+  - `validate_model_only_checkpoint()`
   - `validate_training_checkpoint_commit()`
   - `validate_resume_checkpoint()`
   - `validate_training_state_policy()`
@@ -302,6 +304,12 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   规划到未来，但 callback 只按 `global_step * GA` 提交对应 snapshot；resume 加载该 state 并设置
   `ignore_data_skip=true`，避免 HF 二次 skip。DataLoader worker 使用独立 generator，重建 persistent
   workers 不消耗模型/dropout RNG。
+- periodic save 的内容语义只由 `train.save_only_model` 派生，不新增平行配置源。默认值 `false` 保存 exact-resume
+  所需的完整训练态；SFT 设置为 `true` 时只发布标准 HF/PEFT 模型态，保留少量审计 metadata，但拒绝
+  optimizer/scheduler/scaler/RNG 和 backend-native training state。该目录带有
+  `shaft_model_only_checkpoint.json` 提交 marker，可用于部署或 `init_from_checkpoint`，不能用于
+  `resume_from_checkpoint`。FSDP 必须生成 full state dict，ZeRO-3 必须在保存时 gather 完整权重；无法证明
+  可加载性的组合在模型加载前 fail closed。
 - checkpoint storage protocol 由 distributed strategy 显式路由。SFT、DPO、GRPO 的 DDP/native-HF 路径
   使用 `committed_manifest`：`ShaftCheckpointCommitMixin` 在覆盖同名 checkpoint 前撤销旧
   `shaft_checkpoint_commit.json` 并暂缓 HF rotation；模型/adapter、Trainer、optimizer、scheduler 与 RNG
@@ -452,8 +460,8 @@ ShaftOPDPipeline
   execution implementation/version、request-seed 算法、teacher identity、distribution/objective、telemetry
   protocol 和训练 topology。当前没有跨 step rollout buffer；未来若引入，cursor/state 必须一并持久化。
 - 当前 OPD 只开放 `grouping=none + cardinality=fixed + packing=none + layout=padded`，不支持 eval、packing
-  或 varlen。已有门禁证明协议、DDP/FSDP/DeepSpeed fresh/resume/export 与真实 Qwen vLLM 主链；独立 Qwen
-  HTTP teacher GPU 部署、发布 Qwen sharded 容量和大词表内存/吞吐 A/B 仍是专项待办。
+  或 varlen。已有门禁证明协议、DDP/FSDP/DeepSpeed fresh/resume/export 与真实 Qwen vLLM 主链；现有证据不
+  覆盖独立 Qwen HTTP teacher GPU 部署、发布 Qwen sharded 容量和大词表内存/吞吐。
 
 ### 5.5 冻结边界
 
@@ -627,32 +635,44 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 
 ### 8.1 当前建议视为稳定的接口
 
+这里的“稳定”只描述 API/配置形状，不表示每个算法、模型规模和 distributed topology 都已完成生产验收。
+
 - `RuntimeConfig` 及其一级配置块
 - `ShaftDataCenter`
 - `ModelMeta` / `ShaftModelAdapter`
 - `TemplateMeta` / `Template`
 - `ShaftSFTPipeline` / `ShaftRLPipeline` / `ShaftOPDPipeline`
-- `ShaftSFTTrainer` / `ShaftDPOTrainer` / `ShaftPPOTrainer` / `ShaftOPDTrainer`
+- `ShaftSFTTrainer` / `ShaftDPOTrainer` / `ShaftGRPOTrainer` / `ShaftOPDTrainer`
 - `InferEngineConfig` / `ShaftInferEngine` / `ShaftInferPipeline`
 - `inspect_hf_artifact()` / `validate_hf_artifact()` / `merge_peft_adapter()`
 
 ### 8.2 当前不应在外部承诺长期稳定的接口
 
-- PPO 运行时细节与限制条件
+- PPO trainer/runtime 及其限制条件
+- DPO/GRPO 的未验收 distributed、checkpoint 与 rollout 组合
 - interceptor 的 `point` 字符串全集
 - 单个模型族的细粒度 `processor_kwargs`
 - 临时 smoke model / smoke template 能力
 
 ## 9. 当前明确受限的能力
 
-- PPO 仍是受限能力，不能视为完整生产功能。
+- DPO/GRPO 仍是实验能力；配置、数据和 trainer 装配通过不等于真实 Qwen release gate。FSDP+PEFT exact
+  resume 当前只对 SFT 验收，DPO/GRPO 不属于支持范围；通用配置预检尚可能接受该组合，因此调用方不得使用。
+- PPO 仅用于 debug smoke：当前 text-only、没有真实 reward-model 加载，不支持 full finetune、periodic
+  checkpoint、best-checkpoint selection 或 resume。
+- OPD 是专项能力，不支持 eval、packing 或 varlen；已有真实门禁不能外推到未验收的发布模型容量和远端
+  teacher 部署。
 - 当前正式 Qwen 多模态训练主线是 `qwen3vl`。`qwen36vl` dense 已有 Qwen3.6-27B 短程真实权重训练记录；
   `qwen35vl` 与新一代 MoE 的完整后端矩阵仍是 experimental，主要证据来自 tiny upstream gate。
   `smoke_vlm` 仅用于测试。
 - Qwen3.5/3.6 MoE padded SFT 的接口和 tiny upstream release gate 已完成；真实 35B 权重的显存、吞吐、
   长程数值稳定性和目标集收敛尚未验证，不能从 tiny gate 推导生产容量。
 - 结构化任务评估当前支持轻量在线 metric；完整离线评测工作台不属于当前主线能力。
+- 公共推理 API 当前是单样本、同步 stage 编排且要求图片输入，不提供原生 batch、streaming、async queue 或
+  Shaft 自有在线服务层。
 - 发布到 Hub 的工具链尚未开始。
+
+所有未来工作只维护在 [TODO.md](TODO.md)，本节只描述当前边界。
 
 ## 10. 架构约束清单
 

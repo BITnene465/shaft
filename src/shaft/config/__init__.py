@@ -36,6 +36,7 @@ from .training import (
     EvalMetricConfig,
     EvalNormalizerConfig,
     EvalPixelBudget,
+    TrainCheckpointSaveMode,
     TrainDDPConfig,
     TrainDeepSpeedConfig,
     TrainDurationConfig,
@@ -43,8 +44,11 @@ from .training import (
     TrainFSDPConfig,
     TrainConfig,
     TrainEfficiencyConfig,
+    resolve_deepspeed_gather_model_on_save,
     resolve_effective_gradient_checkpointing,
     resolve_eval_input_policy,
+    resolve_train_checkpoint_save_mode,
+    train_requires_exact_resume_state,
 )
 
 __all__ = [
@@ -84,6 +88,7 @@ __all__ = [
     "RLHFConfig",
     "RuntimeConfig",
     "TrainDDPConfig",
+    "TrainCheckpointSaveMode",
     "TrainDeepSpeedConfig",
     "TrainDurationConfig",
     "TrainDistributedConfig",
@@ -94,7 +99,10 @@ __all__ = [
     "load_config",
     "load_config_from_payload",
     "load_config_from_text",
+    "resolve_deepspeed_gather_model_on_save",
     "resolve_effective_gradient_checkpointing",
     "resolve_eval_input_policy",
+    "resolve_train_checkpoint_save_mode",
+    "train_requires_exact_resume_state",
     "to_resolved_payload",
 ]

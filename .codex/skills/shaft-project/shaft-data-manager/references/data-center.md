@@ -23,7 +23,7 @@ must follow repository architecture, extension, testing, and feature-review rule
 
 `configs/data/banana_v5_7.yaml` has exactly five active datasets and is consumed by all six v5.7
 training YAMLs. Its names, weights, prompt pools, and row-count baseline are documented in
-`docs/data_v5_7.md`. `grounding_layout_sync` is not materialized or registered.
+`scripts/tasks/banana_v5_7.md`. `grounding_layout_sync` is not materialized or registered.
 
 ## Validation
 

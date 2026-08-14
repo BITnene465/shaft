@@ -46,12 +46,15 @@ from shaft.training.batch_planning import (
 )
 from shaft.training.checkpointing import (
     BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME,
+    MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME,
     TRAINING_CHECKPOINT_COMMIT_FILENAME,
     ShaftCheckpointCommitMixin,
     ShaftCheckpointProtocol,
     _validate_shared_callback_schedule,
     begin_backend_native_checkpoint,
+    begin_model_only_checkpoint,
     commit_backend_native_checkpoint,
+    commit_model_only_checkpoint,
     commit_training_checkpoint,
     ensure_hf_export_layout,
     revoke_training_checkpoint_commit,
@@ -62,6 +65,7 @@ from shaft.training.checkpointing import (
     resolve_resume_checkpoint_generation,
     resume_checkpoint_consensus_fingerprints,
     training_checkpoint_is_committed,
+    validate_model_only_checkpoint,
     validate_training_checkpoint_commit,
     validate_resume_checkpoint,
     validate_resolved_resume_checkpoint_guard,
@@ -1095,6 +1099,56 @@ def test_backend_native_protocol_does_not_install_commit_wrapper() -> None:
     assert trainer._shaft_checkpoint_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE
 
 
+def test_backend_native_model_only_protocol_installs_publication_wrapper() -> None:
+    class _Handler:
+        def on_save(self, *args, **kwargs):
+            _ = args, kwargs
+
+    class _BackendTrainerBase:
+        def __init__(self) -> None:
+            self.is_deepspeed_enabled = True
+            self.is_fsdp_enabled = False
+            self.args = SimpleNamespace(save_only_model=True)
+            self.callback_handler = _Handler()
+
+    class _BackendTrainer(ShaftCheckpointCommitMixin, _BackendTrainerBase):
+        pass
+
+    trainer = _BackendTrainer(shaft_checkpoint_protocol=ShaftCheckpointProtocol.BACKEND_NATIVE)
+
+    assert trainer.callback_handler.on_save.__self__ is trainer
+    assert trainer._uses_model_only_checkpoint() is True
+    assert trainer._uses_shaft_checkpoint_publication() is True
+
+
+def test_backend_native_model_only_commit_publishes_hf_artifact_not_backend_state(
+    tmp_path: Path,
+) -> None:
+    class _CommitProbe(ShaftCheckpointCommitMixin):
+        def __init__(self) -> None:
+            pass
+
+        def is_world_process_zero(self) -> bool:
+            return True
+
+    checkpoint = tmp_path / "checkpoint-4"
+    _write_full_checkpoint(checkpoint, global_step=4)
+    trainer = _CommitProbe()
+    trainer._shaft_checkpoint_protocol = ShaftCheckpointProtocol.BACKEND_NATIVE
+    trainer._shaft_pending_checkpoint_path = checkpoint
+    trainer.state = SimpleNamespace(global_step=4, best_model_checkpoint=None)
+    trainer.args = SimpleNamespace(
+        save_only_model=True,
+        should_save=False,
+        save_total_limit=2,
+    )
+
+    trainer._commit_and_rotate_shaft_checkpoint()
+
+    assert validate_model_only_checkpoint(checkpoint)["kind"] == "full"
+    assert not (checkpoint / BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME).exists()
+
+
 def test_backend_native_save_runs_prepare_hook_before_backend_save(
     tmp_path: Path,
 ) -> None:
@@ -1169,6 +1223,44 @@ def test_training_checkpoint_commit_rejects_mutated_artifact(tmp_path: Path) -> 
     assert not training_checkpoint_is_committed(checkpoint)
     with pytest.raises(ValueError, match="artifact"):
         validate_training_checkpoint_commit(checkpoint)
+
+
+def test_model_only_checkpoint_cleans_stale_state_and_rejects_new_residue(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "checkpoint-3"
+    _write_full_checkpoint(checkpoint, global_step=3)
+    (checkpoint / "optimizer.pt").write_bytes(b"stale")
+
+    begin_model_only_checkpoint(checkpoint, global_step=3)
+
+    assert checkpoint.is_dir()
+    assert not any(checkpoint.iterdir())
+    (checkpoint / "config.json").write_text("{}", encoding="utf-8")
+    (checkpoint / "model.safetensors").write_bytes(b"model")
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps({"global_step": 3}),
+        encoding="utf-8",
+    )
+    commit_model_only_checkpoint(checkpoint, global_step=3)
+    assert validate_model_only_checkpoint(checkpoint)["global_step"] == 3
+
+    (checkpoint / "scheduler.pt").write_bytes(b"unexpected")
+    with pytest.raises(ValueError, match="resumable training/backend state"):
+        validate_model_only_checkpoint(checkpoint)
+
+
+def test_model_only_checkpoint_rejects_damaged_commit_marker(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint-4"
+    _write_full_checkpoint(checkpoint, global_step=4)
+    marker = commit_model_only_checkpoint(checkpoint, global_step=4)
+    payload = json.loads(marker.read_text(encoding="utf-8"))
+    payload["unexpected"] = True
+    marker.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert marker.name == MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME
+    with pytest.raises(ValueError, match="unknown fields"):
+        validate_model_only_checkpoint(checkpoint)
 
 
 @pytest.mark.parametrize(
@@ -2753,6 +2845,11 @@ def test_fresh_run_rejects_incomplete_input_contract_when_checkpointing() -> Non
         validate_train_input_checkpointability(incomplete, save_strategy="steps")
     with pytest.raises(ValueError, match="Checkpointing requires"):
         validate_train_input_checkpointability(incomplete, save_strategy="epoch")
+    validate_train_input_checkpointability(
+        incomplete,
+        save_strategy="steps",
+        save_only_model=True,
+    )
 
 
 def test_incomplete_data_identity_fails_before_full_input_contract_build() -> None:
@@ -2771,6 +2868,14 @@ def test_incomplete_data_identity_fails_before_full_input_contract_build() -> No
             save_strategy="steps",
             resume_requested=False,
         )
+    validate_train_data_identity_checkpointability(
+        data_execution_contract_complete=False,
+        incomplete_reasons=("missing_media_snapshot_id",),
+        train_dataset_type=_ContractDataset,
+        save_strategy="steps",
+        resume_requested=False,
+        save_only_model=True,
+    )
     with pytest.raises(ValueError, match="Exact resume requires"):
         validate_train_data_identity_checkpointability(
             data_execution_contract_complete=False,
@@ -4397,6 +4502,23 @@ def test_checkpointable_contract_rejects_plugin_without_neutrality_marker() -> N
             batch_contract_fingerprint=_fixed_batch_contract().fingerprint,
             hook_instances=[instance],
         )
+
+
+def test_model_only_contract_allows_plugin_without_resume_neutrality_marker() -> None:
+    config = RuntimeConfig()
+    config.train.save_strategy = "steps"
+    config.train.save_only_model = True
+    config.plugins.hooks = ["fixture"]
+    instance = SimpleNamespace(name="fixture", counter=0)
+
+    contract = build_training_resume_contract(
+        config=config,
+        training_args=_resume_training_args(),
+        batch_contract_fingerprint=_fixed_batch_contract().fingerprint,
+        hook_instances=[instance],
+    )
+
+    assert contract.to_dict()["implementation"]["plugins"]["hooks"][0]["name"] == "fixture"
 
 
 def test_decorated_observer_plugins_flow_through_managers_into_resume_contract() -> None:

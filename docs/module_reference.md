@@ -173,31 +173,9 @@
   `ShaftLengthBatchGrouping` 只排序有界候选，`ShaftGreedySequencePacker` 只组合完整 logical segments，
   `ShaftVarlenBatchLayout` 只组装计划后的 tensor；Qwen 的 attention/M-RoPE/media 语义归模型
   `SequenceExecutionPolicy`，不回流到 sampler 或通用 collator。
-- 合成 reconstruction 数据的离线真源仍是 `gt_standard`；数据构建脚本与训练 batching 相互独立，不得把
-  任务字段语义放入 planner。
-- 真实 grounding 的离线 builder 同时接受 normalized `instances[].label` 与人工 compact
-  `size + layout[].type` 两种 raw contract；适配只发生在派生边界，不改写 compact 真源。四类
-  `grounding_layout` 只消费 `shape/icon/image/line` 的 bbox，排除 `full_text`，也不读取 line points 或
-  reconstruction parameters。无四类目标的已标注 source 只保留一个 native empty row，不做增强。
-- Grounding bbox 使用图像边界坐标，右/下边界 `x2/y2` 可分别等于 `width/height`；SFT 派生必须先在
-  `[0,width] x [0,height]` 上裁剪，再由共享 coordinate codec 量化到 `0..999`。不得提前裁到
-  `width-1/height-1`，否则贴右或贴底的 1px line 会退化。
-- v5.7 contextual reconstruction 由 `scripts/tasks/build_context_reconstruction_sft.py` 离线生成；
-  v9 selection manifest 只保存 source/instance identity，属性与几何真值每次回查
-  `regulated_layout_dataset_v9_20260802/gt_standard`。proposal/crop 审计信息留在 derived
-  `extra`，训练主链只消费标准 `jsonl_sft`、动态 `prompt_args` 和 task prompt pool。
-- v5.7 正式 mix 不包含历史 `shape_context_attributes` API 弱标签任务，也不包含
-  region-reconstruction 或 background 数据；完整数据合同见 `docs/data_v5_7.md`。
-- line 点监督使用独立 `line_context_points` dataset/task；它复用 v5.7 contextual crop/proposal
-  输入合同，但 target 只允许完整 line DSL 的 `is_single + points` 子集。当前真实源是 active compact
-  raw 中全部非空 `parameters.points`，不采样；合成补充只保留 v9 中维护的 15,000 条多分支线，并使用
-  `synthetic_realism_v1`。真实 crop 保持 clean，两类源都不创建 resize/multi-scale 副本。训练主链仍
-  只消费标准 `jsonl_sft`，不得在 collator 中解释 source provenance、混入合成单叉或补造缺失 line 属性。
-- line 非几何属性属于完整 `line_context_reconstruction` 合同，不存在独立的
-  `line_attribute_recovery` dataset/task 或 prompt pool；预标注失败恢复策略不得提升为训练任务。
-- synthetic shape/line 的 `synthetic_realism_v1` 也只属于离线 data builder：每条 crop 必须有1–3个
-  尺寸不变的像素扰动，参数写入 `extra.pixel_augmentation`；训练、pipeline 和 collator 不重复推导该策略。
-  task-local `selection/train.jsonl` 只保存源实例身份，属性与几何真值仍回查 source truth。
+- `scripts/tasks/` 中的离线 builder 属于具体数据生产任务，与框架运行时解耦。它们只向框架交付已声明的
+  source/schema、标准记录和媒体路径；任务字段、标注规则、数据版本、构建基线和业务 prompt 不得进入
+  planner、collator 或训练循环。
 
 ### 开发边界
 
@@ -682,6 +660,7 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
 - `resolve_resume_checkpoint()`
 - `resolve_checkpoint_protocol()`
 - `validate_resume_checkpoint()`
+- `validate_model_only_checkpoint()`
 - `load_batch_planning_state()`
 - `build_batch_planning_resume_contract_fingerprint()`
 - `build_batch_contract()`
@@ -709,19 +688,24 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
   把该确定性累计状态纳入严格比较。
 
 - checkpoint 与 run metadata 分层：
-  - `checkpoint-*` 是训练状态 generation；DDP/native-HF 只有通过 manifest validator 的目录才是 Shaft
-    exact-resume 点，FSDP/DeepSpeed 的可恢复性由 backend-native contract 决定
+  - `checkpoint-*` 有两种互斥语义。默认是训练状态 generation：DDP/native-HF 只有通过 manifest validator
+    的目录才是 Shaft exact-resume 点，FSDP/DeepSpeed 的可恢复性由 backend-native contract 决定。
+    `train.save_only_model=true` 时则是标准 HF/PEFT 模型态 generation，只允许部署或
+    `init_from_checkpoint`，不能 exact resume
   - `best` 是 HF/PEFT 部署导出
   - root `trainer_state.json`、`shaft_finetune_summary.json`、`shaft_optimizer_summary.json` 是持久化
     运行摘要，root export 清理必须保留
   - 从 run 根目录恢复时，最新 `checkpoint-*` 优先于 root final state
   - `ShaftCheckpointProtocol` 是 storage owner 真源：DDP/native-HF 路由到 `committed_manifest`，
     FSDP/DeepSpeed 路由到 `backend_native`
-  - `ShaftCheckpointCommitMixin` 只在 `committed_manifest` 路径安装保存事务 wrapper：super save 前撤销旧
+  - `ShaftCheckpointCommitMixin` 在 resumable `committed_manifest` 路径和 model-only 路径安装保存事务
+    wrapper：super save 前撤销旧
     `shaft_checkpoint_commit.json`，暂缓 HF rotation；callback-handler wrapper 先要求所有 rank 具有完全相同、
     顺序一致的普通 `on_save` callback 拓扑，再捕获每个 callback（包括 efficiency telemetry/plugin）的
     rank-local 异常并做 all-rank convergence。拓扑差异在 callback 执行前 fail closed；全部成功后才进入
-    独立 commit phase、原子提交并执行 rotation。PPO 不接入该 mixin，仍禁止 resume
+    独立 commit phase、原子提交并执行 rotation。model-only 路径对 DDP/FSDP/DeepSpeed 使用同一 publication
+    边界，提交 `shaft_model_only_checkpoint.json` 前还会拒绝 optimizer/scheduler/scaler/RNG 与 backend-native
+    state 残留；PPO 不接入该 mixin，仍禁止 resume
   - manifest 绑定非空 model/adapter、`trainer_state.json` hash、optimizer、scheduler、按保存 world size 的
     每-rank RNG，以及 checkpoint 内全部 recorded artifact 的相对路径、尺寸和 SHA-256。`committed_manifest` 的 direct-path 与
     run-root resolver 只接受通过同一 validator 的 committed checkpoint；run-root 会跳过未提交或已损坏的
@@ -735,13 +719,16 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
     artifact 只做一次完整 digest 校验，preflight、planned state 与 train 入口复用同一 token。进入 Trainer 前
     再检查小 marker 与 stat guard，并对 generation identity 做全 rank consensus，避免重复多 GiB I/O，同时拒绝
     启动窗口内 stat-visible 的替换/改写或各 rank 同名路径对应不同内容
+  - model-only marker 绑定 global step、full/adapter 类型以及必需模型 artifact 的路径与尺寸，避免把未完成目录
+    当成已发布权重，同时不为几十 GiB 模型增加第二次全量 hash。direct-path resume 明确拒绝该 marker；
+    run-root resume 跳过 model-only generation。标准 HF/PEFT loader 仍可直接读取同一目录作为部署或新训练初始化
   - backend-native FSDP+PEFT checkpoint 的逻辑模型身份由完整标准 PEFT adapter 提供：resolver 固定选择
     `adapter_model.safetensors`（否则 `adapter_model.bin`），并把 adapter config/weights 的路径、大小和 SHA-256
     纳入 generation identity 与 stat guard。`ShaftSFTTrainer` 在 FSDP wrap 前向每个 rank 完整预载该 adapter，
     精确校验 key/shape/value，再跳过 Transformers/Accelerate 生成的不完整 rank-local
     `pytorch_model_fsdp.bin`；optimizer、scheduler、scaler、RNG 与 Trainer state 仍由 backend-native 路径恢复。
-    该恢复语义当前只对 SFT 验收，不能外推到 DPO/GRPO；FSDP+PEFT 同时要求 `full_state_dict` 且禁止
-    `load_best_model_at_end`
+    该恢复语义当前只对 SFT 验收，不能外推到 DPO/GRPO；在专用 fail-closed 门禁落地前，即使通用配置预检
+    接受该组合也不得使用。FSDP+PEFT 同时要求 `full_state_dict` 且禁止 `load_best_model_at_end`
   - 所有训练路径都把 canonical `ShaftBatchContract` 通过 stateful callback 写入 HF
     `trainer_state.json`；改变 grouping/cardinality/packing/layout、local batch、DP world size 或 GA 时，
     exact resume 会拒绝

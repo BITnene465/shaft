@@ -50,8 +50,13 @@ from .optimizer_plan import OPTIMIZER_SUMMARY_FILENAME
 
 TRAINING_CHECKPOINT_COMMIT_FILENAME = "shaft_checkpoint_commit.json"
 BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME = "shaft_backend_checkpoint_commit.json"
+MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME = "shaft_model_only_checkpoint.json"
 _TRAINING_CHECKPOINT_COMMIT_VERSION = "shaft-training-checkpoint-commit-v2"
 _BACKEND_NATIVE_CHECKPOINT_COMMIT_VERSION = "shaft-backend-checkpoint-commit-v1"
+_MODEL_ONLY_CHECKPOINT_COMMIT_VERSION = "shaft-model-only-checkpoint-v1"
+_MODEL_ONLY_CHECKPOINT_COMMIT_KEYS = frozenset(
+    {"version", "global_step", "kind", "model_artifacts"}
+)
 _BACKEND_NATIVE_CHECKPOINT_COMMIT_KEYS = frozenset(
     {
         "version",
@@ -422,12 +427,7 @@ def _sharded_model_artifacts(checkpoint: Path, index_name: str) -> tuple[str, ..
     return (index_name, *shard_names)
 
 
-def _required_training_artifacts(
-    checkpoint: Path,
-    *,
-    world_size: int,
-    requires_grad_scaler: bool,
-) -> tuple[str, ...]:
+def _required_model_artifacts(checkpoint: Path) -> tuple[str, ...]:
     layout = inspect_checkpoint_layout(checkpoint)
     if layout.kind == "adapter":
         adapter_weights = next(
@@ -460,7 +460,18 @@ def _required_training_artifacts(
             raise ValueError("Full-model checkpoint has no model weights.")
         model_artifacts = ("config.json", *weights)
     else:
-        raise ValueError(f"Checkpoint has no resumable model layout: {layout.kind!r}.")
+        raise ValueError(f"Checkpoint has no model artifact layout: {layout.kind!r}.")
+
+    return tuple(sorted(model_artifacts))
+
+
+def _required_training_artifacts(
+    checkpoint: Path,
+    *,
+    world_size: int,
+    requires_grad_scaler: bool,
+) -> tuple[str, ...]:
+    model_artifacts = _required_model_artifacts(checkpoint)
 
     optimizer_names = tuple(
         dict.fromkeys(
@@ -1348,6 +1359,7 @@ class ShaftCheckpointCommitMixin:
         if (
             checkpoint_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE
             and not self._shaft_backend_planning_commit
+            and not self._uses_model_only_checkpoint()
         ):
             return
         # Replace only on_save so callbacks added later remain part of the same
@@ -1356,13 +1368,17 @@ class ShaftCheckpointCommitMixin:
 
     def _uses_shaft_checkpoint_commit(self) -> bool:
         return (
-            getattr(
+            not self._uses_model_only_checkpoint()
+            and getattr(
                 self,
                 "_shaft_checkpoint_protocol",
                 ShaftCheckpointProtocol.COMMITTED_MANIFEST,
             )
             is ShaftCheckpointProtocol.COMMITTED_MANIFEST
         )
+
+    def _uses_model_only_checkpoint(self) -> bool:
+        return bool(getattr(getattr(self, "args", None), "save_only_model", False))
 
     def save_model(self, output_dir: str | None = None, _internal_call: bool = False) -> None:
         """Serialize deployment cache defaults for every checkpoint-capable trainer."""
@@ -1372,7 +1388,8 @@ class ShaftCheckpointCommitMixin:
 
     def _uses_shaft_checkpoint_publication(self) -> bool:
         return bool(
-            self._uses_shaft_checkpoint_commit()
+            self._uses_model_only_checkpoint()
+            or self._uses_shaft_checkpoint_commit()
             or bool(getattr(self, "_shaft_backend_planning_commit", False))
         )
 
@@ -1432,6 +1449,9 @@ class ShaftCheckpointCommitMixin:
             # still begins from the same prepared generation.
             prepare_error: Exception | None = None
             try:
+                world_process_zero = getattr(self, "is_world_process_zero", None)
+                if world_process_zero is None or bool(world_process_zero()):
+                    revoke_model_only_checkpoint_commit(checkpoint_path)
                 self._prepare_shaft_checkpoint_save(checkpoint_path)
             except Exception as exc:  # noqa: BLE001 - converge before backend collectives
                 prepare_error = exc
@@ -1445,9 +1465,16 @@ class ShaftCheckpointCommitMixin:
         begin_error: Exception | None = None
         if self.is_world_process_zero():
             try:
+                if self._uses_model_only_checkpoint():
+                    begin_model_only_checkpoint(
+                        checkpoint_path,
+                        global_step=int(self.state.global_step),
+                    )
+                else:
+                    revoke_model_only_checkpoint_commit(checkpoint_path)
                 if self._uses_shaft_checkpoint_commit():
                     revoke_training_checkpoint_commit(checkpoint_path)
-                else:
+                elif not self._uses_model_only_checkpoint():
                     backend = "deepspeed" if self.is_deepspeed_enabled else "fsdp"
                     begin_backend_native_checkpoint(
                         checkpoint_path,
@@ -1502,7 +1529,13 @@ class ShaftCheckpointCommitMixin:
         commit_error: Exception | None = None
         if self.is_world_process_zero():
             try:
-                if self._uses_shaft_checkpoint_commit():
+                if self._uses_model_only_checkpoint():
+                    commit_model_only_checkpoint(
+                        checkpoint_path,
+                        global_step=int(self.state.global_step),
+                        model_meta=getattr(self, "model_adapter", None),
+                    )
+                elif self._uses_shaft_checkpoint_commit():
                     commit_training_checkpoint(
                         checkpoint_path,
                         world_size=int(self.args.world_size),
@@ -1671,6 +1704,184 @@ def ensure_hf_export_layout(
     raise ValueError(f"Unsupported finetune mode: {finetune_mode!r}.")
 
 
+def _model_only_forbidden_artifacts(checkpoint: Path) -> tuple[str, ...]:
+    names = {
+        str(hf_trainer_module.OPTIMIZER_NAME),
+        str(hf_trainer_module.OPTIMIZER_NAME_BIN),
+        str(hf_trainer_module.SCHEDULER_NAME),
+        str(hf_trainer_module.SCALER_NAME),
+        "optimizer.bin",
+        "pytorch_model_fsdp.bin",
+        "latest",
+        TRAINING_CHECKPOINT_COMMIT_FILENAME,
+        BACKEND_NATIVE_CHECKPOINT_COMMIT_FILENAME,
+    }
+    forbidden: set[str] = set()
+    for name in names:
+        if (checkpoint / name).exists():
+            forbidden.add(name)
+    forbidden.update(
+        path.relative_to(checkpoint).as_posix()
+        for pattern in ("rng_state*.pth", "*_optim_states.pt", "*_model_states.pt")
+        for path in checkpoint.rglob(pattern)
+    )
+    forbidden.update(
+        path.relative_to(checkpoint).as_posix()
+        for path in checkpoint.glob("global_step*")
+        if path.exists()
+    )
+    return tuple(sorted(forbidden))
+
+
+def begin_model_only_checkpoint(path: str | Path, *, global_step: int) -> Path:
+    """Create an empty target so stale resume state cannot survive a rewrite."""
+
+    checkpoint = Path(path)
+    if type(global_step) is not int or global_step < 0:
+        raise ValueError("Model-only checkpoint global_step must be >= 0.")
+    if checkpoint.name != f"checkpoint-{global_step}":
+        raise ValueError("Model-only checkpoint directory differs from its global step.")
+    if checkpoint.is_symlink():
+        raise ValueError("Model-only checkpoint directory must not be a symlink.")
+    if checkpoint.exists():
+        if not checkpoint.is_dir():
+            raise ValueError("Model-only checkpoint target exists and is not a directory.")
+        shutil.rmtree(checkpoint)
+    checkpoint.mkdir(parents=True)
+    _fsync_directory(checkpoint.parent)
+    return checkpoint
+
+
+def commit_model_only_checkpoint(
+    path: str | Path,
+    *,
+    global_step: int,
+    model_meta: ModelMeta | ShaftModelAdapter | None = None,
+) -> Path:
+    """Publish one deployable/init-only model snapshot without resume state."""
+
+    checkpoint = Path(path)
+    if type(global_step) is not int or global_step < 0:
+        raise ValueError("Model-only checkpoint global_step must be >= 0.")
+    _validate_checkpoint_step(checkpoint, global_step=global_step)
+    layout = inspect_checkpoint_layout(checkpoint)
+    if layout.kind not in {"full", "adapter"}:
+        raise ValueError(
+            f"Model-only checkpoint has no deployable model layout: {layout.kind!r}."
+        )
+    ensure_hf_export_layout(
+        checkpoint,
+        finetune_mode="full" if layout.kind == "full" else "lora",
+        model_meta=model_meta,
+    )
+    if layout.has_trainer_state:
+        trainer_state = _load_trainer_state(checkpoint)
+        if int(trainer_state["global_step"]) != global_step:
+            raise ValueError("Model-only checkpoint trainer state differs from global step.")
+    forbidden = _model_only_forbidden_artifacts(checkpoint)
+    if forbidden:
+        raise ValueError(
+            "Model-only checkpoint contains resumable training/backend state: "
+            f"{list(forbidden)}."
+        )
+    artifacts: dict[str, int] = {}
+    for name in _required_model_artifacts(checkpoint):
+        artifact = checkpoint / name
+        if artifact.is_symlink() or not artifact.is_file() or artifact.stat().st_size <= 0:
+            raise ValueError(
+                f"Model-only checkpoint model artifact is missing or empty: {name}."
+            )
+        artifacts[name] = int(artifact.stat().st_size)
+        _fsync_file(artifact)
+    _fsync_checkpoint_artifact_directories(checkpoint, artifacts)
+    return _atomic_write_json(
+        checkpoint / MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME,
+        {
+            "version": _MODEL_ONLY_CHECKPOINT_COMMIT_VERSION,
+            "global_step": global_step,
+            "kind": layout.kind,
+            "model_artifacts": artifacts,
+        },
+    )
+
+
+def validate_model_only_checkpoint(path: str | Path) -> dict[str, Any]:
+    """Validate a published model-only snapshot without hashing multi-GB weights."""
+
+    checkpoint = Path(path)
+    marker_path = checkpoint / MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME
+    try:
+        payload = load_strict_json(marker_path, role="model-only checkpoint commit")
+    except FileNotFoundError as exc:
+        raise ValueError(f"Model-only checkpoint is not committed: {checkpoint}.") from exc
+    payload = require_json_mapping(payload, role="model-only checkpoint commit")
+    require_exact_keys(
+        payload,
+        expected=_MODEL_ONLY_CHECKPOINT_COMMIT_KEYS,
+        role="model-only checkpoint commit",
+    )
+    version = json_string(payload, "version", role="model-only checkpoint commit")
+    if version != _MODEL_ONLY_CHECKPOINT_COMMIT_VERSION:
+        raise ValueError("Unsupported model-only checkpoint commit version.")
+    global_step = json_int(payload, "global_step", role="model-only checkpoint commit")
+    if global_step < 0:
+        raise ValueError("Model-only checkpoint global_step must be >= 0.")
+    _validate_checkpoint_step(checkpoint, global_step=global_step)
+    kind = json_string(payload, "kind", role="model-only checkpoint commit")
+    layout = inspect_checkpoint_layout(checkpoint)
+    if kind not in {"full", "adapter"} or layout.kind != kind:
+        raise ValueError("Model-only checkpoint layout differs from its commit marker.")
+    raw_artifacts = require_json_mapping(
+        payload["model_artifacts"],
+        role="model-only checkpoint commit.model_artifacts",
+    )
+    expected_names = _required_model_artifacts(checkpoint)
+    if set(raw_artifacts) != set(expected_names):
+        raise ValueError("Model-only checkpoint artifact set differs from its commit marker.")
+    artifacts: dict[str, int] = {}
+    for name in expected_names:
+        if type(name) is not str or Path(name).is_absolute() or ".." in Path(name).parts:
+            raise ValueError("Model-only checkpoint contains an invalid artifact path.")
+        size = raw_artifacts[name]
+        if type(size) is not int or size <= 0:
+            raise TypeError("Model-only checkpoint artifact size must be a positive integer.")
+        artifact = checkpoint / name
+        if artifact.is_symlink() or not artifact.is_file() or artifact.stat().st_size != size:
+            raise ValueError(f"Model-only checkpoint artifact changed: {name}.")
+        artifacts[name] = size
+    forbidden = _model_only_forbidden_artifacts(checkpoint)
+    if forbidden:
+        raise ValueError(
+            "Model-only checkpoint contains resumable training/backend state: "
+            f"{list(forbidden)}."
+        )
+    return {
+        "version": version,
+        "global_step": global_step,
+        "kind": kind,
+        "model_artifacts": artifacts,
+    }
+
+
+def revoke_model_only_checkpoint_commit(path: str | Path) -> None:
+    checkpoint = Path(path)
+    marker_path = checkpoint / MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME
+    if marker_path.exists():
+        marker_path.unlink()
+        _fsync_directory(checkpoint)
+
+
+def reject_model_only_checkpoint_resume(path: str | Path) -> None:
+    checkpoint = Path(path)
+    if not (checkpoint / MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME).exists():
+        return
+    validate_model_only_checkpoint(checkpoint)
+    raise ValueError(
+        "A model-only checkpoint cannot be used with resume_from_checkpoint; "
+        "use init_from_checkpoint to start a new optimizer/data schedule."
+    )
+
+
 def resolve_best_export_dir(output_dir: str | Path) -> Path:
     return Path(output_dir) / "best"
 
@@ -1779,6 +1990,7 @@ def resolve_resume_checkpoint_generation(
     target = Path(path).resolve()
     if not target.exists():
         raise FileNotFoundError(f"resume_from checkpoint path not found: {target}")
+    reject_model_only_checkpoint_resume(target)
 
     child_candidates: list[tuple[int, Path]] = []
     if target.is_dir():
@@ -1796,6 +2008,8 @@ def resolve_resume_checkpoint_generation(
     if child_candidates:
         if resolved_protocol is ShaftCheckpointProtocol.BACKEND_NATIVE:
             for _step, candidate in sorted(child_candidates, reverse=True):
+                if (candidate / MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME).exists():
+                    continue
                 try:
                     trainer_state = _validate_backend_native_checkpoint_location(candidate)
                     backend_commit = (
@@ -1824,6 +2038,8 @@ def resolve_resume_checkpoint_generation(
             # neither older checkpoints nor the selected checkpoint are hashed
             # again during this startup.
             for _step, candidate in sorted(child_candidates, reverse=True):
+                if (candidate / MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME).exists():
+                    continue
                 try:
                     manifest = validate_training_checkpoint_commit(candidate)
                 except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
@@ -1942,6 +2158,7 @@ def validate_resume_checkpoint(
 ) -> None:
     resolved_generation = path if isinstance(path, ResolvedResumeCheckpoint) else None
     checkpoint = resolved_generation.path if resolved_generation is not None else Path(path)
+    reject_model_only_checkpoint_resume(checkpoint)
     layout = inspect_checkpoint_layout(checkpoint)
     mode = str(finetune_mode).strip().lower()
     if not layout.has_trainer_state:
@@ -1998,11 +2215,22 @@ def validate_resume_checkpoint(
 def validate_training_state_policy(config: RuntimeConfig) -> None:
     train_cfg = config.train
     eval_cfg = config.eval
+    if type(train_cfg.save_only_model) is not bool:
+        raise TypeError("train.save_only_model must be a boolean.")
     if train_cfg.init_from_checkpoint is not None and train_cfg.resume_from_checkpoint is not None:
         raise ValueError(
             "train.init_from_checkpoint and train.resume_from_checkpoint are "
             "mutually exclusive: init starts a new schedule, while resume restores "
             "the previous training state."
+        )
+    if train_cfg.save_only_model and train_cfg.save_strategy == "no":
+        raise ValueError(
+            "train.save_only_model=true requires train.save_strategy to be 'steps' or 'epoch'."
+        )
+    if train_cfg.save_only_model and train_cfg.resume_from_checkpoint is not None:
+        raise ValueError(
+            "train.save_only_model=true cannot be combined with "
+            "train.resume_from_checkpoint; use init_from_checkpoint instead."
         )
     if not train_cfg.load_best_model_at_end:
         return

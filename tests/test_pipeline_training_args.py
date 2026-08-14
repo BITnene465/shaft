@@ -40,6 +40,15 @@ def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) 
     assert args.average_tokens_across_devices is True
 
 
+def test_build_hf_training_args_exposes_model_only_checkpoints(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.save_only_model = True
+
+    args = build_hf_training_args(config)
+
+    assert args.save_only_model is True
+
+
 def test_build_hf_training_args_enables_fp16_on_cuda(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     config.train.use_cpu = False

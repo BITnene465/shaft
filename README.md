@@ -14,7 +14,7 @@
 </p>
 
 Shaft 是一个 `HF-first` 的多模态训练与推理框架。训练入口按 `SFT / RL / OPD` 三个并列域组织；当前
-生产主线仍是 Qwen 多模态 SFT，RL 与 on-policy distillation 按各自能力门禁逐步验收。
+生产主线仍是 Qwen 多模态 SFT。DPO/GRPO 是实验能力，PPO 仅用于 debug smoke；OPD 按专项能力门禁使用。
 
 ## 快速开始
 
@@ -23,7 +23,6 @@ uv venv --python 3.11 --prompt shaft
 source .venv/bin/activate
 uv pip install -e .
 python scripts/train.py sft --config configs/train/sft_4b.yaml
-python scripts/train.py sft --config configs/train/banana_sft_4b_v5_7.yaml
 ```
 
 按用途安装扩展依赖：
@@ -50,12 +49,20 @@ uv pip install -e ".[serve]"
 ### 训练
 
 ```bash
+# 生产主线
 python scripts/train.py sft --config configs/train/sft_4b.yaml
+
+# 实验性 RL；不能仅凭命令可启动视为生产支持
 python scripts/train.py rl --config configs/train/dpo_4b.yaml --algorithm dpo
-python scripts/train.py rl --config configs/train/ppo_4b.yaml --algorithm ppo
 python scripts/train.py rl --config configs/train/grpo_4b.yaml --algorithm grpo
+
+# 专项 OPD 配置
 python scripts/train.py opd --config /path/to/opd.yaml
 ```
+
+DPO/GRPO 尚无完整真实 Qwen release gate，且当前不得使用 FSDP+PEFT periodic checkpoint/exact resume。
+PPO 不作为普通训练入口展示：当前没有真实 reward-model 加载与可恢复训练合同，只保留显式 debug 路径。
+所有未完成项统一见 [`docs/TODO.md`](docs/TODO.md)。
 
 OPD 可组合 `hf_local / vllm` rollout 与 `hf_local / http` teacher。独立 teacher 服务入口：
 
@@ -223,6 +230,9 @@ callback 和模型/adapter、optimizer/scheduler、RNG 保存成功后，rank 0 
 DataLoader 预取推进的 live cursor；该状态作为 manifest extension 绑定 versioned batch contract、planner
 spec 与 duration/GA/optimizer/scheduler contract。
 `cost_cache_size` 只影响 host LRU，不阻止 exact resume。
+SFT 若只需要阶段权重，可设置 `train.save_only_model: true`：每个 `checkpoint-*` 仍是标准 HF/PEFT
+部署/初始化目录，但不包含 optimizer、scheduler、scaler、RNG 或分片后端训练态，也不能用于 resume。
+FSDP/ZeRO-3 的完整权重门禁及配置约束见 [`docs/config_reference.md`](docs/config_reference.md)。
 当前 planned batching 只开放 SFT + step duration，eval 保持普通 padded fixed batch。DDP 支持完整的已登记
 planned 组合；FSDP/DeepSpeed 只开放 `bounded_cost + fixed + none + padded`。Qwen3VL 与 HF `qwen3_5`
 dense/MoE（Qwen3.5/Qwen3.6）的 image SFT 已接通
@@ -304,10 +314,12 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - SFT/DPO 的 padded 路径支持单条样本内有序多图；multi-image varlen/sequence packing 仍 fail closed。
 - SFT prompt pool 支持 pool 级参数 schema 与 JSONL `prompt_args`；训练 planning 和实际读取共用受限
   `{{ name }}` / `{{ name | json }}` renderer，静态 pool 保持兼容。
-- `DPO`
-- `PPO`（受限能力，禁止 resume，`save_strategy` 必须为 `no`；最终导出不受影响）
-- `GRPO`（当前复用 `jsonl_sft` 作为 prompt-target 数据；数据计划可与 TRL grouped-generation sampler
-  通过无状态位置索引组合）
+- `DPO`（实验能力；配置、数据、collator 与 TRL 装配合同已接通，但真实 Qwen release gate 尚未完成；
+  FSDP+PEFT exact resume 当前不属于支持范围，即使通用配置预检未提前拒绝也不得使用）
+- `PPO`（仅 debug smoke；当前 text-only、没有真实 reward-model 加载，不支持 full finetune、periodic
+  checkpoint、best-checkpoint selection 或 resume）
+- `GRPO`（实验能力；复用 `jsonl_sft` 作为 prompt-target 数据并接入 grouped sampler；真实 Qwen release
+  gate 尚未完成，FSDP+PEFT exact resume 不受支持，vLLM sampled rollout 禁止 periodic save/resume）
 - `OPD`（prompt-only fully on-policy direct-loss distillation；支持 `hf_local / vllm` rollout、
   `hf_local / http` teacher、full/chunk/top-k-tail objective，以及 DDP/FSDP/DeepSpeed checkpoint/export；
   发布模型与规模边界见专项架构文档）
@@ -327,6 +339,8 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - stage timeout 使用贯穿重试、backoff 和后端 I/O 的同一个绝对 deadline；pipeline 也接受 cooperative
   cancellation。无法安全抢占的本地 HF generate 会在开始工作前明确拒绝 control，不会遗留后台推理。
   详细能力边界见 [docs/infer.md](docs/infer.md)。
+- 当前公共推理 API 是单样本、同步 stage 编排并要求至少一张图片；不提供原生 batch、streaming、async
+  queue 或 Shaft 自有在线服务层。
 
 ### 导出
 
@@ -363,11 +377,11 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - [docs/architecture.md](docs/architecture.md)
 - [docs/module_reference.md](docs/module_reference.md)
 - [docs/config_reference.md](docs/config_reference.md)
-- [docs/data_v5_7.md](docs/data_v5_7.md)
 - [docs/extension_guide.md](docs/extension_guide.md)
 - [docs/testing.md](docs/testing.md)
 - [docs/infer.md](docs/infer.md)
 - [docs/export.md](docs/export.md)
+- [docs/TODO.md](docs/TODO.md)
 
 ## 测试
 
@@ -400,9 +414,8 @@ uv run pytest -q -m manual
 ## 当前说明
 
 - 当前正式训练主链是 `qwen3vl`。Qwen3VL 30B-A3B 与 Qwen3.6-27B 已有短程真实权重证据，但不能外推为
-  dense 32B、35B MoE、full-parameter 容量或长程收敛矩阵；未完成项见
-  [docs/20260811_todo.md](docs/20260811_todo.md)。`smoke_vlm` 只用于测试。
+  dense 32B、35B MoE、full-parameter 容量或长程收敛矩阵；`smoke_vlm` 只用于测试。
 - 训练和保存遵循 HF / PEFT / TRL 标准能力。
 - 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
 - 独立离线 eval bench 已从主线切除；当前只维护训练内在线 eval 与共享 codec/metrics。
-- PPO 暂停项与恢复生产能力所需验收见 [docs/20260811_todo.md](docs/20260811_todo.md)。
+- 仓库所有未完成项和验收缺口只维护在 [docs/TODO.md](docs/TODO.md)。

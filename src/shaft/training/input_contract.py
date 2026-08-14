@@ -703,6 +703,7 @@ def validate_train_data_identity_checkpointability(
     train_dataset_type: type[Any],
     save_strategy: object,
     resume_requested: bool,
+    save_only_model: bool = False,
 ) -> None:
     """Fail before model loading when data identity cannot support exact resume."""
 
@@ -710,6 +711,8 @@ def validate_train_data_identity_checkpointability(
         raise TypeError("data_execution_contract_complete must be a boolean value.")
     if not isinstance(resume_requested, bool):
         raise TypeError("resume_requested must be a boolean value.")
+    if type(save_only_model) is not bool:
+        raise TypeError("save_only_model must be a boolean value.")
     if data_execution_contract_complete and incomplete_reasons:
         raise ValueError("A complete data execution contract cannot declare incomplete reasons.")
     _, dataset_incomplete_reasons = _component_semantic_identity(
@@ -726,7 +729,9 @@ def validate_train_data_identity_checkpointability(
     )
     complete_identity = data_execution_contract_complete and not dataset_incomplete_reasons
     normalized_strategy = _normalize_save_strategy(save_strategy)
-    exact_identity_required = resume_requested or normalized_strategy != "no"
+    exact_identity_required = resume_requested or (
+        normalized_strategy != "no" and not save_only_model
+    )
     if exact_identity_required and not complete_identity:
         action = "Exact resume" if resume_requested else "Checkpointing"
         raise ValueError(
@@ -741,9 +746,12 @@ def validate_train_input_checkpointability(
     contract: ShaftTrainInputContract,
     *,
     save_strategy: object,
+    save_only_model: bool = False,
 ) -> None:
+    if type(save_only_model) is not bool:
+        raise TypeError("save_only_model must be a boolean value.")
     normalized_strategy = _normalize_save_strategy(save_strategy)
-    if normalized_strategy != "no" and not contract.exact_resume_safe:
+    if normalized_strategy != "no" and not save_only_model and not contract.exact_resume_safe:
         raise ValueError(
             "Checkpointing requires a complete exact-resume training input "
             "contract, but identity is incomplete: "

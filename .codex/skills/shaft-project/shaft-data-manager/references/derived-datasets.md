@@ -46,7 +46,8 @@ and old arrow/point tasks are not part of the published v5.7 mix.
 4. Select all usable real line paths with `prepare_real_line_context_points.py`, then build the
    line-points task with the explicit real and v9 multi-branch selections.
 
-The exact commands, prompt mappings, and current audit baseline live in `docs/data_v5_7.md`.
+The exact commands, prompt mappings, and current audit baseline live in
+`scripts/tasks/banana_v5_7.md`.
 
 ## Grounding Contract
 

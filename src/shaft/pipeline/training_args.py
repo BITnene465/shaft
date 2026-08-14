@@ -277,6 +277,7 @@ def build_hf_training_args(
         save_strategy=str(train_cfg.save_strategy),
         save_steps=int(train_cfg.save_steps),
         save_total_limit=int(train_cfg.save_total_limit),
+        save_only_model=bool(train_cfg.save_only_model),
         load_best_model_at_end=bool(train_cfg.load_best_model_at_end),
         eval_strategy=eval_strategy,
         eval_steps=int(eval_cfg.eval_steps),

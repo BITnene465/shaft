@@ -30,8 +30,10 @@ from shaft.training.batch_planning import (
     checkpoint_has_batch_planning_state,
 )
 from shaft.training.checkpointing import (
+    MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME,
     ShaftCheckpointProtocol,
     resolve_resume_checkpoint,
+    validate_model_only_checkpoint,
     validate_training_checkpoint_commit,
 )
 from tests.support.configs import write_sft_smoke_config
@@ -1664,6 +1666,47 @@ def test_torchrun_checkpoint_rejects_rank_local_callback_before_collective(
     assert completed.returncode != 0
     assert "identical ordered on_save callback schedules" in output
     assert not list((tmp_path / "outputs").glob("unexpected_rank_local_collective_rank*.txt"))
+
+
+def test_torchrun_model_only_checkpoints_are_committed_without_resume_state(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    config_path = write_sft_smoke_config(
+        tmp_path,
+        distributed=True,
+        bounded_cost_grouping=True,
+        train_size=20,
+        val_size=1,
+        train_steps=2,
+        save_steps=1,
+        save_total_limit=2,
+    )
+    config_payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config_payload["train"]["save_only_model"] = True
+    config_path.write_text(
+        yaml.safe_dump(config_payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+    completed = _run_torchrun(repo_root, config_path)
+    _assert_torchrun_succeeded(completed)
+
+    run_dir = tmp_path / "outputs"
+    for step in (1, 2):
+        checkpoint = run_dir / f"checkpoint-{step}"
+        snapshot = validate_model_only_checkpoint(checkpoint)
+        assert snapshot["global_step"] == step
+        assert (checkpoint / MODEL_ONLY_CHECKPOINT_COMMIT_FILENAME).is_file()
+        assert not (checkpoint / "optimizer.pt").exists()
+        assert not (checkpoint / "scheduler.pt").exists()
+        assert not list(checkpoint.glob("rng_state*.pth"))
+    with pytest.raises(ValueError, match="No valid.*trainer checkpoint"):
+        resolve_resume_checkpoint(
+            run_dir,
+            protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
+            require_planning_state=True,
+        )
 
 
 def test_torchrun_neutral_hook_failure_isolated_before_peer_collectives(

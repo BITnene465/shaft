@@ -11,7 +11,11 @@ from .algorithm import (
 from .generation_backend import normalize_vllm_generation_backend
 from .data import SHAFT_BATCH_RESOURCE_NAMES
 from .runtime import RuntimeConfig
-from .training import resolve_deepspeed_zero_stage, resolve_eval_input_policy
+from .training import (
+    resolve_deepspeed_gather_model_on_save,
+    resolve_deepspeed_zero_stage,
+    resolve_eval_input_policy,
+)
 
 _SCHEDULE_MIXING_STRATEGIES = {"concat", "weighted"}
 _BATCH_GROUPINGS = {"none", "length", "bounded_cost"}
@@ -522,6 +526,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             "full_determinism",
             "ddp_find_unused_parameters",
             "load_best_model_at_end",
+            "save_only_model",
             "save_final_model",
             "save_final_state",
         ),
@@ -599,7 +604,27 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             "mutually exclusive: init starts a new schedule, while resume restores "
             "the previous training state."
         )
-    if not algorithm_profile.supports_checkpoint and train.save_strategy != "no":
+    if train.save_only_model and train.save_strategy == "no":
+        raise ValueError(
+            "train.save_only_model=true requires train.save_strategy to be 'steps' or 'epoch'."
+        )
+    if train.save_only_model and train.resume_from_checkpoint is not None:
+        raise ValueError(
+            "train.save_only_model=true cannot be combined with "
+            "train.resume_from_checkpoint because model-only snapshots do not contain "
+            "optimizer, scheduler, scaler, or RNG state. Use init_from_checkpoint instead."
+        )
+    if train.save_only_model and not algorithm_profile.supports_model_only_checkpoint:
+        raise ValueError(
+            "train.save_only_model model-only periodic checkpoints are currently "
+            "validated only for SFT; "
+            f"algorithm={algorithm_profile.name!r} is unsupported."
+        )
+    if (
+        not train.save_only_model
+        and not algorithm_profile.supports_checkpoint
+        and train.save_strategy != "no"
+    ):
         raise ValueError(
             f"Shaft {config.algorithm.name.upper()} does not publish resumable training checkpoints; "
             "set train.save_strategy='no'. Final model export remains available."
@@ -818,6 +843,16 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(
             f"Unsupported train.distributed.fsdp.state_dict_type={fsdp_cfg.state_dict_type!r}."
         )
+    if (
+        train.save_only_model
+        and train.distributed.strategy == "fsdp"
+        and fsdp_cfg.state_dict_type != "full_state_dict"
+    ):
+        raise ValueError(
+            "FSDP model-only checkpoints require "
+            "train.distributed.fsdp.state_dict_type='full_state_dict' so every "
+            "snapshot is a deployable/init-compatible HF artifact."
+        )
     fsdp_cfg.backward_prefetch = (
         str(fsdp_cfg.backward_prefetch).strip().lower()
         if fsdp_cfg.backward_prefetch is not None
@@ -847,6 +882,25 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(
             "train.distributed.strategy='deepspeed' requires either "
             "train.distributed.deepspeed.config_path or train.distributed.deepspeed.config."
+        )
+    if (
+        train.save_only_model
+        and train.distributed.strategy == "deepspeed"
+        and resolve_deepspeed_zero_stage(deepspeed_cfg) == 3
+        and not resolve_deepspeed_gather_model_on_save(deepspeed_cfg)
+    ):
+        raise ValueError(
+            "DeepSpeed ZeRO-3 model-only checkpoints require "
+            "zero_optimization.stage3_gather_16bit_weights_on_model_save=true."
+        )
+    if (
+        train.save_only_model
+        and train.load_best_model_at_end
+        and train.distributed.strategy in {"fsdp", "deepspeed"}
+    ):
+        raise ValueError(
+            "FSDP/DeepSpeed save_only_model is incompatible with "
+            "train.load_best_model_at_end=true."
         )
     if planned and train.distributed.strategy in {"fsdp", "deepspeed"}:
         if batching.grouping != "bounded_cost":
