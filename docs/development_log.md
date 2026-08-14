@@ -3015,6 +3015,7 @@
   fallback。
 - 新增 PEFT/FSDP wrapper 形式前必须先取得真实 runtime/saved key，并补 canonicalization 反例与幂等测试。
 - 任何显式 LR group 都必须在 canary summary 中非空；长训练启动前审计三项：group、LR、参数量。
+
 ## 2026-08-14：框架能力口径审计与唯一总 TODO 收口
 
 ### 现象
@@ -3147,8 +3148,8 @@
 - FSDP 只接受 `full_state_dict`；DeepSpeed ZeRO-3 只接受
   `stage3_gather_16bit_weights_on_model_save=true`；sharded backend 同时禁止
   `load_best_model_at_end=true`，确保每个发布目录本身就是完整 HF/PEFT artifact。
-- 两份 Banana v5.7 27B full ZeRO-3 配置改为每 4000 step 仅保存模型态、最多两份，并关闭 root final model/
-  state 重复保存，目标产物就是 `checkpoint-4000` 与 `checkpoint-8000`。
+- 两份 Banana v5.7 27B full ZeRO-3 配置改为每 2000 step 仅保存模型态、最多四份，并关闭 root final model/
+  state 重复保存，8000-step 训练保留 `checkpoint-2000/4000/6000/8000`。
 
 ### 回归测试
 

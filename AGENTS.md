@@ -388,6 +388,13 @@ python3 -m compileall src/shaft tests
 - 对需要外部服务或真实模型的能力，优先显式降级或 skip，不要静默失败。
 - 对 manual / integration 用例，skip 原因必须清晰。
 
+### 8.5 本地 subtask 边界
+
+- `subTasks/` 只保存本地或一次性任务，整体保持 Git 忽略，不属于 Shaft 正式维护入口。
+- `src/shaft`、正式测试、公开配置和 tracked 脚本不得依赖 `subTasks/` 中的实现或产物。
+- 需要长期复用的工具必须先迁入 `scripts/tasks/`，并补齐 tracked 输入合同、测试和最小文档入口。
+- 历史 builder 如需消费本地 subtask 产物，必须由 CLI 显式传入路径，不得恢复已删除目录的隐式默认值。
+
 ---
 
 ## 9. 功能完成后的全局收口

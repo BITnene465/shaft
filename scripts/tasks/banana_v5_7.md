@@ -45,17 +45,18 @@
 | --- | --- |
 | `banana_sft_4b_v5_7.yaml` | Qwen3-VL-4B full、DDP、token-budget bounded-cost |
 | `banana_sft_4b_v5_7_trial.yaml` | 4B vision-tower LR 对照实验 |
-| `banana_sft_27b_qwen36_v5_7_full_zero3.yaml` | Qwen3.6-27B full、DeepSpeed ZeRO-3；4000/8000 step 仅保存模型态 |
+| `banana_sft_27b_qwen36_v5_7_full_zero3.yaml` | Qwen3.6-27B full、DeepSpeed ZeRO-3；每 2000 step 仅保存模型态 |
 | `banana_sft_27b_qwen36_v5_7_lora.yaml` | Qwen3.6-27B LoRA、FSDP full-shard |
 | `banana_sft_27b_qwen36_v5_7_qlora.yaml` | Qwen3.6-27B QLoRA、DDP |
-| `banana_sft_27b_qwen36_v5_7_re_full_zero3.yaml` | 从既有 v5.7 checkpoint 初始化的新 schedule；4000/8000 step 仅保存模型态 |
+| `banana_sft_27b_qwen36_v5_7_re_full_zero3.yaml` | 从既有 v5.7 checkpoint 初始化的新 schedule；每 2000 step 仅保存模型态 |
 
 `*_re_*` 不是 exact resume；它要求配置中的 `init_from_checkpoint` 已存在。不存在该 checkpoint 时，基础
 v5.7 数据和配置仍完整，但这份派生运行配置不能直接启动。
 
-两份 27B full ZeRO-3 配置都启用 `train.save_only_model=true`、`save_total_limit=2`，并关闭 root
-`best`/final state 重复保存。产物固定为 `checkpoint-4000` 与 `checkpoint-8000` 的完整 HF 权重，可部署或
-作为后续 `init_from_checkpoint`；不包含 optimizer、scheduler、RNG 或 ZeRO state，不能 exact resume。
+两份 27B full ZeRO-3 配置都启用 `train.save_only_model=true`、`save_steps=2000`、
+`save_total_limit=4`，并关闭 root `best`/final state 重复保存。8000-step 训练会保留
+`checkpoint-2000/4000/6000/8000` 四份完整 HF 权重，可部署或作为后续 `init_from_checkpoint`；不包含
+optimizer、scheduler、RNG 或 ZeRO state，不能 exact resume。
 
 ## 3. 数据真源与转换链
 

@@ -355,6 +355,24 @@ train:
         )
 
 
+@pytest.mark.parametrize(
+    "filename",
+    (
+        "banana_sft_27b_qwen36_v5_7_full_zero3.yaml",
+        "banana_sft_27b_qwen36_v5_7_re_full_zero3.yaml",
+    ),
+)
+def test_27b_full_recipes_keep_four_model_only_snapshots(filename: str) -> None:
+    config = load_config(Path("configs/train") / filename)
+
+    assert config.train.save_strategy == "steps"
+    assert config.train.save_steps == 2000
+    assert config.train.save_total_limit == 4
+    assert config.train.save_only_model is True
+    assert config.train.save_final_model is False
+    assert config.train.save_final_state is False
+
+
 def test_eval_metric_switches_normalize_quoted_booleans(tmp_path: Path) -> None:
     config = load_config(
         write_config_yaml(
