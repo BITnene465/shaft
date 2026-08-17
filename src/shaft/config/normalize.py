@@ -12,6 +12,7 @@ from .generation_backend import normalize_vllm_generation_backend
 from .data import SHAFT_BATCH_RESOURCE_NAMES
 from .runtime import RuntimeConfig
 from .training import (
+    normalize_max_shard_size,
     resolve_deepspeed_gather_model_on_save,
     resolve_deepspeed_zero_stage,
     resolve_eval_input_policy,
@@ -585,6 +586,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         train.save_strategy = str(train.save_strategy).strip().lower()
     if train.save_strategy not in {"no", "steps", "epoch"}:
         raise ValueError(f"Unsupported train.save_strategy={train.save_strategy!r}.")
+    train.max_shard_size = normalize_max_shard_size(train.max_shard_size)
     train.init_from_checkpoint = (
         str(train.init_from_checkpoint).strip() or None
         if train.init_from_checkpoint is not None

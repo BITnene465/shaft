@@ -85,6 +85,7 @@ class GRPOAlgorithm:
             "model": model,
             "reward_funcs": reward_funcs,
             "args": grpo_args,
+            "shaft_max_shard_size": train_config.max_shard_size,
             "processing_class": kwargs.pop("processing_class"),
             "optimizer_name": train_config.optimizer_name,
             "scheduler_name": train_config.scheduler_name,

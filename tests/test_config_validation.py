@@ -188,6 +188,80 @@ train:
     assert config.train.save_only_model is True
 
 
+def test_max_shard_size_defaults_to_4gb_and_normalizes_hf_units(tmp_path: Path) -> None:
+    default_config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+""",
+        )
+    )
+    configured = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  max_shard_size: " 2.5 gb "
+""",
+        )
+    )
+    configured_bytes = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  max_shard_size: 4096
+""",
+        )
+    )
+
+    assert default_config.train.max_shard_size == "4GB"
+    assert configured.train.max_shard_size == "2.5GB"
+    assert configured_bytes.train.max_shard_size == 4096
+
+
+@pytest.mark.parametrize("max_shard_size", ("0GB", "4GiB", "large", 0, -1, True))
+def test_max_shard_size_rejects_non_positive_or_non_hf_values(
+    tmp_path: Path,
+    max_shard_size: object,
+) -> None:
+    rendered = (
+        repr(max_shard_size)
+        if isinstance(max_shard_size, str)
+        else str(max_shard_size).lower()
+    )
+    with pytest.raises((TypeError, ValueError), match="max_shard_size"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                f"""
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  max_shard_size: {rendered}
+""",
+            )
+        )
+
+
 def test_save_only_model_rejects_exact_resume(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="save_only_model.*resume_from_checkpoint"):
         load_config(
@@ -369,6 +443,7 @@ def test_27b_full_recipes_keep_four_model_only_snapshots(filename: str) -> None:
     assert config.train.save_steps == 2000
     assert config.train.save_total_limit == 4
     assert config.train.save_only_model is True
+    assert config.train.max_shard_size == "4GB"
     assert config.train.save_final_model is False
     assert config.train.save_final_state is False
 

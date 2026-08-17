@@ -52,6 +52,7 @@ def test_sft_pipeline_initializes_deepspeed_before_model_loading(tmp_path: Path)
     config.data.media_snapshot_id = "pipeline-distributed-contract-v1"
     config.train.distributed.strategy = "deepspeed"
     config.train.distributed.deepspeed.config = _deepspeed_config()
+    config.train.max_shard_size = "2GB"
 
     def _fake_build_model(
         runtime_config,
@@ -75,6 +76,7 @@ def test_sft_pipeline_initializes_deepspeed_before_model_loading(tmp_path: Path)
 
     assert "train_loss" in metrics
     assert FakePipelineTrainer.last_kwargs["args"].deepspeed == config.train.distributed.deepspeed.config
+    assert FakePipelineTrainer.last_kwargs["shaft_max_shard_size"] == "2GB"
     assert (
         FakePipelineTrainer.last_kwargs["shaft_checkpoint_protocol"]
         is ShaftCheckpointProtocol.BACKEND_NATIVE
@@ -86,6 +88,7 @@ def test_rlhf_pipeline_initializes_deepspeed_before_model_loading(tmp_path: Path
     config.data.media_snapshot_id = "pipeline-distributed-contract-v1"
     config.train.distributed.strategy = "deepspeed"
     config.train.distributed.deepspeed.config = _deepspeed_config()
+    config.train.max_shard_size = "2GB"
 
     def _fake_build_model(
         runtime_config,
@@ -109,6 +112,7 @@ def test_rlhf_pipeline_initializes_deepspeed_before_model_loading(tmp_path: Path
 
     assert "train_loss" in metrics
     assert FakePipelineTrainer.last_kwargs["args"].deepspeed == config.train.distributed.deepspeed.config
+    assert FakePipelineTrainer.last_kwargs["shaft_max_shard_size"] == "2GB"
     assert (
         FakePipelineTrainer.last_kwargs["shaft_checkpoint_protocol"]
         is ShaftCheckpointProtocol.BACKEND_NATIVE

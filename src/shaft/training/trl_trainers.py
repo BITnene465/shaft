@@ -8,7 +8,7 @@ from shaft.config.training import EvalConfig
 from shaft.data.mixing import ShaftSamplePlan
 from shaft.data.sampler import ShaftGroupedSampleContract, ShaftGroupedSampleSampler
 
-from .checkpointing import ShaftCheckpointCommitMixin
+from .checkpointing import ShaftCheckpointCommitMixin, ShaftModelSaveMixin
 from .distributed import barrier_if_distributed
 from .eval_dataloader import ShaftEvalDataLoaderMixin
 from .eval_policy import aggregate_weighted_dataset_values
@@ -83,7 +83,7 @@ class ShaftDPOTrainer(
         return metrics
 
 
-class ShaftPPOTrainer(ShaftOptimizerMixin, _TRLPPOTrainer):
+class ShaftPPOTrainer(ShaftModelSaveMixin, ShaftOptimizerMixin, _TRLPPOTrainer):
     """TRL PPOTrainer wrapper with Shaft naming."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:

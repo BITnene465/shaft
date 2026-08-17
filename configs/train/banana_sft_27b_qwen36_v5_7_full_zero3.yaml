@@ -106,6 +106,7 @@ train:
   save_steps: 2000
   save_total_limit: 4
   save_only_model: true
+  max_shard_size: 4GB
   load_best_model_at_end: false
   save_final_model: false
   save_final_state: false

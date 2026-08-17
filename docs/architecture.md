@@ -310,6 +310,9 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   `shaft_model_only_checkpoint.json` 提交 marker，可用于部署或 `init_from_checkpoint`，不能用于
   `resume_from_checkpoint`。FSDP 必须生成 full state dict，ZeRO-3 必须在保存时 gather 完整权重；无法证明
   可加载性的组合在模型加载前 fail closed。
+- full HF 权重的分片上限只由 `train.max_shard_size` 提供，默认 `4GB`。训练配置层负责格式规范化与正值校验，
+  `ShaftModelSaveMixin` 在 Trainer 的标准 `save_model -> save_pretrained` 路径注入该值；periodic checkpoint、
+  final `best`、单卡和分布式 full-state 保存不各自推导第二份分片策略。PEFT adapter 保持原生格式。
 - checkpoint storage protocol 由 distributed strategy 显式路由。SFT、DPO、GRPO 的 DDP/native-HF 路径
   使用 `committed_manifest`：`ShaftCheckpointCommitMixin` 在覆盖同名 checkpoint 前撤销旧
   `shaft_checkpoint_commit.json` 并暂缓 HF rotation；模型/adapter、Trainer、optimizer、scheduler 与 RNG

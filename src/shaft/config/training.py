@@ -1,10 +1,51 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 import json
 from pathlib import Path
+import re
 from typing import Any
+
+
+DEFAULT_MAX_SHARD_SIZE = "4GB"
+_MAX_SHARD_SIZE_PATTERN = re.compile(
+    r"^(?P<amount>(?:\d+(?:\.\d*)?|\.\d+))\s*(?P<unit>KB|MB|GB|TB)$",
+    flags=re.IGNORECASE,
+)
+_MAX_SHARD_SIZE_MULTIPLIERS = {
+    "KB": 10**3,
+    "MB": 10**6,
+    "GB": 10**9,
+    "TB": 10**12,
+}
+
+
+def normalize_max_shard_size(value: object) -> str | int:
+    """Normalize the HF ``save_pretrained`` shard-size contract."""
+
+    if type(value) is int:
+        if value <= 0:
+            raise ValueError("train.max_shard_size must be > 0 bytes.")
+        return value
+    if not isinstance(value, str):
+        raise TypeError(
+            "train.max_shard_size must be a positive byte count or an HF size string "
+            "using KB, MB, GB, or TB."
+        )
+    match = _MAX_SHARD_SIZE_PATTERN.fullmatch(value.strip())
+    if match is None:
+        raise ValueError(
+            "train.max_shard_size must use the HF size format with one of "
+            "KB, MB, GB, or TB, for example '4GB'."
+        )
+    amount = Decimal(match.group("amount"))
+    unit = match.group("unit").upper()
+    if int(amount * _MAX_SHARD_SIZE_MULTIPLIERS[unit]) <= 0:
+        raise ValueError("train.max_shard_size must resolve to at least one byte.")
+    normalized_amount = format(amount.normalize(), "f")
+    return f"{normalized_amount}{unit}"
 
 
 @dataclass
@@ -128,6 +169,7 @@ class TrainConfig:
     save_steps: int = 200
     save_total_limit: int = 3
     save_only_model: bool = False
+    max_shard_size: str | int = DEFAULT_MAX_SHARD_SIZE
     ddp_find_unused_parameters: bool = False
     report_to: list[str] = field(default_factory=lambda: ["none"])
     load_best_model_at_end: bool = True

@@ -37,6 +37,7 @@ class SFTAlgorithm:
             auxiliary_loss_weights,
         )
         trainer_kwargs = {
+            "shaft_max_shard_size": train_config.max_shard_size,
             "loss_name": train_config.loss_name,
             "optimizer_name": train_config.optimizer_name,
             "scheduler_name": train_config.scheduler_name,

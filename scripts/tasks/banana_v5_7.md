@@ -54,9 +54,10 @@
 v5.7 数据和配置仍完整，但这份派生运行配置不能直接启动。
 
 两份 27B full ZeRO-3 配置都启用 `train.save_only_model=true`、`save_steps=2000`、
-`save_total_limit=4`，并关闭 root `best`/final state 重复保存。8000-step 训练会保留
+`save_total_limit=4`、`max_shard_size=4GB`，并关闭 root `best`/final state 重复保存。8000-step 训练会保留
 `checkpoint-2000/4000/6000/8000` 四份完整 HF 权重，可部署或作为后续 `init_from_checkpoint`；不包含
-optimizer、scheduler、RNG 或 ZeRO state，不能 exact resume。
+optimizer、scheduler、RNG 或 ZeRO state，不能 exact resume。新 checkpoint 会按约 4GB 上限重新分片；
+分片数量由实际 state dict 顺序和单 tensor 大小决定，不要求复刻基础模型原来的 shard 边界。
 
 ## 3. 数据真源与转换链
 

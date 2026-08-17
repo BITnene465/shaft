@@ -519,6 +519,7 @@ def test_model_only_periodic_checkpoint_is_deployable_init_only_snapshot(
     model = _TinyCheckpointModel(_TinyCheckpointConfig())
     trainer = ShaftSFTTrainer(
         model=model,
+        shaft_max_shard_size="1KB",
         args=build_training_args(
             output_dir=tmp_path,
             max_steps=1,
@@ -549,6 +550,9 @@ def test_model_only_periodic_checkpoint_is_deployable_init_only_snapshot(
     assert not (checkpoint / "scaler.pt").exists()
     assert not list(checkpoint.glob("rng_state*.pth"))
     assert not list(checkpoint.glob("global_step*"))
+    assert (checkpoint / "model.safetensors.index.json").is_file()
+    assert len(list(checkpoint.glob("model-*-of-*.safetensors"))) > 1
+    assert "save_pretrained" not in model.__dict__
     ensure_hf_export_layout(checkpoint, finetune_mode="full")
     restored = _TinyCheckpointModel.from_pretrained(checkpoint)
     for name, value in model.state_dict().items():

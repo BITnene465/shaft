@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import wraps
 import hashlib
 import json
 import os
@@ -12,8 +14,10 @@ from typing import Any
 import uuid
 
 import transformers.trainer as hf_trainer_module
+from transformers import PreTrainedModel
 
 from shaft.config import RuntimeConfig
+from shaft.config.training import DEFAULT_MAX_SHARD_SIZE, normalize_max_shard_size
 from shaft.model import (
     ModelMeta,
     ResolvedAdapterInit,
@@ -1321,7 +1325,65 @@ def _checkpoint_error_fields(error: Exception | None) -> tuple[str | None, str |
     return type(error).__name__, message
 
 
-class ShaftCheckpointCommitMixin:
+class ShaftModelSaveMixin:
+    """Apply Shaft's HF model serialization policy to every Trainer family."""
+
+    def __init__(
+        self,
+        *args: Any,
+        shaft_max_shard_size: str | int = DEFAULT_MAX_SHARD_SIZE,
+        **kwargs: Any,
+    ) -> None:
+        self._shaft_max_shard_size = normalize_max_shard_size(shaft_max_shard_size)
+        super().__init__(*args, **kwargs)
+
+    def _shaft_full_hf_save_target(self) -> PreTrainedModel | None:
+        model = getattr(self, "model", None)
+        if isinstance(model, PreTrainedModel):
+            return model
+        accelerator = getattr(self, "accelerator", None)
+        unwrap_model = getattr(accelerator, "unwrap_model", None)
+        if not callable(unwrap_model) or model is None:
+            return None
+        try:
+            unwrapped = unwrap_model(model, keep_torch_compile=False)
+        except TypeError:
+            unwrapped = unwrap_model(model)
+        return unwrapped if isinstance(unwrapped, PreTrainedModel) else None
+
+    @contextmanager
+    def _configured_hf_model_save(self):
+        target = self._shaft_full_hf_save_target()
+        if target is None:
+            yield
+            return
+
+        missing = object()
+        previous = target.__dict__.get("save_pretrained", missing)
+        save_pretrained = target.save_pretrained
+
+        @wraps(save_pretrained)
+        def configured_save_pretrained(*args: Any, **kwargs: Any):
+            kwargs["max_shard_size"] = self._shaft_max_shard_size
+            return save_pretrained(*args, **kwargs)
+
+        target.__dict__["save_pretrained"] = configured_save_pretrained
+        try:
+            yield
+        finally:
+            if previous is missing:
+                target.__dict__.pop("save_pretrained", None)
+            else:
+                target.__dict__["save_pretrained"] = previous
+
+    def save_model(self, output_dir: str | None = None, _internal_call: bool = False) -> None:
+        """Save full HF weights with the configured shard size."""
+
+        with export_model_cache(self.model), self._configured_hf_model_save():
+            super().save_model(output_dir=output_dir, _internal_call=_internal_call)
+
+
+class ShaftCheckpointCommitMixin(ShaftModelSaveMixin):
     """Give HF/TRL trainers one distributed checkpoint commit protocol."""
 
     def __init__(
@@ -1379,12 +1441,6 @@ class ShaftCheckpointCommitMixin:
 
     def _uses_model_only_checkpoint(self) -> bool:
         return bool(getattr(getattr(self, "args", None), "save_only_model", False))
-
-    def save_model(self, output_dir: str | None = None, _internal_call: bool = False) -> None:
-        """Serialize deployment cache defaults for every checkpoint-capable trainer."""
-
-        with export_model_cache(self.model):
-            super().save_model(output_dir=output_dir, _internal_call=_internal_call)
 
     def _uses_shaft_checkpoint_publication(self) -> bool:
         return bool(

@@ -64,6 +64,7 @@ RuntimeConfig
 │   ├── adam_beta1 / adam_beta2 / adam_epsilon
 │   ├── bf16 / fp16 / gradient_checkpointing / full_determinism
 │   ├── save_strategy / save_steps / save_epoch_interval / save_total_limit / save_only_model
+│   ├── max_shard_size
 │   ├── load_best_model_at_end / save_final_model / save_final_state
 │   ├── init_from_checkpoint / resume_from_checkpoint
 │   ├── efficiency
@@ -1065,6 +1066,7 @@ algorithm.name
 - `save_steps`
 - `save_total_limit`
 - `save_only_model`
+- `max_shard_size`
 - `ddp_find_unused_parameters`
 - `report_to`
 - `load_best_model_at_end`
@@ -1088,6 +1090,7 @@ algorithm.name
 | `train.gradient_checkpointing` | 模型侧 gradient checkpointing | FSDP 且 `distributed.fsdp.activation_checkpointing=true` 时，Shaft 关闭 Trainer 模型侧开关，由 FSDP activation wrapper 单独负责，避免双重 checkpointing |
 | `train.scheduler_name` | Shaft 自定义 scheduler 的执行真源 | 默认 `auto` 时从兼容字段 `lr_scheduler_type` 解析；显式设置后以 `scheduler_name` 为准 |
 | `train.save_only_model` | periodic `checkpoint-*` 的内容语义 | `false` 保存可 exact-resume 的完整训练态；`true` 只发布标准 HF/PEFT 模型态，允许部署或 `init_from_checkpoint`，禁止 resume |
+| `train.max_shard_size` | full HF 权重文件的分片上限 | 默认 `4GB`；接受正整数 byte，或 HF 支持的 `KB / MB / GB / TB` 字符串；不改变 checkpoint 的训练态语义 |
 | `train.init_from_checkpoint` | 只加载权重/adapter，启动一个新 schedule | `resume_from_checkpoint` 恢复 Trainer、optimizer、scheduler、RNG 与可恢复的数据计划状态；两种语义应二选一 |
 
 推荐在新 YAML 中显式写 `scheduler_name`。`lr_scheduler_type` 目前仍会传入 HF
@@ -1110,6 +1113,9 @@ scheduler，使用 init。
 
 保存与恢复边界：
 
+- `max_shard_size=4GB` 是 full HF 模型权重的默认分片上限，适用于 periodic checkpoint 与 `<output_dir>/best`
+  的 Trainer 保存路径。单个 tensor 本身超过上限时，HF 会把它单独放入一个更大的 shard；该字段控制新产物
+  的分片大小，不承诺复刻输入模型原有的 shard 数量或边界。PEFT adapter 继续使用 PEFT 原生保存格式。
 - `save_only_model=false` 是默认值：periodic `checkpoint-*` 保留模型、optimizer、scheduler、scaler（若有）、
   每 rank RNG、Trainer state 与 Shaft 可恢复 callback state，用于 exact resume。
 - `save_only_model=true` 只对 SFT 开放。periodic `checkpoint-*` 仍是可由 HF/PEFT 直接加载的标准模型目录，

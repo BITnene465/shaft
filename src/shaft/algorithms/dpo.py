@@ -66,6 +66,7 @@ class DPOAlgorithm:
             "model": model,
             "ref_model": ref_model,
             "args": dpo_args,
+            "shaft_max_shard_size": train_config.max_shard_size,
             "optimizer_name": train_config.optimizer_name,
             "scheduler_name": train_config.scheduler_name,
             "scheduler_num_cycles": train_config.scheduler_num_cycles,

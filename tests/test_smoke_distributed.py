@@ -1684,6 +1684,7 @@ def test_torchrun_model_only_checkpoints_are_committed_without_resume_state(
     )
     config_payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     config_payload["train"]["save_only_model"] = True
+    config_payload["train"]["max_shard_size"] = "1KB"
     config_path.write_text(
         yaml.safe_dump(config_payload, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
@@ -1701,6 +1702,8 @@ def test_torchrun_model_only_checkpoints_are_committed_without_resume_state(
         assert not (checkpoint / "optimizer.pt").exists()
         assert not (checkpoint / "scheduler.pt").exists()
         assert not list(checkpoint.glob("rng_state*.pth"))
+        assert (checkpoint / "model.safetensors.index.json").is_file()
+        assert len(list(checkpoint.glob("model-*-of-*.safetensors"))) > 1
     with pytest.raises(ValueError, match="No valid.*trainer checkpoint"):
         resolve_resume_checkpoint(
             run_dir,

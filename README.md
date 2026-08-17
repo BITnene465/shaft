@@ -232,6 +232,7 @@ spec 与 duration/GA/optimizer/scheduler contract。
 `cost_cache_size` 只影响 host LRU，不阻止 exact resume。
 SFT 若只需要阶段权重，可设置 `train.save_only_model: true`：每个 `checkpoint-*` 仍是标准 HF/PEFT
 部署/初始化目录，但不包含 optimizer、scheduler、scaler、RNG 或分片后端训练态，也不能用于 resume。
+full HF 权重默认按 `train.max_shard_size: 4GB` 分片，可按训练盘与下游加载环境调整。
 FSDP/ZeRO-3 的完整权重门禁及配置约束见 [`docs/config_reference.md`](docs/config_reference.md)。
 当前 planned batching 只开放 SFT + step duration，eval 保持普通 padded fixed batch。DDP 支持完整的已登记
 planned 组合；FSDP/DeepSpeed 只开放 `bounded_cost + fixed + none + padded`。Qwen3VL 与 HF `qwen3_5`

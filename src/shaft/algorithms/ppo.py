@@ -87,6 +87,7 @@ class PPOAlgorithm:
             "args": ppo_args,
             "processing_class": kwargs.pop("processing_class"),
             "model": model,
+            "shaft_max_shard_size": train_config.max_shard_size,
             "ref_model": ref_model,
             "reward_model": reward_model,
             "value_model": value_model,

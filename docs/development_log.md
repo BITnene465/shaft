@@ -3172,3 +3172,52 @@
 - 新分片 backend 必须证明保存时能聚合完整标准模型 artifact，并保证目标目录不存在 native optimizer state，
   否则配置层保持 fail closed。
 - model-only marker 是发布完成证明，不是自定义权重格式；模型目录始终保持 HF/PEFT 标准布局。
+
+## 2026-08-17：27B checkpoint 沿用 Transformers 50GB 默认分片
+
+### 现象
+
+- Qwen3.6-27B 原始模型目录有十多片权重，但训练生成的 `checkpoint-2000/4000/6000` 各只有两片：第一片接近
+  50GB，第二片约 4.9GB。
+- checkpoint 可以由 HF 正常加载，但超大单文件不利于训练盘搬运、对象存储上传和部署侧并行读取。
+
+### 根因
+
+- Transformers 5.10 的 `PreTrainedModel.save_pretrained` 默认 `max_shard_size="50GB"`；`Trainer._save()` 调用
+  该接口时没有传入分片上限，`TrainingArguments` 也没有同名字段。
+- 训练后的 state dict 比基础 artifact 少 15 个 `mtp.*` tensor，这是当前 Qwen3.6 full SFT 明确拒绝训练 MTP
+  speculative head 的既有策略；其余 key 与 index/实际 safetensors header 一致。两片不是权重丢失或保存
+  不完整，而是保存端采用了更大的默认 shard 上限。
+
+### 影响范围
+
+- 问题影响所有通过 Trainer 保存的 full HF 权重，包括 periodic checkpoint 与 final `best`；模型权重数值和
+  可加载性不受 shard 数量本身影响。
+- PEFT adapter 继续由 PEFT 保存，训练态是否保留仍只由 `save_only_model` 决定；本问题不是模型能力、data、
+  eval、codec 或 metric 误判。
+
+### 修复方式
+
+- 新增唯一配置真源 `train.max_shard_size`，默认 `4GB`；接受正整数 byte 或 HF 的
+  `KB / MB / GB / TB` 字符串，并在配置阶段规范化、拒绝非法值。
+- 共享 `ShaftModelSaveMixin` 在 HF 的标准 `save_model -> save_pretrained` 调用期间注入上限，不复制
+  Transformers `_save()`；SFT、DPO、PPO、GRPO 与 OPD 的 Trainer 保存共用该入口。
+- 两份 27B full ZeRO-3 recipe 显式写入 `max_shard_size: 4GB`。单个 tensor 超过上限时仍遵循 HF 规则独占
+  一个较大 shard，不承诺保持基础模型的原始分片数量。
+
+### 回归测试
+
+- 配置回归覆盖默认值、大小写/空白规范化、byte 整数和非法/非正输入。
+- 真实 tiny `PreTrainedModel` 执行一步 model-only periodic save，在 `1KB` 上限下生成 index 与多个
+  safetensors shard，并由 `from_pretrained` 完整重载。
+- SFT 与 DPO 的 DeepSpeed pipeline 装配测试验证规范化值进入共享 Trainer 保存层。
+- 两进程 CPU DDP/torchrun 连续发布两份 model-only checkpoint；两份都按 `1KB` 测试上限生成多 shard、
+  通过 commit validator，且 run-root resolver 不会把它们当作 resume 点。
+- `pytest -q tests --suite framework`、`--suite smoke` 与 `--suite distributed` 全部通过；distributed 的 3 个
+  skip 是既有可选环境门禁。focused 回归、ruff、compileall 与 `git diff --check` 同步通过。
+
+### 后续防线
+
+- 新 Trainer family 必须复用 `ShaftModelSaveMixin`，不得另写一套 HF `_save()` 或默默回退 50GB 默认值。
+- checkpoint 验收同时检查 HF layout/index 可加载性与训练态策略；不能用 shard 数量单独判断权重是否完整。
+- 27B 长训练前先做目标后端保存 canary，核对 shard 上限、总 tensor bytes、index/header key 和部署加载。

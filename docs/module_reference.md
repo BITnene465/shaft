@@ -688,6 +688,9 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
   把该确定性累计状态纳入严格比较。
 
 - checkpoint 与 run metadata 分层：
+  - `ShaftModelSaveMixin` 是所有 Trainer family 的 full HF 权重分片策略入口，把规范化后的
+    `train.max_shard_size` 注入 HF `save_pretrained`；默认 `4GB`，periodic checkpoint 与 `best` 共用同一口径，
+    PEFT adapter 不改写为自定义格式
   - `checkpoint-*` 有两种互斥语义。默认是训练状态 generation：DDP/native-HF 只有通过 manifest validator
     的目录才是 Shaft exact-resume 点，FSDP/DeepSpeed 的可恢复性由 backend-native contract 决定。
     `train.save_only_model=true` 时则是标准 HF/PEFT 模型态 generation，只允许部署或
