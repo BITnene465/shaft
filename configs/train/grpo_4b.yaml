@@ -22,6 +22,7 @@ algorithm:
   name: grpo
 
 data:
+  media_snapshot_id: example-media-v1
   batching:
     grouping: none
     cardinality: fixed

@@ -334,7 +334,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weak-job-dir",
         type=Path,
-        default=Path("subTasks/drawio_shape_weak/jobs/drawio_shape_weak_v2_qwen36_27b_train30000"),
+        required=True,
+        help="Directory containing weak_labels.json and optional job_manifest.json.",
     )
     parser.add_argument("--output-root", type=Path, default=Path("data/drawio_shape"))
     parser.add_argument(

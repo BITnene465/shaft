@@ -174,6 +174,19 @@ workload 一致，只允许 batch/sequence contract 作为实验轴变化。`--a
 任务脚本不得承载训练循环；其数据版本、构建命令、业务字段和完整性基线应与脚本放在一起维护，不进入
 框架模块参考。具体任务说明由对应 task 目录内的 README 维护。
 
+历史 weak-label 构建器 `build_drawio_shape_from_weak_labels.py` 只消费调用方显式指定的本地 job，不为
+ignored `subTasks/` 路径提供默认值：
+
+```bash
+python scripts/tasks/build_drawio_shape_from_weak_labels.py \
+  --weak-job-dir /path/to/weak-label-job \
+  --output-root /path/to/output \
+  --clean
+```
+
+`--weak-job-dir` 必须包含 `weak_labels.json`，可选 `job_manifest.json` 用于记录来源 job id。输入与 prompt
+会在 `--clean` 删除旧输出之前检查；本地 subtask 目录及其临时测试不进入 Git。
+
 
 ## 4. 维护规则
 

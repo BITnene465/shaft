@@ -30,6 +30,14 @@ V5_7_CONFIGS = (
 )
 
 
+@pytest.mark.parametrize("filename", ("sft_4b.yaml", "dpo_4b.yaml", "grpo_4b.yaml"))
+def test_checkpoint_enabled_example_configs_declare_media_snapshot(filename: str) -> None:
+    config = load_config(Path("configs/train") / filename)
+
+    assert config.train.save_strategy != "no"
+    assert config.data.media_snapshot_id == "example-media-v1"
+
+
 @pytest.mark.parametrize("filename", V5_7_CONFIGS)
 def test_v5_7_training_configs_resolve_complete_dataset_and_prompt_contracts(
     filename: str,

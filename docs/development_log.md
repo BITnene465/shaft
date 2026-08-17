@@ -3221,3 +3221,53 @@
 - 新 Trainer family 必须复用 `ShaftModelSaveMixin`，不得另写一套 HF `_save()` 或默默回退 50GB 默认值。
 - checkpoint 验收同时检查 HF layout/index 可加载性与训练态策略；不能用 shard 数量单独判断权重是否完整。
 - 27B 长训练前先做目标后端保存 canary，核对 shard 上限、总 tensor bytes、index/header key 和部署加载。
+
+## 2026-08-17：示例 checkpoint 数据身份与历史 weak-label builder 仍依赖本地状态
+
+### 现象
+
+- `sft_4b.yaml`、`dpo_4b.yaml`、`grpo_4b.yaml` 都开启 periodic checkpoint，却没有声明
+  `data.media_snapshot_id`；配置文件本身可加载，但训练主链建立 exact-resume input contract 时会因媒体身份
+  不完整而拒绝。
+- tracked `build_drawio_shape_from_weak_labels.py` 默认读取 ignored `subTasks/drawio_shape_weak/...` 路径；clean
+  checkout 不包含该目录，不同开发机还可能静默消费不同本地 job。
+- 一个未跟踪测试直接导入 `subTasks/prediction_results_sync`，并被临时登记进正式 task suite；这会让 clean
+  checkout 的 suite 声明指向不存在的测试，或让本地测试结果依赖 ignored 实现。
+
+### 根因
+
+- README 与配置参考已经把 `media_snapshot_id` 写进示例，但三份可运行 YAML 没有同步，配置加载测试也只验证
+  schema，没有锁住 checkpoint-enabled recipe 的完整数据身份。
+- 历史 builder 从一次性 subtask 迁入 `scripts/tasks/` 后保留了原机器的默认输入路径，没有把本地 job 提升为
+  显式 CLI 合同。
+- 临时同步任务的测试边界没有遵守“正式测试不得依赖 `subTasks/`”的仓库规则。
+
+### 影响范围
+
+- 三份公开 4B 示例在真正启动 checkpoint-enabled 训练时可能晚于配置加载才失败；已有显式媒体快照的正式
+  Banana recipes 不受影响。
+- weak-label builder 的隐式路径影响离线派生数据可复现性，不修改 raw truth；未跟踪 prediction sync 测试不属于
+  Shaft 正式能力，也不影响 eval、codec 或 metric 结论。
+
+### 修复方式
+
+- 三份 4B 示例统一声明 `media_snapshot_id: example-media-v1`，与 README/配置参考口径一致；配置回归同时要求
+  recipe 开启 checkpoint 且媒体快照非空。
+- `build_drawio_shape_from_weak_labels.py` 将 `--weak-job-dir` 改为必填参数，帮助文本明确输入文件；缺输入时在
+  创建或清理输出目录之前失败。
+- 删除依赖 ignored subtask 的未跟踪 prediction sync 测试及其 suite 登记；为 tracked weak-label builder 增加
+  只依赖仓库脚本的 task 测试和最小文档入口。
+
+### 回归测试
+
+- 配置 focused 回归加载三份公开 YAML，并验证 checkpoint 与 immutable media snapshot 合同。
+- task focused 回归验证缺少 `--weak-job-dir` 时 argparse 失败，指定空 job 且带 `--clean` 时旧输出保持不变。
+- 提交前运行 task 与 framework suite，并执行 ruff、compileall 和 `git diff --check`；训练保存主链的 smoke 与
+  distributed suite 已由紧邻的 checkpoint 分片提交完整覆盖，本轮未修改该运行时代码。
+
+### 后续防线
+
+- 新增或修改公开 checkpoint-enabled recipe 时，测试必须同时锁住完整训练数据身份，不能只证明 YAML 可解析。
+- tracked task 脚本不得把 ignored/local 目录写成默认输入；本地 job 必须通过 CLI 显式注入，并在 destructive
+  clean 前完成输入预检。
+- 正式测试只能依赖 tracked 代码和 fixture；一次性 subtask 的测试与实现保持在 subtask 内，不登记仓库 suite。
