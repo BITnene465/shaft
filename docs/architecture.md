@@ -153,6 +153,8 @@ sequenceDiagram
     exact-resume capability，trainer 只消费统一 runtime contract。
   - template prompt-plan 负责严格前缀截断；model policy 负责 rollout sequence fields 与可选 tail-logits
     forward contract；trainer 负责 optimizer-window 全局 token normalization。
+  - 独立 OPD input ABI 绑定完整 token ID、special ID、输出 vocab、processor/input schema，并验证 teacher
+    `forward` 能消费 student 生成的 scoring tensor；model alias 与原始 chat template 不属于这条兼容身份。
   - objective registry 持有 full-vocab/chunk/top-k-tail 语义；OPD telemetry 独立记录 rollout、score、
     objective、optimizer 与 CUDA event，不复用 SFT supervised-token schema。
   - DDP/FSDP/DeepSpeed 复用 HF/Accelerate checkpoint/export；不导入 TRL experimental OPD/GKD trainer，
@@ -447,9 +449,12 @@ ShaftOPDPipeline
 - `OPDTeacherScoreRequest` 只携带 forward tensor、completion mask 和稳定请求身份。provider 统一返回
   `OPDTeacherDistribution`：要么是 dense logits，要么是 top-k token/log-prob 与精确 tail mass。trainer
   不读取 HTTP、HF output 或 vLLM 私有类型。
-- `http` teacher 通过 `/v1/identity` 证明 protocol、model/tokenizer/processor-policy/artifact 身份，通过
-  `/v1/score` 交换有界 safetensors body。密钥只从环境变量读取；训练配置必须绑定不可变 artifact
-  fingerprint。独立服务入口是 `scripts/serve_opd_teacher.py`。
+- `http` teacher 通过 `/v1/identity` 发布 protocol、不可变 artifact fingerprint 与
+  `ShaftOPDInputABI`，通过 `/v1/score` 交换有界 safetensors body。local/HTTP 共用同一 ABI validator 与
+  resume fingerprint：完整 token→ID、special token ID、实际 logits vocabulary 和 processor/input schema
+  必须相等，teacher `forward` 必须接收 student 可能产生的全部字段。产品 alias 或 raw chat template 不参与
+  输入 ABI；teacher artifact 身份仍单独校验。密钥只从环境变量读取；独立服务入口是
+  `scripts/serve_opd_teacher.py`。
 - `vllm` rollout 包装 TRL `VLLMGeneration`。backend 必须在 distributed wrapper 施加前绑定 canonical
   student；每个 optimizer model version 恰好同步一次权重。同一 GA window 不重复同步，optimizer 更新后
   不得复用旧 completion。普通 OpenAI-compatible server 没有训练权重同步合同，不能冒充 on-policy backend。
@@ -459,9 +464,10 @@ ShaftOPDPipeline
 - OPD telemetry 独立记录 prompt/completion token、vision patches、rollout/teacher/objective/backward/
   optimizer wall time、CUDA event device time、HTTP bytes 与 distribution 元素数。wall 与 device timing
   是不同口径；frame 只在 optimizer attempt 结束后 commit，异常窗口直接丢弃。
-- DDP 使用 committed manifest；FSDP/DeepSpeed 使用 backend-native checkpoint。resume contract 绑定
-  execution implementation/version、request-seed 算法、teacher identity、distribution/objective、telemetry
-  protocol 和训练 topology。当前没有跨 step rollout buffer；未来若引入，cursor/state 必须一并持久化。
+- DDP 使用 committed manifest；FSDP/DeepSpeed 使用 backend-native checkpoint。resume contract 分别绑定
+  teacher artifact identity 与 `teacher_student_input_abi_fingerprint`，并继续绑定 execution
+  implementation/version、request-seed 算法、distribution/objective、telemetry protocol 和训练 topology。
+  当前没有跨 step rollout buffer；未来若引入，cursor/state 必须一并持久化。
 - 当前 OPD 只开放 `grouping=none + cardinality=fixed + packing=none + layout=padded`，不支持 eval、packing
   或 varlen。已有门禁证明协议、DDP/FSDP/DeepSpeed fresh/resume/export 与真实 Qwen vLLM 主链；现有证据不
   覆盖独立 Qwen HTTP teacher GPU 部署、发布 Qwen sharded 容量和大词表内存/吞吐。

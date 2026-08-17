@@ -1681,8 +1681,12 @@ opd
 约束与语义：
 
 - `data.source_type` 必须是 `jsonl_opd`；记录只包含 prompt，不允许 trailing assistant target。
-- teacher/student 必须使用相同 model adapter、tokenizer、processor 与 template 输入合同；teacher 是独立 module，
-  全部参数冻结，不进入 optimizer、student checkpoint 或最终 export。
+- teacher/student 由独立的 OPD input ABI 门禁判断，不要求完整 artifact、产品 alias 或原始 chat template
+  相同。ABI 必须证明完整 token→ID、special token ID、实际 logits vocabulary 维度、多模态 processor/input
+  schema，以及 teacher `forward` 对 student scoring tensor 字段的兼容性；任一项无法证明或不一致都会在训练前
+  明确失败。类似 Qwen3.5/3.6/3.8 的产品版本在已有 adapter 能构建 artifact、且共享这套实际输入 ABI 时，
+  可以作为不同 alias 组合使用，因为 teacher 消费的是 student 已生成的同一批 tensor。teacher 仍是独立
+  module，全部参数冻结，不进入 optimizer、student checkpoint 或最终 export。
 - `teacher.provider=hf_local` 加载独立冻结 HF teacher；`provider=http` 只解析远端 immutable identity，不在训练
   进程加载 teacher。`artifact_fingerprint` 必须是 64 位 SHA-256；API key 只从 `api_key_env` 读取。
 - `rollout.backend=hf_local` 使用本地 student generate；`backend=vllm` 包装 TRL `VLLMGeneration`，支持
@@ -1695,14 +1699,19 @@ opd
 - divergence 必须显式配置；`full_vocab` 使用完整词表，`token_chunk_size` 沿 completion-position 轴降低
   objective 中间张量峰值。`topk_tail` 要求 `top_k>0`，其 loss 是 K 个显式 token 加一个剩余 mass bucket 的
   coarse-grained divergence；不是把未返回 token 当零。
-- checkpoint contract 绑定 teacher artifact、teacher/student 输入合同、rollout/objective、数据执行身份与 RNG。
+- checkpoint contract 分别绑定不可变 teacher artifact fingerprint 与统一的
+  `teacher_student_input_abi_fingerprint`，后者在 local/HTTP teacher 下都只表示实际蒸馏输入 ABI，不混入
+  provider 或 teacher artifact 身份。旧的 artifact-equality 输入 fingerprint 不会被迁移为新语义，旧 OPD
+  checkpoint 在 exact resume 时会 fail closed。
+  contract 同时绑定 rollout/objective、数据执行身份与 RNG。
   vLLM 请求 seed 由 run seed、model version 与 request IDs 派生；每个 model version 只同步一次权重。新增
   execution component 只有声明 exact-resume 能力后才允许 periodic checkpoint/resume。
 - `train.efficiency.enabled=true` 启用 OPD 独立 optimizer-frame telemetry，输出
   `shaft_opd_telemetry.json` 与 checkpoint 内 `shaft_opd_telemetry_rank<N>.json`。wall phase 与
   `device_*` CUDA event 字段语义分离；`device_timing=off` 只关闭 CUDA event，不关闭 wall telemetry。
-- teacher service 入口为 `python scripts/serve_opd_teacher.py --config ...`。HTTP request/response 使用版本化
-  safetensors envelope，按 `max_*_bytes` 有界读取，且 body 必须匹配 `Idempotency-Key`。
+- teacher service 入口为 `python scripts/serve_opd_teacher.py --config ...`。HTTP v2 identity 发布与 local
+  teacher 相同结构的 OPD input ABI；request/response 使用版本化 safetensors envelope，按 `max_*_bytes`
+  有界读取，且 body 必须匹配 `Idempotency-Key`。v1 identity 无法表达 forward/input ABI，客户端会明确拒绝。
 
 ## 10. `plugins`
 

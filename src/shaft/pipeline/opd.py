@@ -86,12 +86,12 @@ from .training_args import (
 logger = logging.getLogger(__name__)
 
 
-def _stored_opd_input_fingerprint(training_contract: Any) -> str:
+def _stored_opd_input_abi_fingerprint(training_contract: Any) -> str:
     objective = dict(training_contract.objective)
-    value = objective.get("teacher_student_input_fingerprint")
+    value = objective.get("teacher_student_input_abi_fingerprint")
     if not isinstance(value, str) or not value.strip():
         raise ValueError(
-            "OPD checkpoint training contract has no teacher/student input fingerprint."
+            "OPD checkpoint training contract has no teacher/student input ABI fingerprint."
         )
     return value
 
@@ -266,8 +266,8 @@ class ShaftOPDPipeline:
                 batch_contract_fingerprint=batch_contract.fingerprint,
                 algorithm_resume_context={
                     "teacher_model_plan_fingerprint": teacher_artifact_plan.fingerprint,
-                    "teacher_student_input_fingerprint": (
-                        _stored_opd_input_fingerprint(checkpoint_training_contract)
+                    "teacher_student_input_abi_fingerprint": (
+                        _stored_opd_input_abi_fingerprint(checkpoint_training_contract)
                     ),
                 },
                 hook_instances=self.hook_manager.hooks,
@@ -431,7 +431,7 @@ class ShaftOPDPipeline:
                         execution_plan.rollout_backend_type.requires_raw_media
                     ),
                     "collect_telemetry": bool(config.train.efficiency.enabled),
-                    "teacher_student_input_fingerprint": input_compatibility,
+                    "teacher_student_input_abi_fingerprint": input_compatibility,
                 },
             )
             validate_train_input_checkpointability(
@@ -456,7 +456,7 @@ class ShaftOPDPipeline:
                 ),
                 algorithm_resume_context={
                     "teacher_model_plan_fingerprint": teacher_artifact_plan.fingerprint,
-                    "teacher_student_input_fingerprint": input_compatibility,
+                    "teacher_student_input_abi_fingerprint": input_compatibility,
                 },
                 hook_instances=self.hook_manager.hooks,
                 interceptor_instances=self.interceptor_manager.interceptors,

@@ -7,11 +7,9 @@ from accelerate import Accelerator
 from shaft.config import load_config
 from shaft.model import build_model_tokenizer_processor
 from shaft.opd.execution import resolve_opd_execution_plan
+from shaft.opd.input_abi import build_opd_input_abi
 from shaft.opd.remote_teacher import OPDTeacherIdentity, PROTOCOL_VERSION
-from shaft.opd.teacher_assembly import (
-    LocalHFOPDTeacherArtifactPlan,
-    model_artifact_input_identity,
-)
+from shaft.opd.teacher_assembly import LocalHFOPDTeacherArtifactPlan
 from shaft.opd.teacher_service import OPDTeacherService, create_opd_teacher_app
 from shaft.pipeline.training_args import resolve_training_compute_dtype
 
@@ -63,25 +61,11 @@ def main(argv: list[str] | None = None) -> None:
         model=artifacts.model,
     )
     provider.prepare(accelerator)
-    model_type, tokenizer_fingerprint, processor_fingerprint = model_artifact_input_identity(
-        artifacts
-    )
-    vocab_size = getattr(getattr(artifacts.model, "config", None), "vocab_size", None)
-    if vocab_size is None:
-        vocab_size = getattr(
-            getattr(getattr(artifacts.model, "config", None), "text_config", None),
-            "vocab_size",
-            None,
-        )
-    if vocab_size is None:
-        raise ValueError("OPD teacher model config does not publish vocab_size.")
     identity = OPDTeacherIdentity(
         protocol_version=PROTOCOL_VERSION,
         artifact_fingerprint=artifact_plan.fingerprint,
-        model_type=model_type,
-        tokenizer_fingerprint=tokenizer_fingerprint,
-        processor_fingerprint=processor_fingerprint,
-        vocab_size=int(vocab_size),
+        model_type=artifacts.model_adapter.model_type,
+        input_abi=build_opd_input_abi(artifacts),
     )
     service = OPDTeacherService(
         identity=identity,

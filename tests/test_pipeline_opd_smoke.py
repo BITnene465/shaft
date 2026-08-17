@@ -18,7 +18,7 @@ from shaft.opd.remote_teacher import (
     decode_teacher_score_request,
     encode_teacher_distribution,
 )
-from shaft.opd.teacher_assembly import model_artifact_input_identity
+from shaft.opd.input_abi import build_opd_input_abi
 from shaft.opd.telemetry import OPD_TELEMETRY_FILENAME
 from shaft.pipeline import run_opd
 from shaft.training import load_batching_run_metadata
@@ -82,7 +82,7 @@ def test_run_opd_updates_only_student_and_publishes_contract(
     assert metadata.training_resume_contract.algorithm == "opd"
     objective = dict(metadata.training_resume_contract.objective)
     assert objective["teacher_model_plan_fingerprint"]
-    assert objective["teacher_student_input_fingerprint"]
+    assert objective["teacher_student_input_abi_fingerprint"]
     export_dir = Path(config.experiment.output_dir) / "best"
     if finetune_mode == "full":
         assert (export_dir / "config.json").is_file()
@@ -164,17 +164,13 @@ def test_run_opd_with_external_teacher_protocol_updates_student(
     with torch.no_grad():
         next(teacher_artifacts.model.parameters()).add_(0.25)
     teacher_artifacts.model.eval()
-    model_type, tokenizer_fingerprint, processor_fingerprint = model_artifact_input_identity(
-        teacher_artifacts
-    )
+    input_abi = build_opd_input_abi(teacher_artifacts)
     artifact_fingerprint = "a" * 64
     identity = OPDTeacherIdentity(
         protocol_version=PROTOCOL_VERSION,
         artifact_fingerprint=artifact_fingerprint,
-        model_type=model_type,
-        tokenizer_fingerprint=tokenizer_fingerprint,
-        processor_fingerprint=processor_fingerprint,
-        vocab_size=int(teacher_artifacts.model.config.vocab_size),
+        model_type=teacher_artifacts.model_adapter.model_type,
+        input_abi=input_abi,
     )
 
     class InProcessTransport:

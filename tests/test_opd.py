@@ -38,7 +38,13 @@ from shaft.opd.loss import (
     opd_distribution_loss,
     resolve_opd_objective_plan,
 )
+from shaft.opd.input_abi import (
+    ShaftOPDInputABI,
+    build_opd_input_abi,
+    validate_opd_input_abi_compatibility,
+)
 from shaft.opd.remote_teacher import (
+    CONTENT_TYPE,
     OPDTeacherIdentity,
     PROTOCOL_VERSION,
     decode_teacher_distribution,
@@ -59,6 +65,26 @@ from tests.support.opd import write_opd_config
 
 
 pytestmark = pytest.mark.component
+
+
+def _test_opd_input_abi(
+    *,
+    token_to_id_fingerprint: str = "b" * 64,
+    processor_abi_fingerprint: str = "c" * 64,
+    logits_vocab_size: int = 7,
+) -> ShaftOPDInputABI:
+    return ShaftOPDInputABI(
+        token_to_id_fingerprint=token_to_id_fingerprint,
+        token_count=logits_vocab_size,
+        special_token_ids=(("eos_token_id", (2,)),),
+        logits_vocab_size=logits_vocab_size,
+        processor_abi_fingerprint=processor_abi_fingerprint,
+        required_model_input_names=("attention_mask", "input_ids", "use_cache"),
+        optional_model_input_names=(),
+        forward_accepted_input_names=("attention_mask", "input_ids"),
+        forward_required_input_names=(),
+        forward_accepts_kwargs=True,
+    )
 
 
 def test_opd_config_is_owned_by_opd_domain_and_fails_closed(tmp_path: Path) -> None:
@@ -204,6 +230,9 @@ def test_opd_execution_registry_resolves_open_runtime_axes_without_pipeline_bran
 
         def prepare(self, device):
             _ = device
+
+        def validate_input_abi(self, input_abi):
+            return input_abi.fingerprint
 
         def score(self, model_inputs):
             raise AssertionError(model_inputs)
@@ -630,11 +659,173 @@ def test_opd_remote_teacher_protocol_round_trips_dense_and_topk_without_pickle(
     assert torch.equal(topk_round_trip.tail_log_probs, topk.tail_log_probs)
 
 
-def test_opd_http_teacher_binds_artifact_input_identity_and_scores(tmp_path: Path) -> None:
+def test_opd_input_abi_allows_equivalent_qwen_aliases_and_different_templates(
+    tmp_path: Path,
+) -> None:
+    config = load_config(write_opd_config(tmp_path))
+    artifacts = build_model_tokenizer_processor(config)
+    student = replace(
+        artifacts,
+        model_adapter=replace(
+            artifacts.model_adapter,
+            model_type="qwen35vl",
+            template_type="qwen35vl",
+        ),
+        template=type("Qwen35Template", (), {})(),
+    )
+    teacher_processor = copy.deepcopy(artifacts.processor)
+
+    def _different_chat_template(self):
+        _ = self
+        return {
+            "processor_class": "DifferentProductAliasProcessor",
+            "chat_template": "different raw chat template",
+        }
+
+    teacher_processor.to_dict = MethodType(_different_chat_template, teacher_processor)
+    teacher = replace(
+        artifacts,
+        model_adapter=replace(
+            artifacts.model_adapter,
+            model_type="qwen38vl",
+            template_type="qwen38vl",
+        ),
+        processor=teacher_processor,
+        template=type("Qwen38Template", (), {"chat_template": "different"})(),
+    )
+
+    student_abi = build_opd_input_abi(student)
+    teacher_abi = build_opd_input_abi(teacher)
+
+    assert student_abi.fingerprint == teacher_abi.fingerprint
+    assert (
+        validate_opd_input_abi_compatibility(student=student_abi, teacher=teacher_abi)
+        == student_abi.fingerprint
+    )
+    local_provider = LocalHFOPDTeacherProvider(config.opd.teacher, model=artifacts.model)
+    assert local_provider.validate_input_abi(student_abi) == student_abi.fingerprint
+
+
+def test_opd_input_abi_rejects_complete_token_to_id_drift(tmp_path: Path) -> None:
+    config = load_config(write_opd_config(tmp_path))
+    artifacts = build_model_tokenizer_processor(config)
+    teacher_tokenizer = copy.deepcopy(artifacts.tokenizer)
+    original_vocab = teacher_tokenizer.get_vocab()
+
+    def _drifted_vocab(self):
+        _ = self
+        drifted = dict(original_vocab)
+        first, second = "<token_4>", "<token_5>"
+        drifted[first], drifted[second] = drifted[second], drifted[first]
+        return drifted
+
+    teacher_tokenizer.get_vocab = MethodType(_drifted_vocab, teacher_tokenizer)
+    student_abi = build_opd_input_abi(artifacts)
+    teacher_abi = build_opd_input_abi(replace(artifacts, tokenizer=teacher_tokenizer))
+
+    with pytest.raises(ValueError, match="complete token-to-ID mappings differ"):
+        validate_opd_input_abi_compatibility(student=student_abi, teacher=teacher_abi)
+
+
+def test_opd_input_abi_rejects_special_token_id_drift(tmp_path: Path) -> None:
+    config = load_config(write_opd_config(tmp_path))
+    artifacts = build_model_tokenizer_processor(config)
+    teacher_tokenizer = copy.deepcopy(artifacts.tokenizer)
+    teacher_tokenizer.eos_token_id = 5
+
+    student_abi = build_opd_input_abi(artifacts)
+    teacher_abi = build_opd_input_abi(replace(artifacts, tokenizer=teacher_tokenizer))
+
+    with pytest.raises(ValueError, match="special token IDs differ"):
+        validate_opd_input_abi_compatibility(student=student_abi, teacher=teacher_abi)
+
+
+def test_opd_input_abi_rejects_logits_vocab_drift(tmp_path: Path) -> None:
+    config = load_config(write_opd_config(tmp_path))
+    artifacts = build_model_tokenizer_processor(config)
+    teacher_model = type(artifacts.model)(
+        type(artifacts.model.config)(vocab_size=artifacts.model.config.vocab_size + 1)
+    )
+
+    student_abi = build_opd_input_abi(artifacts)
+    teacher_abi = build_opd_input_abi(replace(artifacts, model=teacher_model))
+
+    with pytest.raises(ValueError, match="logits vocabulary dimensions differ"):
+        validate_opd_input_abi_compatibility(student=student_abi, teacher=teacher_abi)
+
+
+def test_opd_input_abi_rejects_processor_contract_drift(tmp_path: Path) -> None:
+    config = load_config(write_opd_config(tmp_path))
+    artifacts = build_model_tokenizer_processor(config)
+    teacher_policy = replace(
+        artifacts.model_adapter.processor_policy,
+        static_model_input_names=("position_ids",),
+    )
+    teacher = replace(
+        artifacts,
+        model_adapter=replace(
+            artifacts.model_adapter,
+            processor_policy=teacher_policy,
+        ),
+    )
+
+    student_abi = build_opd_input_abi(artifacts)
+    teacher_abi = build_opd_input_abi(teacher)
+
+    with pytest.raises(ValueError, match="multimodal processor/input ABI differs"):
+        validate_opd_input_abi_compatibility(student=student_abi, teacher=teacher_abi)
+
+
+def test_opd_input_abi_rejects_processor_config_drift(tmp_path: Path) -> None:
+    config = load_config(write_opd_config(tmp_path))
+    artifacts = build_model_tokenizer_processor(config)
+    teacher_processor = copy.deepcopy(artifacts.processor)
+
+    def _drifted_processor_config(self):
+        _ = self
+        return {
+            "processor_class": "SmokeProcessor",
+            "image_processor": {"patch_size": 32},
+        }
+
+    teacher_processor.to_dict = MethodType(_drifted_processor_config, teacher_processor)
+    student_abi = build_opd_input_abi(artifacts)
+    teacher_abi = build_opd_input_abi(replace(artifacts, processor=teacher_processor))
+
+    with pytest.raises(ValueError, match="multimodal processor/input ABI differs"):
+        validate_opd_input_abi_compatibility(student=student_abi, teacher=teacher_abi)
+
+
+def test_opd_input_abi_rejects_teacher_forward_field_drift(tmp_path: Path) -> None:
+    config = load_config(write_opd_config(tmp_path))
+    artifacts = build_model_tokenizer_processor(config)
+    teacher_model = copy.deepcopy(artifacts.model)
+
+    def _forward_without_kwargs(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        pixel_values=None,
+    ):
+        return type(self).forward(
+            self,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            pixel_values=pixel_values,
+        )
+
+    teacher_model.forward = MethodType(_forward_without_kwargs, teacher_model)
+    student_abi = build_opd_input_abi(artifacts)
+    teacher_abi = build_opd_input_abi(replace(artifacts, model=teacher_model))
+
+    with pytest.raises(ValueError, match="teacher forward input fields are incompatible"):
+        validate_opd_input_abi_compatibility(student=student_abi, teacher=teacher_abi)
+
+
+def test_opd_http_teacher_binds_artifact_input_abi_and_scores(tmp_path: Path) -> None:
     config = load_config(write_opd_config(tmp_path))
     artifact_fingerprint = "a" * 64
-    tokenizer_fingerprint = "b" * 64
-    processor_fingerprint = "c" * 64
+    input_abi = _test_opd_input_abi()
     config.opd.teacher.provider = "http"
     config.opd.teacher.remote.artifact_fingerprint = artifact_fingerprint
     config.opd.teacher.remote.max_response_bytes = 1024 * 1024
@@ -643,9 +834,7 @@ def test_opd_http_teacher_binds_artifact_input_identity_and_scores(tmp_path: Pat
         protocol_version=PROTOCOL_VERSION,
         artifact_fingerprint=artifact_fingerprint,
         model_type="smoke_vlm",
-        tokenizer_fingerprint=tokenizer_fingerprint,
-        processor_fingerprint=processor_fingerprint,
-        vocab_size=7,
+        input_abi=input_abi,
     )
 
     class FakeTransport:
@@ -669,11 +858,7 @@ def test_opd_http_teacher_binds_artifact_input_identity_and_scores(tmp_path: Pat
         model=None,
         transport=transport,
     )
-    assert provider.validate_input_identity(
-        model_type="smoke_vlm",
-        tokenizer_fingerprint=tokenizer_fingerprint,
-        processor_fingerprint=processor_fingerprint,
-    )
+    assert provider.validate_input_abi(input_abi) == input_abi.fingerprint
     request = OPDTeacherScoreRequest(
         model_inputs={
             "input_ids": torch.tensor([[1, 2, 3]], dtype=torch.long),
@@ -697,11 +882,7 @@ def test_opd_http_teacher_binds_artifact_input_identity_and_scores(tmp_path: Pat
         transport=transport,
     )
     with pytest.raises(ValueError, match="artifact identity differs"):
-        different.validate_input_identity(
-            model_type="smoke_vlm",
-            tokenizer_fingerprint=tokenizer_fingerprint,
-            processor_fingerprint=processor_fingerprint,
-        )
+        different.validate_input_abi(input_abi)
 
 
 @pytest.mark.parametrize(
@@ -753,9 +934,7 @@ def test_opd_teacher_service_validates_idempotency_and_scores_protocol_request(
         protocol_version=PROTOCOL_VERSION,
         artifact_fingerprint="a" * 64,
         model_type="smoke_vlm",
-        tokenizer_fingerprint="b" * 64,
-        processor_fingerprint="c" * 64,
-        vocab_size=7,
+        input_abi=_test_opd_input_abi(),
     )
 
     class FakeProvider:
@@ -799,9 +978,7 @@ def test_opd_external_teacher_round_trips_over_live_http_loopback(
         protocol_version=PROTOCOL_VERSION,
         artifact_fingerprint="a" * 64,
         model_type="smoke_vlm",
-        tokenizer_fingerprint="b" * 64,
-        processor_fingerprint="c" * 64,
-        vocab_size=7,
+        input_abi=_test_opd_input_abi(),
     )
 
     class FakeProvider:
@@ -841,7 +1018,7 @@ def test_opd_external_teacher_round_trips_over_live_http_loopback(
                 idempotency_key=str(self.headers.get("Idempotency-Key", "")),
             )
             self.send_response(200)
-            self.send_header("Content-Type", "application/vnd.shaft.opd-teacher-v1+safetensors")
+            self.send_header("Content-Type", CONTENT_TYPE)
             self.send_header("Content-Length", str(len(response)))
             self.end_headers()
             self.wfile.write(response)
@@ -856,11 +1033,7 @@ def test_opd_external_teacher_round_trips_over_live_http_loopback(
         )
         config.opd.teacher.remote.artifact_fingerprint = identity.artifact_fingerprint
         provider = HTTPRemoteOPDTeacherProvider(config.opd.teacher, model=None)
-        assert provider.validate_input_identity(
-            model_type=identity.model_type,
-            tokenizer_fingerprint=identity.tokenizer_fingerprint,
-            processor_fingerprint=identity.processor_fingerprint,
-        )
+        assert provider.validate_input_abi(identity.input_abi) == identity.input_abi.fingerprint
         request = OPDTeacherScoreRequest(
             model_inputs={
                 "input_ids": torch.tensor([[1, 2, 3]], dtype=torch.long),
@@ -913,9 +1086,7 @@ def test_opd_fastapi_teacher_route_injects_request_body() -> None:
         protocol_version=PROTOCOL_VERSION,
         artifact_fingerprint="a" * 64,
         model_type="smoke_vlm",
-        tokenizer_fingerprint="b" * 64,
-        processor_fingerprint="c" * 64,
-        vocab_size=7,
+        input_abi=_test_opd_input_abi(),
     )
 
     class Provider:
@@ -942,7 +1113,7 @@ def test_opd_fastapi_teacher_route_injects_request_body() -> None:
         "/v1/score",
         content=payload,
         headers={
-            "Content-Type": "application/vnd.shaft.opd-teacher-v1+safetensors",
+            "Content-Type": CONTENT_TYPE,
             "Idempotency-Key": teacher_request_idempotency_key(payload),
         },
     )

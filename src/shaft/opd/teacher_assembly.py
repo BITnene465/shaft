@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import copy
-import hashlib
-import json
 from typing import Any, Callable
 
 from shaft.config import FinetuneConfig, ModelConfig, RuntimeConfig
@@ -14,11 +12,8 @@ from shaft.model import (
     validate_model_artifact_checkpointability,
     validate_resolved_model_descriptor,
 )
-from shaft.model.input_identity import tokenizer_artifact_fingerprint
-from shaft.training.input_contract import (
-    component_semantic_signature,
-    input_component_semantic_signature,
-)
+
+from .input_abi import build_opd_input_abi, validate_opd_input_abi_compatibility
 
 
 class OPDTeacherArtifactPlan(ABC):
@@ -81,23 +76,6 @@ def _teacher_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     resolved.train.init_from_checkpoint = None
     resolved.train.resume_from_checkpoint = None
     return resolved
-
-
-def model_artifact_input_identity(student: ModelArtifacts) -> tuple[str, str, str]:
-    model_type = str(student.model_adapter.model_type)
-    tokenizer = tokenizer_artifact_fingerprint(student.tokenizer)
-    payload = {
-        "processor": input_component_semantic_signature(student.processor, role="processor"),
-        "processor_policy": component_semantic_signature(
-            student.model_adapter.processor_policy,
-            role="opd_processor_policy",
-        ),
-        "template": input_component_semantic_signature(student.template, role="template"),
-    }
-    processor = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-    return model_type, tokenizer, processor
 
 
 class LocalHFOPDTeacherArtifactPlan(OPDTeacherArtifactPlan):
@@ -174,18 +152,13 @@ class LocalHFOPDTeacherArtifactPlan(OPDTeacherArtifactPlan):
             model=teacher.model,
             contract=sequence_contract,
         )
-        student_identity = model_artifact_input_identity(student)
-        teacher_identity = model_artifact_input_identity(teacher)
-        if student_identity != teacher_identity:
-            raise ValueError(
-                "OPD local teacher/student input identities differ; "
-                f"student={student_identity} teacher={teacher_identity}."
-            )
-        return provider.validate_input_identity(
-            model_type=student_identity[0],
-            tokenizer_fingerprint=student_identity[1],
-            processor_fingerprint=student_identity[2],
+        student_input_abi = build_opd_input_abi(student)
+        teacher_input_abi = build_opd_input_abi(teacher)
+        validate_opd_input_abi_compatibility(
+            student=student_input_abi,
+            teacher=teacher_input_abi,
         )
+        return provider.validate_input_abi(student_input_abi)
 
 
 class HTTPRemoteOPDTeacherArtifactPlan(OPDTeacherArtifactPlan):
@@ -228,12 +201,7 @@ class HTTPRemoteOPDTeacherArtifactPlan(OPDTeacherArtifactPlan):
     ) -> str:
         if teacher is not None or sequence_contract is not None:
             raise RuntimeError("Remote OPD teacher unexpectedly owns local model state.")
-        model_type, tokenizer, processor = model_artifact_input_identity(student)
-        return provider.validate_input_identity(
-            model_type=model_type,
-            tokenizer_fingerprint=tokenizer,
-            processor_fingerprint=processor,
-        )
+        return provider.validate_input_abi(build_opd_input_abi(student))
 
 
 def resolve_local_teacher_artifact_plan(

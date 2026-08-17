@@ -15,6 +15,11 @@ from .loss import (
     opd_distribution_loss,
     resolve_opd_objective_plan,
 )
+from .input_abi import (
+    ShaftOPDInputABI,
+    build_opd_input_abi,
+    validate_opd_input_abi_compatibility,
+)
 from .rollout import (
     HFLocalOPDRolloutBackend,
     OPDRolloutBackend,
@@ -53,9 +58,12 @@ __all__ = [
     "VLLMOPDRolloutBackend",
     "LocalHFOPDTeacherProvider",
     "ShaftOPDTrainer",
+    "ShaftOPDInputABI",
+    "build_opd_input_abi",
     "build_opd_execution_runtime",
     "load_jsonl_opd_records",
     "opd_distribution_loss",
     "resolve_opd_execution_plan",
     "resolve_opd_objective_plan",
+    "validate_opd_input_abi_compatibility",
 ]

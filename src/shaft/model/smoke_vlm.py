@@ -134,6 +134,18 @@ class SmokeTokenizer:
     def shaft_cost_fingerprint(self) -> str:
         return self.shaft_tokenizer_fingerprint()
 
+    def get_vocab(self) -> dict[str, int]:
+        vocabulary = {
+            self.pad_token: self.pad_token_id,
+            self.bos_token: self.bos_token_id,
+            self.eos_token: self.eos_token_id,
+            self.unk_token: self.unk_token_id,
+        }
+        vocabulary.update(
+            {f"<token_{token_id}>": token_id for token_id in range(4, self.vocab_size)}
+        )
+        return vocabulary
+
     def _encode(self, text: str) -> list[int]:
         ids = [3 + (ord(ch) % max(self.vocab_size - 4, 1)) for ch in text]
         return ids or [3]

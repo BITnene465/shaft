@@ -16,12 +16,13 @@ from safetensors.torch import save as save_safetensors
 import torch
 
 from .loss import OPDTeacherDistribution, resolve_opd_objective_plan
+from .input_abi import ShaftOPDInputABI
 from .teacher import OPDTeacherScoreRequest
 
 
-PROTOCOL_VERSION = "shaft-opd-teacher-v1"
-CONTENT_TYPE = "application/vnd.shaft.opd-teacher-v1+safetensors"
-_MAGIC = b"SOPD1"
+PROTOCOL_VERSION = "shaft-opd-teacher-v2"
+CONTENT_TYPE = "application/vnd.shaft.opd-teacher-v2+safetensors"
+_MAGIC = b"SOPD2"
 _HEADER_LIMIT = 1024 * 1024
 
 
@@ -30,9 +31,7 @@ class OPDTeacherIdentity:
     protocol_version: str
     artifact_fingerprint: str
     model_type: str
-    tokenizer_fingerprint: str
-    processor_fingerprint: str
-    vocab_size: int
+    input_abi: ShaftOPDInputABI
 
     def __post_init__(self) -> None:
         if self.protocol_version != PROTOCOL_VERSION:
@@ -40,31 +39,24 @@ class OPDTeacherIdentity:
                 f"Unsupported OPD teacher protocol {self.protocol_version!r}; "
                 f"expected {PROTOCOL_VERSION!r}."
             )
-        for field_name in (
-            "artifact_fingerprint",
-            "tokenizer_fingerprint",
-            "processor_fingerprint",
+        value = str(self.artifact_fingerprint).strip().lower()
+        if len(value) != 64 or any(
+            character not in "0123456789abcdef" for character in value
         ):
-            value = str(getattr(self, field_name)).strip().lower()
-            if len(value) != 64 or any(
-                character not in "0123456789abcdef" for character in value
-            ):
-                raise ValueError(
-                    f"OPD teacher identity {field_name} must be a SHA-256 digest."
-                )
+            raise ValueError(
+                "OPD teacher identity artifact_fingerprint must be a SHA-256 digest."
+            )
         if not str(self.model_type).strip():
             raise ValueError("OPD teacher identity model_type must not be empty.")
-        if type(self.vocab_size) is not int or self.vocab_size <= 0:
-            raise ValueError("OPD teacher identity vocab_size must be > 0.")
+        if not isinstance(self.input_abi, ShaftOPDInputABI):
+            raise TypeError("OPD teacher identity input_abi must be ShaftOPDInputABI.")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "protocol_version": self.protocol_version,
             "artifact_fingerprint": self.artifact_fingerprint,
             "model_type": self.model_type,
-            "tokenizer_fingerprint": self.tokenizer_fingerprint,
-            "processor_fingerprint": self.processor_fingerprint,
-            "vocab_size": self.vocab_size,
+            "input_abi": self.input_abi.to_dict(),
         }
 
     @classmethod
@@ -73,9 +65,7 @@ class OPDTeacherIdentity:
             "protocol_version",
             "artifact_fingerprint",
             "model_type",
-            "tokenizer_fingerprint",
-            "processor_fingerprint",
-            "vocab_size",
+            "input_abi",
         }
         if set(payload) != expected:
             raise ValueError(
@@ -83,13 +73,14 @@ class OPDTeacherIdentity:
                 f"missing={sorted(expected - set(payload))} "
                 f"extra={sorted(set(payload) - expected)}."
             )
+        input_abi = payload["input_abi"]
+        if not isinstance(input_abi, Mapping):
+            raise TypeError("OPD teacher identity input_abi must be an object.")
         return cls(
             protocol_version=str(payload["protocol_version"]),
             artifact_fingerprint=str(payload["artifact_fingerprint"]),
             model_type=str(payload["model_type"]),
-            tokenizer_fingerprint=str(payload["tokenizer_fingerprint"]),
-            processor_fingerprint=str(payload["processor_fingerprint"]),
-            vocab_size=int(payload["vocab_size"]),
+            input_abi=ShaftOPDInputABI.from_mapping(input_abi),
         )
 
 

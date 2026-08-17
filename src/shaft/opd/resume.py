@@ -35,8 +35,8 @@ def _resume_objective(
         "teacher_model_plan_fingerprint": str(
             _require_context(context, "teacher_model_plan_fingerprint")
         ),
-        "teacher_student_input_fingerprint": str(
-            _require_context(context, "teacher_student_input_fingerprint")
+        "teacher_student_input_abi_fingerprint": str(
+            _require_context(context, "teacher_student_input_abi_fingerprint")
         ),
         "rollout": canonical_training_resume_value(config.opd.rollout),
         "objective": canonical_training_resume_value(config.opd.objective),

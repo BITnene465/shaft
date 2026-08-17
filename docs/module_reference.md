@@ -562,6 +562,11 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
 - rollout 当前注册 `HFLocalOPDRolloutBackend / VLLMOPDRolloutBackend`；teacher 当前注册
   `LocalHFOPDTeacherProvider / HTTPRemoteOPDTeacherProvider`。`OPDTeacherArtifactPlan` 决定 provider 是否
   装配本地模型，pipeline 不按 provider 名判断。
+- `src/shaft/opd/input_abi.py` 是 teacher/student 输入兼容性的唯一真源。`ShaftOPDInputABI` 绑定完整
+  token→ID hash、special token ID、实际输出头 vocabulary、多模态 processor/input schema 与可检查的
+  `forward` 字段合同；`validate_opd_input_abi_compatibility()` 比较实际 student scoring tensor ABI，不比较
+  model alias 或 template 文本。local plan 与 HTTP v2 identity 都经同一 validator，返回的 fingerprint 直接
+  进入 resume contract；teacher artifact fingerprint 继续独立绑定不可变 teacher 权重。
 - `OPDRolloutRequest` 同时携带 tokenizer-only、媒体占位符未展开的 generation prompt，以及本地 processor
   展开后的 scoring prompt。vLLM 只消费前者，返回 prompt 必须严格等于后者。
 - `OPDObjectiveRegistry` 持有 `full_vocab / topk_tail` 的 projection、distribution validation 与 loss；

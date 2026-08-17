@@ -3271,3 +3271,58 @@
 - tracked task 脚本不得把 ignored/local 目录写成默认输入；本地 job 必须通过 CLI 显式注入，并在 destructive
   clean 前完成输入预检。
 - 正式测试只能依赖 tracked 代码和 fixture；一次性 subtask 的测试与实现保持在 subtask 内，不登记仓库 suite。
+
+## 2026-08-17：OPD 把 artifact 相等误当成 teacher/student 输入兼容
+
+### 现象
+
+- OPD local teacher 要求 teacher/student 的 model alias、tokenizer artifact fingerprint、processor 和原始
+  template semantic fingerprint 全部相等；Qwen3.5/3.6/3.8 即使 token ID 与实际 scoring tensor ABI 等价，
+  也会因产品 alias 或 chat template 文本不同被拒绝。
+- HTTP teacher 另用一套 input fingerprint，并把 teacher artifact fingerprint 混入其中；local、HTTP 与
+  resume 字段名字相似，但语义并不一致。
+
+### 根因
+
+- 旧的 `model_artifact_input_identity()` 复用了训练 artifact/semantic identity，把“从哪里加载、用哪个模板
+  生成 prompt”与“teacher 是否能消费 student 已生成的同一批 tensor”合并成一个严格相等判断。
+- vocab 只通过模型 config 的声明值间接检查，没有统一绑定实际 logits output head；teacher `forward` 的可接受
+  字段也没有进入预检合同。
+
+### 影响范围
+
+- 影响 local 与 HTTP OPD teacher 的启动门禁和 exact-resume identity；会误拒绝输入 ABI 等价的跨 alias
+  teacher/student，也可能把 provider 特有 identity 当作输入兼容状态。
+- token ID、special token、processor schema 或 logits vocab 的真实不兼容仍必须拒绝；本问题不涉及模型能力，
+  也不是 eval、codec、metric 或 data 误判。
+
+### 修复方式
+
+- 新增 OPD 域内唯一真源 `ShaftOPDInputABI`：完整 hash `token→ID` 映射并单独记录 special token ID，从实际
+  output embedding/head 解析 logits vocabulary，绑定 processor ABI config、token role 和
+  `ProcessorPolicy` scoring schema，并检查 model `forward` 的显式字段与 `**kwargs` 合同。
+- 兼容判断只比较 student 实际会生成的 scoring tensor ABI；model alias 与原始 chat template 不进入 ABI。
+  teacher 必须接收所有 required/optional student 字段，且不能要求 student 无法保证提供的额外字段。
+- local artifact plan 与 HTTP provider 共用同一 builder/validator；HTTP identity 升级为 v2，直接发布序列化
+  input ABI。兼容 fingerprint 不再包含 provider 或 teacher artifact；不可变 teacher artifact 继续由独立
+  model-plan/artifact fingerprint 绑定。
+- resume contract 字段收敛为 `teacher_student_input_abi_fingerprint`。旧 checkpoint 不具备新 ABI 证明，exact
+  resume 时明确 fail closed，不伪造迁移。
+
+### 回归测试
+
+- 单测证明 qwen35vl/qwen38vl alias 与不同 template 在等价输入下放行；完整 token→ID、special token ID、
+  实际 logits vocab、processor config/schema 和 teacher forward 字段任一漂移都分别明确拒绝。
+- HTTP identity 序列化、live loopback 与 local/HTTP fingerprint 统一语义均有覆盖。
+- OPD pipeline smoke 覆盖 full/LoRA 保存、sampled rollout exact resume、telemetry、外部 teacher 与
+  model-only checkpoint 主链。
+- framework、smoke、distributed suites 全部通过；distributed 仅保留既有环境型 skip。ruff、Python
+  compileall 与 `git diff --check` 同步通过。
+
+### 后续防线
+
+- OPD compatibility 只能扩展 `src/shaft/opd/input_abi.py` 的实际输入合同；不得重新复用完整 model、tokenizer、
+  template artifact equality，也不得在 provider 中平行维护第二套 fingerprint。
+- 新 processor/model family 必须能发布完整 tokenizer vocabulary、可验证的输出头维度、processor input schema
+  与可检查的 `forward` signature；任何一项无法证明时保持 fail closed。
+- HTTP identity schema 若再次变化必须升级 protocol，并让旧 client/server 明确拒绝，禁止把缺字段解释为兼容。

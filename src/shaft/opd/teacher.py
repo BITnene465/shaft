@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-import hashlib
-import json
 from typing import Any
 
 import torch
@@ -11,6 +9,7 @@ import torch
 from shaft.config import OPDTeacherConfig
 
 from .loss import OPDObjectivePlan, OPDTeacherDistribution
+from .input_abi import ShaftOPDInputABI, validate_opd_input_abi_compatibility
 
 
 def _prepare_local_teacher(model: torch.nn.Module, accelerator: Any) -> torch.nn.Module:
@@ -115,13 +114,7 @@ class OPDTeacherProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def validate_input_identity(
-        self,
-        *,
-        model_type: str,
-        tokenizer_fingerprint: str,
-        processor_fingerprint: str,
-    ) -> str:
+    def validate_input_abi(self, input_abi: ShaftOPDInputABI) -> str:
         raise NotImplementedError
 
     @abstractmethod
@@ -177,22 +170,8 @@ class LocalHFOPDTeacherProvider(OPDTeacherProvider):
         if any(parameter.requires_grad for parameter in self.model.parameters()):
             raise RuntimeError("OPD teacher parameters must all be frozen.")
 
-    def validate_input_identity(
-        self,
-        *,
-        model_type: str,
-        tokenizer_fingerprint: str,
-        processor_fingerprint: str,
-    ) -> str:
-        payload = {
-            "version": "shaft-opd-local-teacher-input-v1",
-            "model_type": str(model_type),
-            "tokenizer": str(tokenizer_fingerprint),
-            "processor": str(processor_fingerprint),
-        }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
+    def validate_input_abi(self, input_abi: ShaftOPDInputABI) -> str:
+        return input_abi.fingerprint
 
     def score(self, request: OPDTeacherScoreRequest) -> OPDTeacherDistribution:
         self.model.eval()
@@ -246,7 +225,6 @@ class HTTPRemoteOPDTeacherProvider(OPDTeacherProvider):
             transport = UrllibOPDTeacherHTTPTransport(config.remote)
         self.transport = transport
         self._identity = None
-        self._student_vocab_size: int | None = None
 
     def _resolve_identity(self):
         if self._identity is None:
@@ -266,56 +244,18 @@ class HTTPRemoteOPDTeacherProvider(OPDTeacherProvider):
         return self._identity
 
     def validate_student_model(self, student_model: torch.nn.Module) -> None:
-        vocab_size = getattr(getattr(student_model, "config", None), "vocab_size", None)
-        if vocab_size is None:
-            text_config = getattr(getattr(student_model, "config", None), "text_config", None)
-            vocab_size = getattr(text_config, "vocab_size", None)
-        if vocab_size is not None:
-            self._student_vocab_size = int(vocab_size)
+        _ = student_model
 
     def prepare(self, accelerator: Any) -> None:
         _ = accelerator
-        identity = self._resolve_identity()
-        if (
-            self._student_vocab_size is not None
-            and identity.vocab_size != self._student_vocab_size
-        ):
-            raise ValueError(
-                "Remote OPD teacher/student vocabulary sizes differ; "
-                f"teacher={identity.vocab_size} student={self._student_vocab_size}."
-            )
+        self._resolve_identity()
 
-    def validate_input_identity(
-        self,
-        *,
-        model_type: str,
-        tokenizer_fingerprint: str,
-        processor_fingerprint: str,
-    ) -> str:
+    def validate_input_abi(self, input_abi: ShaftOPDInputABI) -> str:
         identity = self._resolve_identity()
-        expected = {
-            "model_type": str(model_type),
-            "tokenizer_fingerprint": str(tokenizer_fingerprint),
-            "processor_fingerprint": str(processor_fingerprint),
-        }
-        actual = {
-            "model_type": identity.model_type,
-            "tokenizer_fingerprint": identity.tokenizer_fingerprint,
-            "processor_fingerprint": identity.processor_fingerprint,
-        }
-        if actual != expected:
-            raise ValueError(
-                "Remote OPD teacher input identity differs from the local student; "
-                f"actual={actual} expected={expected}."
-            )
-        payload = {
-            "version": "shaft-opd-remote-teacher-input-v1",
-            "artifact_fingerprint": identity.artifact_fingerprint,
-            **actual,
-        }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
+        return validate_opd_input_abi_compatibility(
+            student=input_abi,
+            teacher=identity.input_abi,
+        )
 
     def score(self, request: OPDTeacherScoreRequest) -> OPDTeacherDistribution:
         from .remote_teacher import (
