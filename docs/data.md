@@ -75,9 +75,11 @@ HF/LLaMA-Factory 风格数据的直接退化路径。
 {"image_path":"../images/0001.png","sample_id":"0001","dataset_name":"reconstruction","prompt_args":{"attribute_a":{"value":1},"attribute_b":{"value":2}}}
 ```
 
-这类行必须省略 `messages`、非空 `user_prompt` 和 `target_text`。不要为 A、B、AB 复制三行，也不要在
-SFT JSONL 中保存三套互相独立的 target；builder 应从 structured/source truth 一次性、确定性地产生完整
-`prompt_args`。
+这类行必须省略 `messages`、非空 `user_prompt` 和 `target_text`。不要为每个 formulation 复制一条 train
+row，也不要人工维护彼此独立的 target 真源；builder 应从 structured/source truth 一次性、确定性地产生
+完整 `prompt_args`。当组合依赖过于复杂、不适合用受限模板拼装时，derived builder 可以为每个**人工声明**
+的 formulation 预计算一个 `target_<formulation>` JSON 参数，但每个参数仍必须能从同一 structured/source
+truth 精确重算。
 
 若 pool 只轮换 wording、target 仍已物化，则保留 `target_text`：
 
@@ -97,7 +99,8 @@ canonical sample + logical draw context
 ```
 
 - **PromptSource**：数据层的投影、选择、fingerprint 和审计边界。
-- **task formulation**：决定问什么和监督什么，例如同一 reconstruction 样本的 A、B、AB。
+- **task formulation**：决定问什么和监督什么；可以是任意人工声明的属性子集或任务视图，A/B/AB 只是
+  最小示例。
 - **prompt variant**：同一 formulation 内语义等价的措辞轮换。
 - **curriculum sampling**：按 dataset-local logical draw 渐进调整 formulation 权重。
 
@@ -128,11 +131,16 @@ data:
 
 - dataset key 必须对应 enabled source；pool 路径相对训练 YAML 解析。
 - `apply_to: train` 只投影训练集，eval 必须已经 materialized。
-- `apply_to: all` 同时投影 train/val；eval 固定使用 `source_draw_id=0`。若必须分别评估 A/B/AB，推荐准备
-  固定的 materialized eval rows，而不是依赖一次 formulation 抽样。
+- `apply_to: all` 同时投影 train/val；eval 固定使用 `source_draw_id=0`。若必须分别评估各个 formulation，
+  推荐准备固定的 materialized eval rows，而不是依赖一次 formulation 抽样。
 - schedule 首点必须为 0，后续 `source_draw` 严格递增。每点完整列出所有 formulation，权重有限、非负，
   且至少一项为正。
 - `step` 保持左侧权重；`linear` 对原始权重插值后再归一化。未配置 schedule 时使用 pool 静态权重。
+
+每个 logical draw 都在当时权重大于 0 的 formulations 中做一次 weighted categorical sampling。它不是
+round-robin，也不保证短前缀按比例整齐排列；例如权重相同的 A/B/AB 完全可能连续多次抽到 A。随机值由
+`seed + dataset + sample/draw identity` 的 hash 产生，因此统计上按权重随机，同时在 planning、worker、
+DP rank 和 exact resume 间可复现。
 
 curriculum 不接受 epoch、optimizer step、百分比或 wall-clock。它以当前 dataset 第几次进入逻辑样本流的
 `source_draw_id` 为轴，因此修改其他 dataset 的 mixing 权重不会移动本 dataset 内的阶段边界。
@@ -192,6 +200,53 @@ formulations:
 现有只含顶层 `prompts` 的版本化 pool 是正式简写。它会立即编译成一个 `default` formulation，并使用
 materialized target。因此旧 prompt rotation 已经是 PromptSource 的子集，不存在第二套训练运行时。
 
+### 5.1 任意复杂子集由配置人工枚举
+
+PromptSource 不自动生成属性幂集，也不接受 `all_combinations: true` 之类的隐式展开。pool 作者只列出业务上
+合法的组合，并为每个组合明确 prompt、target 和静态权重。例如实际合法集合可以是
+`geometry`、`style`、`geometry_style`、`geometry_text_links`，而没有其它组合：
+
+```yaml
+arguments:
+  target_geometry: {type: json}
+  target_style: {type: json}
+  target_geometry_style: {type: json}
+  target_geometry_text_links: {type: json}
+
+formulations:
+  - id: geometry
+    sampling_weight: 1.0
+    target_template: '{{ target_geometry | json }}'
+    prompts:
+      - id: main
+        user_prompt: Reconstruct geometry only.
+  - id: style
+    sampling_weight: 1.0
+    target_template: '{{ target_style | json }}'
+    prompts:
+      - id: main
+        user_prompt: Reconstruct style only.
+  - id: geometry_style
+    sampling_weight: 2.0
+    target_template: '{{ target_geometry_style | json }}'
+    prompts:
+      - id: main
+        user_prompt: Reconstruct geometry and style.
+  - id: geometry_text_links
+    sampling_weight: 1.0
+    target_template: '{{ target_geometry_text_links | json }}'
+    prompts:
+      - id: main
+        user_prompt: Reconstruct geometry, text, and links.
+```
+
+这里四个 `target_*` 都是派生参数，不是新的 source truth。若组合结构简单，也可以只保存 atomic arguments，
+由各 formulation 的 `target_template` 显式组装。
+
+当前一个 dataset/pool 的所有 canonical rows 共用同一 argument schema 和可达 formulation 集合。如果某些
+row 缺少某类真值、不能支持某些组合，应按 eligibility class 拆成不同 named datasets，并分别绑定人工维护的
+pool，再由 `data.schedule.mixing` 混合；不要用 `null` 冒充有效监督，也不要让在线运行时推断依赖关系。
+
 ## 6. 确定性、resume 与审计
 
 sample context 中有两个独立位置：
@@ -202,8 +257,9 @@ source_draw_id  当前 dataset 自身的 logical draw
 ```
 
 formulation 和 variant 使用独立的确定性 hash 随机域。新增一句同义 prompt 只改变 formulation 内 wording，
-不会改变 A/B/AB 分布。planning item 与 DataLoader runtime item、多 worker、不同 DP rank 和 exact resume
-都会在相同输入合同下得到相同结果。
+不会改变任意 configured formulation 的分布。这里的“确定性”只表示同一 logical draw 可重放，不表示输出
+序列固定轮换。planning item 与 DataLoader runtime item、多 worker、不同 DP rank 和 exact resume 都会在
+相同输入合同下得到相同结果。
 
 execution fingerprint 绑定 sample stream、`source_draw_id` 算法、record/media snapshot、pool schema、
 prompt/target program、schedule、权重、seed 和 renderer。任一合同变化后不能沿用旧 optimizer schedule；

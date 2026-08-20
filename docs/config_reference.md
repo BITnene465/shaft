@@ -859,7 +859,7 @@ data:
 
 用途：把一条 canonical SFT row 投影成完整的 `system_prompt/user_prompt/target_text`。它统一承载两层选择：
 
-- task formulation：决定问什么、监督什么，例如 reconstruction 的 A、B、AB；
+- task formulation：决定问什么、监督什么；数量、命名和合法组合完全由 pool 人工声明，A/B/AB 只是示例；
 - prompt variant：同一 formulation 内轮换语义等价的措辞。
 
 未配置的 dataset 直接使用 materialized 数据，不执行在线投影。这就是与普通 HF/LLaMA-Factory 风格离线
@@ -936,10 +936,12 @@ formulation，因此当前 prompt 轮换自然属于 PromptSource，而不是另
   阶段统一验证，不能等随机抽到时才失败。
 - `schedule.points` 首点必须是 0 且严格递增；每点完整列出所有 formulation，权重有限、非负并至少有一个
   正值。未配置 schedule 时使用 formulation 的静态 `sampling_weight`。
+- 每个 draw 在当前正权重 formulations 中执行 weighted categorical sampling，不是 round-robin；短前缀不
+  保证严格比例。框架不自动生成属性幂集或推断组合依赖。
 - curriculum 使用 `ShaftSampleContext.source_draw_id`，即该 dataset 自己第几次进入逻辑样本流；修改其他
-  dataset 的 mixing 不会移动本 dataset 的 A/B/AB 阶段。`step` 保持左值，`linear` 对原始权重插值。
-- formulation 和 prompt variant 使用独立的确定性 hash 随机域。增加 prompt wording 不会改变 A/B/AB
-  分布；planning/runtime、多 worker、DP rank 和 exact resume 结果一致。
+  dataset 的 mixing 不会移动本 dataset 的 formulation 阶段。`step` 保持左值，`linear` 对原始权重插值。
+- formulation 和 prompt variant 使用独立的确定性 hash 随机域。增加 prompt wording 不会改变 formulation
+  分布；planning/runtime、多 worker、DP rank 和 exact resume 对同一 draw 的结果一致。
 - 投影审计集中写入 `extra.prompt_source`，包含 pool/formulation/variant、全局和 source-local draw、实际权重
   以及 prompt/target/arguments 的 SHA256，不再维护散落的 `runtime_prompt_*` 字段。
 - execution fingerprint 绑定 sample stream、`source_draw_id` 算法、record/media snapshot、pool schema、

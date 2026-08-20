@@ -695,8 +695,8 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
   - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache，worker 只读 mmap record store。
   - SFT `prompt_args` 是 normalized record 的正式 JSON 字段；PromptSource 的 prompt/target program、训练
     planning 与标准 infer pipeline 共用 `shaft.prompting` 的受限模板编译器，最终下游仍只消费普通
-    `system_prompt/user_prompt/target_text`。现有 prompt 轮换是单一 formulation 内的 variant 选择；A/B/AB
-    等任务由多个 formulation 原子投影 prompt 与 target。
+    `system_prompt/user_prompt/target_text`。现有 prompt 轮换是单一 formulation 内的 variant 选择；任意人工
+    声明的任务子集（A/B/AB 只是示例）由多个 formulation 原子投影 prompt 与 target。
   - `concat` 表示覆盖式计划；`weighted + shuffle=true` 表示固定配额的可复现 stratified source stream，
     每个 source 内部独立置换并在耗尽前无放回。
   - plan 按位置计算 sample ref，不物化或复制全量 Python tuple index。

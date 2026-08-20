@@ -3377,9 +3377,9 @@
 - framework suite 在调整冷启动测试的有界 timeout 后整套通过；RLHF 分布式 8 场景边界用例也按正式测试
   入口通过。smoke suite 全部通过；正式 distributed suite 其余用例全部通过，并保留 3 个既有能力门禁
   skip。
-- `worker-0` 的 GPU 0/1 在确认空闲后执行真实两卡 DDP：预投影序列为 `A,A,B,B,AB,AB`，训练、逐步 eval
-  与 `checkpoint-1/2/3` 均成功；产物记录 `world_size=2`、3 optimizer steps、6 logical segments、770 useful
-  tokens 与非零 CUDA peak memory。
+- `worker-0` 的 GPU 0/1 在确认空闲后执行真实两卡 DDP：验收夹具通过单正权重 schedule 刻意产生
+  `A,A,B,B,AB,AB` 以便逐项核验，并非生产抽样顺序；训练、逐步 eval 与 `checkpoint-1/2/3` 均成功，产物
+  记录 `world_size=2`、3 optimizer steps、6 logical segments、770 useful tokens 与非零 CUDA peak memory。
 
 ### 后续防线
 
@@ -3449,3 +3449,51 @@
   完成后，才创建 catalog、更新 `media_snapshot_id` 并登记训练 recipe。
 - 依赖 DeepSpeed 的本地测试必须显式使用已安装的 CUDA toolkit 环境，避免把 shell 环境变量缺失误判为
   框架回归。
+
+## 2026-08-21：PromptSource 验收序列被误解为固定子集轮换
+
+### 现象
+
+- 文档和交付说明反复使用 A/B/AB，并引用双卡验收中的 `A,A,B,B,AB,AB`，容易被理解为框架只支持三种
+  formulation，或按固定顺序轮换。
+- 实际 reconstruction 的合法属性子集可能远多于 A/B/AB，且组合依赖由业务决定，不适合由框架自动生成
+  幂集或推断依赖。
+
+### 根因
+
+- GPU 验收为便于逐项核对，使用了每阶段只有一个正权重 formulation 的测试 schedule；记录结果时没有明确
+  区分“夹具强制序列”和“生产 weighted categorical sampling”。
+- v5.8 文档使用最小 A/B/AB 示例描述整体数据合同，却没有单独写出任意 formulation id、人工合法集合与复杂
+  target 依赖的配置方式。
+
+### 影响范围
+
+- 影响 PromptSource 配置设计、v5.8 SFT 参数准备和对随机性/exact-resume 的理解；若按固定轮换准备数据，会
+  错误地离线复制 row 或把业务组合规则塞入训练运行时。
+- 这是文档与验收表述偏差，不是当前选择算法缺陷，也不是模型能力、eval、codec、metric 或 source label 误判。
+
+### 修复方式
+
+- 明确每个 logical draw 都在当时正权重 formulations 中执行 weighted categorical sampling；hash 只保证同一
+  draw 可重放，不保证短前缀比例或 round-robin 顺序。
+- 公共 data reference 和 v5.8 task 文档改为“人工枚举任意合法组合，在线随机选择”。框架不自动生成幂集、
+  不解析 formulation 依赖，也不增加 row-level 动态 allowlist。
+- 简单组合由 `target_template` 组装 atomic arguments；复杂组合允许 derived builder 为每个已声明
+  formulation 生成可从 structured/source truth 重算的 `target_<formulation>` JSON 参数。
+- 一个 pool 的 rows 若不是同一 eligibility class，则拆成不同 named datasets/pools，再由通用 mixing 组合。
+
+### 回归测试
+
+- 新增任意 formulation 回归：人工配置 `geometry/style/geometry_style/geometry_text_links` 四种组合与
+  `1:2:3:4` 权重，4,000 draws 的占比分别落在 10%/20%/30%/40% 容差内；每种 target 原子匹配，重复读取
+  同一 draw 的序列完全一致。
+- `tests/test_transforms.py` 12 项通过；显式 CUDA 12.8 环境下
+  `test_prompt_source_formulation_sft_smoke` 主链通过。
+- changed-file `ruff`、compileall、Markdown 相对链接检查与 `git diff --check` 通过。
+
+### 后续防线
+
+- 文档出现具体抽样序列时必须同时标明它是随机观测、固定测试夹具还是生产策略，不能从一次可复现序列外推
+  为 round-robin 合同。
+- A/B/AB 只能作为最小示例；正式说明必须同时覆盖任意 formulation 数量和命名。
+- 组合集合和依赖由版本化 pool/derived builder 人工维护；运行时只负责严格校验、按权重选择、投影和审计。

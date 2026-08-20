@@ -206,6 +206,76 @@ def test_prompt_variant_sampling_does_not_change_formulation_distribution(
     assert counts["ab"] == 0
 
 
+def test_prompt_source_randomly_samples_arbitrary_configured_formulations(
+    tmp_path: Path,
+) -> None:
+    pool = tmp_path / "arbitrary-subsets.yaml"
+    pool.write_text(
+        """
+metadata: {id: pool.arbitrary-subsets, version: v1}
+arguments:
+  target_geometry: {type: json}
+  target_style: {type: json}
+  target_geometry_style: {type: json}
+  target_geometry_text_links: {type: json}
+formulations:
+  - id: geometry
+    sampling_weight: 1
+    target_template: '{{ target_geometry | json }}'
+    prompts: [{id: main, user_prompt: geometry}]
+  - id: style
+    sampling_weight: 2
+    target_template: '{{ target_style | json }}'
+    prompts: [{id: main, user_prompt: style}]
+  - id: geometry_style
+    sampling_weight: 3
+    target_template: '{{ target_geometry_style | json }}'
+    prompts: [{id: main, user_prompt: geometry-style}]
+  - id: geometry_text_links
+    sampling_weight: 4
+    target_template: '{{ target_geometry_text_links | json }}'
+    prompts: [{id: main, user_prompt: geometry-text-links}]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    resolver = build_prompt_source_resolver(
+        {"ds": PromptSourceConfig(path=str(pool), seed=29)},
+        default_seed=3,
+    )
+    targets = {
+        "geometry": '{"subset":"geometry"}',
+        "style": '{"subset":"style"}',
+        "geometry_style": '{"subset":"geometry_style"}',
+        "geometry_text_links": '{"subset":"geometry_text_links"}',
+    }
+
+    def resolve(source_draw_id: int) -> dict[str, object]:
+        sample = _sample(source_draw_id)
+        sample["prompt_args"] = {
+            f"target_{formulation_id}": {"subset": formulation_id}
+            for formulation_id in targets
+        }
+        return resolver(sample)
+
+    resolved = [resolve(source_draw_id) for source_draw_id in range(4000)]
+    formulation_ids = [
+        item["extra"]["prompt_source"]["formulation_id"] for item in resolved
+    ]
+    counts = Counter(formulation_ids)
+
+    assert counts["geometry"] / 4000 == pytest.approx(0.1, abs=0.03)
+    assert counts["style"] / 4000 == pytest.approx(0.2, abs=0.03)
+    assert counts["geometry_style"] / 4000 == pytest.approx(0.3, abs=0.03)
+    assert counts["geometry_text_links"] / 4000 == pytest.approx(0.4, abs=0.03)
+    assert formulation_ids == [
+        resolve(source_draw_id)["extra"]["prompt_source"]["formulation_id"]
+        for source_draw_id in range(4000)
+    ]
+    for item, formulation_id in zip(resolved, formulation_ids, strict=True):
+        assert item["target_text"] == targets[formulation_id]
+
+
 def test_top_level_prompts_are_one_materialized_default_formulation(
     tmp_path: Path,
 ) -> None:
