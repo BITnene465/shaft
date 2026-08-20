@@ -3326,3 +3326,126 @@
 - 新 processor/model family 必须能发布完整 tokenizer vocabulary、可验证的输出头维度、processor input schema
   与可检查的 `forward` signature；任何一项无法证明时保持 fail closed。
 - HTTP identity schema 若再次变化必须升级 protocol，并让旧 client/server 明确拒绝，禁止把缺字段解释为兼容。
+
+## 2026-08-20：prompt 轮换缺少 task formulation 与原子监督真源
+
+### 现象
+
+- 训练侧原有 `prompt_sampling` 只能在一个 pool 内轮换 user prompt；同一 reconstruction 样本无法正式表达
+  “只输出 A”“只输出 B”“同时输出 AB”三种 prompt/target 对。
+- 若只轮换问题而继续使用固定 `target_text`，prompt 与监督范围可能不一致；若由业务脚本分别派生三份数据，
+  又会复制 canonical 样本并把 curriculum、审计和 resume identity 留在框架外。
+- “view” 一词容易与 multi-view representation learning 混淆，无法准确描述“问什么、监督什么”的变化。
+
+### 根因
+
+- 旧配置把能力建模为 `data.transforms.prompt_sampling`，运行时只拥有 prompt variant，没有 task
+  formulation、target program 或 prompt/target 原子投影合同。
+- 旧 sample context 只有 global `draw_id`；直接用它驱动 curriculum 会让一个 dataset 的阶段随着其它
+  dataset mixing 权重变化，无法保持 dataset-local 的渐进训练语义。
+- Prompt pool、transform、审计字段和训练配置分别维护部分状态，缺少一个同时绑定 pool、schedule、seed、
+  prompt program、target program 与选择算法的 execution fingerprint 真源。
+
+### 影响范围
+
+- 影响需要从同一 canonical row 派生不同监督范围的 SFT 任务，以及现有 prompt wording rotation 的配置、
+  planning、分布式与 exact-resume 语义。
+- 普通已经 materialized 的 HF/LLaMA-Factory 风格 SFT 数据不需要在线投影，应保持直接消费。
+- 本问题属于 data/prompt 投影边界偏差，不是模型能力问题，也不是 eval、codec、metric 或 data label 标准误判。
+
+### 修复方式
+
+- 新增唯一运行时真源 `ShaftPromptSource`：task formulation 原子决定 system/user/target，formulation 内再用
+  独立随机域选择 prompt variant；顶层 `prompts` pool 正式编译为一个 `default + materialized target`
+  formulation，不保留旧 `PromptSamplingTransform` 双轨。
+- `data.prompt_sources.<dataset>` 统一配置 pool、train/all split、seed 与 step/linear schedule；未配置的 dataset
+  直接使用 materialized row，不需要 enabled/fallback 开关。
+- `ShaftSampleContext` 增加精确 dataset-local `source_draw_id`，concat/weighted 与 shuffle/unshuffle 都从逻辑
+  sample stream 直接计算；curriculum 不读取 epoch、optimizer step 或跨进程可变状态。
+- Arrow preflight 验证所有可达 formulation/variant；planning 与 runtime 共用同一 resolver。审计收敛到
+  `extra.prompt_source`，execution fingerprint 绑定 source-draw 算法、pool/schema/program、schedule 和 seed。
+- 删除空的全局 `DataTransformsConfig`、旧 `PromptSamplingConfig`、旧 builder 与散落的 `runtime_prompt_*`
+  状态；dataset 通用 transform 仍只由 `DatasetSourceConfig.offline_transforms/online_transforms` 声明。
+- worker 环境补齐共享 CUDA 12.8 toolkit，使 PyTorch 2.10 CUDA 12.8 与 DeepSpeed 0.19 能在测试和真实 GPU
+  训练中一致加载；对两个包含多次冷启动的有界测试按实测上调 timeout，仍保留死锁检测上限。
+
+### 回归测试
+
+- focused config/prompting/data/planning 回归覆盖 A/B/AB 原子投影、static/step/linear curriculum、独立随机域、
+  materialized 退化、严格 schema/未知字段拒绝、planning/runtime 一致、fingerprint 与四种 schedule 的精确
+  `source_draw_id`；收口后全部通过。
+- framework suite 在调整冷启动测试的有界 timeout 后整套通过；RLHF 分布式 8 场景边界用例也按正式测试
+  入口通过。smoke suite 全部通过；正式 distributed suite 其余用例全部通过，并保留 3 个既有能力门禁
+  skip。
+- `worker-0` 的 GPU 0/1 在确认空闲后执行真实两卡 DDP：预投影序列为 `A,A,B,B,AB,AB`，训练、逐步 eval
+  与 `checkpoint-1/2/3` 均成功；产物记录 `world_size=2`、3 optimizer steps、6 logical segments、770 useful
+  tokens 与非零 CUDA peak memory。
+
+### 后续防线
+
+- “问什么、监督什么”的变化必须新增 task formulation；只改措辞才新增 prompt variant。不得重新引入
+  `view` 或 `prompt_sampling` 平行运行时。
+- curriculum 只能消费 versioned `source_draw_id` 等逻辑 sample identity；不得使用 wall-clock、worker-local
+  RNG、epoch callback 或 optimizer step 反推数据阶段。
+- 新 PromptSource schema/config 字段必须进入严格解析、pool/selection fingerprint、Arrow preflight、主链 smoke
+  和正式文档；未知字段保持 fail closed。
+- fully materialized 数据始终是无 PromptSource 配置的直接路径，不为兼容性增加第二套 loader、transform 或
+  target 解释逻辑。
+
+## 2026-08-21：PromptSource 完成后数据文档仍停留在阶段性设计状态
+
+### 现象
+
+- PromptSource 已完成配置、运行时、planning/resume 和 GPU 主链验收，但正式入口仍引用
+  `prompt_source_design.md`；该文件同时包含目标、迁移步骤、删除计划、当前合同和日期化验收结果。
+- 根 README 仍标注“重构中”，`docs/` 没有一份统一说明 source truth、structured、SFT JSONL、
+  materialized 数据与 PromptSource canonical row 的当前数据合同。
+- 准备 Banana v5.8 时，若继续沿用 v5.7 的 materialized target 习惯，容易把同一 sample 展开成 A/B/AB
+  三行，或只换 prompt 不同步切换 target。
+
+### 根因
+
+- feature 开发期间以专项设计文档推动实现，完成后没有及时把稳定行为迁入公共 data reference，也没有删除
+  已完成的迁移计划。
+- 框架公共数据合同和具体 Banana 数据版本此前已经解耦，但只有 v5.7 task 文档；新的 formulation 数据格式
+  缺少 task-local 发布规范。
+- 文档索引按新增文件补入口，尚未再次按“当前真源 / 历史过程 / 数据版本任务”检查重复职责。
+
+### 影响范围
+
+- 影响框架使用者准备 SFT/PromptSource 数据、理解 A/B/AB formulation，以及后续 v5.8 builder、catalog 和
+  train recipe 的发布顺序。
+- 若错误预展开或维护多份 target，会破坏 canonical identity、curriculum 比例、可重建性和 exact-resume
+  审计；若在数据未物化时提前登记 catalog，会把 schema-valid 配置误报为 production-ready bundle。
+- 这是 data/prompt 文档与发布边界问题，不是模型能力下降，也不是 eval、codec、metric 或现有数据标签误判。
+
+### 修复方式
+
+- 新增 `docs/data.md`，统一 source/selection/structured/SFT 主链、三类 materialized/PromptSource row、
+  formulation pool、curriculum、fingerprint、审计和发布检查；配置逐字段说明仍由 `config_reference.md` 维护。
+- 删除阶段性 `docs/prompt_source_design.md`，不保留 redirect；迁移过程与验收证据只留在开发日志。
+- 新增 `scripts/tasks/banana_v5_8.md`：规定一条 canonical SFT row 保存完整、可重算的 A/B 参数，由
+  formulation 原子生成 A/B/AB prompt-target；数据未物化前不创建 production catalog 或训练 recipe。
+- 更新 README、文档索引、架构/模块/扩展/配置参考和 v5.7 task 文档；README 移除“重构中”，v5.7 明确
+  使用 PromptSource 的 `default + materialized target` 简写。
+
+### 回归测试
+
+- config/data/PromptSource focused 集合在训练 smoke 前的 186 个用例全部通过；首次 smoke 因当前 shell 未
+  继承已安装的 CUDA toolkit，12 个用例一致失败于 DeepSpeed `CUDA_HOME does not exist`，不是代码回归。
+- 显式设置共享 CUDA 12.8 后重跑 `tests/test_smoke_train_modes.py`，16 个训练 smoke 全部通过。
+- `ruff check src/shaft tests`、`python -m compileall -q src/shaft tests` 与 `git diff --check` 通过；检查根
+  README、`docs/` 和 task 文档共 19 个 Markdown 文件，所有相对链接均存在。
+- 搜索活动代码、配置和当前参考文档，不再存在 `data.transforms.prompt_sampling`、旧
+  `PromptSamplingConfig/Transform` 或已删除 `prompt_source_design.md` 的引用。
+
+### 后续防线
+
+- `docs/data.md` 只维护框架公共数据合同；具体数据版本、业务 schema、行数和构建命令继续与
+  `scripts/tasks/` 共置。阶段性设计完成后必须合并到当前真源并删除，不长期保留双轨说明。
+- A/B/AB 的业务字段必须先冻结 exact output schema，再由同一 structured/source truth 重算
+  `prompt_args`；不得复制 train row 或只切 prompt 不切 target。
+- builder 或 pool 文件存在不代表数据已发布。只有 media/JSONL 物化、split/schema/codec 校验和 smoke
+  完成后，才创建 catalog、更新 `media_snapshot_id` 并登记训练 recipe。
+- 依赖 DeepSpeed 的本地测试必须显式使用已安装的 CUDA toolkit 环境，避免把 shell 环境变量缺失误判为
+  框架回归。

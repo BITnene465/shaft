@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from shaft.config import RuntimeConfig, TrainDDPConfig, TrainDistributedConfig, load_config
-from shaft.prompting import load_prompt_pool
+from shaft.data import load_prompt_source_pool
 from tests.support.configs import load_config_from_yaml
 
 
@@ -46,18 +46,18 @@ def test_v5_7_training_configs_resolve_complete_dataset_and_prompt_contracts(
 
     assert tuple(dataset.dataset_name for dataset in config.data.datasets) == V5_7_DATASETS
     assert tuple(config.data.catalog_names) == V5_7_DATASETS
-    assert set(config.data.transforms.prompt_sampling.pools) == set(V5_7_DATASETS)
+    assert set(config.data.prompt_sources) == set(V5_7_DATASETS)
     assert all(not dataset.use_for_eval for dataset in config.data.datasets)
     assert config.eval.enabled is False
     assert config.data.media_snapshot_id == "banana-v5.7-media-v2"
 
-    for dataset_name, prompt_path in config.data.transforms.prompt_sampling.pools.items():
-        variants = load_prompt_pool(prompt_path)
-        assert variants
+    for dataset_name, source in config.data.prompt_sources.items():
+        pool = load_prompt_source_pool(source.path)
+        assert pool.formulations
         expected_version = (
             "v5.3" if dataset_name == "image_context_reconstruction" else "v5.7"
         )
-        assert {variant.version for variant in variants} == {expected_version}
+        assert pool.version == expected_version
 
 
 def test_load_minimal_config(tmp_path: Path) -> None:
@@ -90,14 +90,14 @@ data:
     assert cfg.progress.persist is True
     assert cfg.data.schedule.mixing == "weighted"
     assert cfg.data.schedule.shuffle is True
-    assert cfg.data.transforms.prompt_sampling.enabled is False
+    assert cfg.data.prompt_sources == {}
     assert cfg.data.batching.grouping == "none"
     assert cfg.data.batching.cardinality == "fixed"
     assert cfg.data.batching.packing.mode == "none"
     assert cfg.data.batching.layout == "padded"
 
 
-def test_schedule_and_prompt_sampling_parse_quoted_booleans(tmp_path: Path) -> None:
+def test_schedule_and_data_flags_parse_quoted_booleans(tmp_path: Path) -> None:
     payload = """
 data:
   schedule:
@@ -105,10 +105,6 @@ data:
   pin_memory: "false"
   persistent_workers: "false"
   add_eos_token: "false"
-  transforms:
-    prompt_sampling:
-      enabled: "false"
-      train_only: "false"
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -120,8 +116,6 @@ eval:
     cfg = load_config_from_yaml(tmp_path, payload)
 
     assert cfg.data.schedule.shuffle is False
-    assert cfg.data.transforms.prompt_sampling.enabled is False
-    assert cfg.data.transforms.prompt_sampling.train_only is False
     assert cfg.data.pin_memory is False
     assert cfg.data.persistent_workers is False
     assert cfg.data.add_eos_token is False

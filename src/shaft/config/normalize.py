@@ -350,36 +350,88 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     ]
     if config.data.catalog_path is not None:
         config.data.catalog_path = str(config.data.catalog_path).strip() or None
-    prompt_sampling = config.data.transforms.prompt_sampling
-    prompt_sampling.enabled = _normalize_bool(
-        prompt_sampling.enabled,
-        "data.transforms.prompt_sampling.enabled",
-    )
-    prompt_sampling.train_only = _normalize_bool(
-        prompt_sampling.train_only,
-        "data.transforms.prompt_sampling.train_only",
-    )
-    if prompt_sampling.seed is not None:
-        prompt_sampling.seed = int(prompt_sampling.seed)
-    normalized_prompt_pools: dict[str, str] = {}
-    for dataset_name, path in dict(prompt_sampling.pools).items():
+    normalized_prompt_sources = {}
+    for dataset_name, prompt_source in dict(config.data.prompt_sources).items():
         normalized_name = str(dataset_name).strip()
         if not normalized_name:
             raise ValueError(
-                "data.transforms.prompt_sampling.pools contains an empty dataset key."
+                "data.prompt_sources contains an empty dataset key."
             )
-        normalized_path = str(path).strip()
+        if normalized_name in normalized_prompt_sources:
+            raise ValueError(
+                "data.prompt_sources contains duplicate normalized dataset key "
+                f"{normalized_name!r}."
+            )
+        normalized_path = str(prompt_source.path).strip()
         if not normalized_path:
             raise ValueError(
-                "data.transforms.prompt_sampling.pools."
-                f"{normalized_name} must point to a prompt pool file."
+                f"data.prompt_sources.{normalized_name}.path must point to a PromptSource pool."
             )
-        normalized_prompt_pools[normalized_name] = normalized_path
-    prompt_sampling.pools = normalized_prompt_pools
-    if prompt_sampling.enabled and not prompt_sampling.pools:
-        raise ValueError(
-            "data.transforms.prompt_sampling.enabled=true requires at least one prompt pool."
-        )
+        prompt_source.path = normalized_path
+        prompt_source.apply_to = str(prompt_source.apply_to).strip().lower()
+        if prompt_source.apply_to not in {"train", "all"}:
+            raise ValueError(
+                f"data.prompt_sources.{normalized_name}.apply_to must be 'train' or 'all'."
+            )
+        if prompt_source.seed is not None:
+            prompt_source.seed = int(prompt_source.seed)
+        prompt_schedule = prompt_source.schedule
+        prompt_schedule.interpolation = str(prompt_schedule.interpolation).strip().lower()
+        if prompt_schedule.interpolation not in {"step", "linear"}:
+            raise ValueError(
+                f"data.prompt_sources.{normalized_name}.schedule.interpolation must be "
+                "'step' or 'linear'."
+            )
+        previous_draw: int | None = None
+        for point_index, point in enumerate(prompt_schedule.points):
+            if isinstance(point.source_draw, bool) or not isinstance(point.source_draw, int):
+                raise TypeError(
+                    f"data.prompt_sources.{normalized_name}.schedule.points[{point_index}]."
+                    "source_draw must be an integer."
+                )
+            if point.source_draw < 0:
+                raise ValueError(
+                    f"data.prompt_sources.{normalized_name}.schedule.points[{point_index}]."
+                    "source_draw must be >= 0."
+                )
+            if point_index == 0 and point.source_draw != 0:
+                raise ValueError(
+                    f"data.prompt_sources.{normalized_name}.schedule first source_draw must be 0."
+                )
+            if previous_draw is not None and point.source_draw <= previous_draw:
+                raise ValueError(
+                    f"data.prompt_sources.{normalized_name}.schedule source_draw values must be "
+                    "strictly increasing."
+                )
+            previous_draw = point.source_draw
+            normalized_weights: dict[str, float] = {}
+            for formulation_id, raw_weight in dict(point.weights).items():
+                normalized_id = str(formulation_id).strip()
+                if not normalized_id:
+                    raise ValueError(
+                        f"data.prompt_sources.{normalized_name}.schedule contains an empty "
+                        "formulation id."
+                    )
+                if normalized_id in normalized_weights:
+                    raise ValueError(
+                        f"data.prompt_sources.{normalized_name}.schedule contains duplicate "
+                        f"normalized formulation id {normalized_id!r}."
+                    )
+                weight = float(raw_weight)
+                if not math.isfinite(weight) or weight < 0:
+                    raise ValueError(
+                        f"data.prompt_sources.{normalized_name}.schedule weight for "
+                        f"{normalized_id!r} must be finite and >= 0."
+                    )
+                normalized_weights[normalized_id] = weight
+            if not normalized_weights or not any(normalized_weights.values()):
+                raise ValueError(
+                    f"data.prompt_sources.{normalized_name}.schedule point at "
+                    f"source_draw={point.source_draw} needs at least one positive weight."
+                )
+            point.weights = normalized_weights
+        normalized_prompt_sources[normalized_name] = prompt_source
+    config.data.prompt_sources = normalized_prompt_sources
 
     finetune = config.model.finetune
     _normalize_bool_fields(
@@ -487,24 +539,17 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if not any(dataset.enabled and dataset.weight > 0 for dataset in config.data.datasets):
         raise ValueError("data.datasets requires at least one enabled dataset with weight > 0.")
 
-    if prompt_sampling.enabled:
-        missing_prompt_pools = [
-            dataset.dataset_name
-            for dataset in config.data.datasets
-            if (
-                dataset.enabled
-                and (
-                    dataset.weight > 0 or (not prompt_sampling.train_only and dataset.use_for_eval)
-                )
-                and dataset.dataset_name not in prompt_sampling.pools
-            )
-        ]
-        if missing_prompt_pools:
-            raise ValueError(
-                "data.transforms.prompt_sampling.enabled=true requires prompt pools "
-                "for all active train/eval datasets. "
-                f"Missing: {missing_prompt_pools}"
-            )
+    configured_dataset_names = {
+        dataset.dataset_name for dataset in config.data.datasets if dataset.enabled
+    }
+    unknown_prompt_sources = sorted(
+        set(config.data.prompt_sources) - configured_dataset_names
+    )
+    if unknown_prompt_sources:
+        raise ValueError(
+            "data.prompt_sources references unknown datasets: "
+            f"{unknown_prompt_sources}"
+        )
 
     if bool(config.eval.enabled):
         has_eval_dataset = any(

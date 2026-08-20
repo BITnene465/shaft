@@ -145,15 +145,20 @@ def _build_sft_record_from_raw(
 ) -> SFTRecord:
     image_paths = _resolve_image_paths(raw, jsonl_path, line_no)
     messages = _normalize_messages(raw)
+    raw_prompt_args = raw.get("prompt_args")
+    prompt_args = {} if raw_prompt_args is None else raw_prompt_args
+    if not isinstance(prompt_args, dict):
+        raise ValueError("`prompt_args` must be a JSON object when provided.")
     target_text = raw.get("target_text")
     if target_text is None and messages is not None:
         extracted_target, prompt_messages = _extract_target_from_messages(messages)
         if extracted_target is not None:
             target_text = extracted_target
             messages = prompt_messages
-    if target_text is None:
+    if target_text is None and not prompt_args:
         raise ValueError(
-            "Missing target text. Expected target_text or a trailing assistant message."
+            "Missing target text. Expected target_text, a trailing assistant message, or "
+            "PromptSource prompt_args for rendered-target projection."
         )
     _validate_message_image_count(
         messages,
@@ -162,10 +167,6 @@ def _build_sft_record_from_raw(
         line_no=line_no,
     )
 
-    raw_prompt_args = raw.get("prompt_args")
-    prompt_args = {} if raw_prompt_args is None else raw_prompt_args
-    if not isinstance(prompt_args, dict):
-        raise ValueError("`prompt_args` must be a JSON object when provided.")
     if messages and prompt_args:
         raise ValueError("SFT samples cannot provide both `messages` and non-empty `prompt_args`.")
 
@@ -193,7 +194,7 @@ def _build_sft_record_from_raw(
         extra.setdefault("source_dataset_name", raw_dataset_name)
     return SFTRecord(
         image_paths=image_paths,
-        target_text=str(target_text),
+        target_text="" if target_text is None else str(target_text),
         dataset_name=dataset_name,
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,

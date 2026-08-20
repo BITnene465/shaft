@@ -6,7 +6,7 @@
   </picture>
   <h1>Shaft</h1>
   <p><strong>HF-first multimodal training and inference infrastructure</strong></p>
-  <p><sub>面向工程师与研究者 · 重构中</sub></p>
+  <p><sub>面向工程师与研究者 · Qwen 多模态 SFT 生产主线</sub></p>
 </div>
 
 <p align="center">
@@ -313,8 +313,11 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 
 - `SFT`
 - SFT/DPO 的 padded 路径支持单条样本内有序多图；multi-image varlen/sequence packing 仍 fail closed。
-- SFT prompt pool 支持 pool 级参数 schema 与 JSONL `prompt_args`；训练 planning 和实际读取共用受限
-  `{{ name }}` / `{{ name | json }}` renderer，静态 pool 保持兼容。
+- SFT PromptSource 支持同一 canonical row 的 task formulation（例如 A/B/AB）、formulation 内 prompt
+  rotation、prompt/target 原子投影，以及按 dataset-local draw 的 step/linear curriculum；训练 planning 与
+  实际读取共用受限 `{{ name }}` / `{{ name | json }}` renderer。未配置 PromptSource 时直接消费普通
+  materialized HF/LLaMA-Factory 风格数据。完整合同见
+  [`docs/data.md`](docs/data.md)。
 - `DPO`（实验能力；配置、数据、collator 与 TRL 装配合同已接通，但真实 Qwen release gate 尚未完成；
   FSDP+PEFT exact resume 当前不属于支持范围，即使通用配置预检未提前拒绝也不得使用）
 - `PPO`（仅 debug smoke；当前 text-only、没有真实 reward-model 加载，不支持 full finetune、periodic
@@ -378,6 +381,7 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - [docs/architecture.md](docs/architecture.md)
 - [docs/module_reference.md](docs/module_reference.md)
 - [docs/config_reference.md](docs/config_reference.md)
+- [docs/data.md](docs/data.md)
 - [docs/extension_guide.md](docs/extension_guide.md)
 - [docs/testing.md](docs/testing.md)
 - [docs/infer.md](docs/infer.md)

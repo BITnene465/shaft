@@ -32,7 +32,7 @@ from .mixing import ShaftSampleRef, ShaftSampleSchedule, _splitmix64
 from .planned import ShaftPlannedSampleRef
 
 
-SHAFT_BATCH_PLANNING_VERSION = "shaft-batch-planning-v4"
+SHAFT_BATCH_PLANNING_VERSION = "shaft-batch-planning-v5"
 _FULL_PARTITION_SEARCH_NODE_LIMIT = 100_000
 
 

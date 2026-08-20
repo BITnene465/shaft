@@ -16,7 +16,8 @@
 | `image_context_reconstruction` | 21,184 | 真实 reviewed 13 类 image type | `image_context_reconstruction.v5.3.yaml` |
 
 `image_context_reconstruction` 的业务字段没有随 v5.7 改版，因此有意继续使用 v5.3 prompt。其余四个数据源
-必须使用 v5.7 pool。所有 SFT 行的 `system_prompt` / `user_prompt` 为空，由运行时 prompt sampling 注入。
+必须使用 v5.7 pool。所有 SFT 行的 `system_prompt` / `user_prompt` 为空，由 PromptSource 的单一
+`default` formulation 在运行时选择等价 prompt variant；v5.7 target 仍由行内 `target_text` 物化。
 
 当前正式 mix 不包含：
 

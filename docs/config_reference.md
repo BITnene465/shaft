@@ -44,8 +44,8 @@ RuntimeConfig
 │   ├── catalog_path / catalog_names / datasets
 │   ├── schedule
 │   │   └── mixing / shuffle
-│   ├── transforms
-│   │   └── prompt_sampling
+│   ├── prompt_sources
+│   │   └── <dataset>.path / apply_to / seed / schedule
 │   ├── batching
 │   │   ├── grouping
 │   │   ├── cardinality
@@ -139,7 +139,7 @@ source load -> datasets[*].offline_transforms -> train/val record stores
         │     ▼
         │   datasets[*].online_transforms
         │     ▼
-        │   data.transforms.prompt_sampling
+        │   data.prompt_sources: formulation -> prompt variant -> prompt + target
         │     ▼
         │   grouping -> cardinality -> packing -> layout/collator
         │     ▼
@@ -155,19 +155,20 @@ source load -> datasets[*].offline_transforms -> train/val record stores
               ▼
             datasets[*].online_transforms
               ▼
-            prompt_sampling（仅 train_only=false）
+            PromptSource（对应 source 的 apply_to=all 时）
               ▼
             eval fixed padded batch
             B = eval.per_device_eval_batch_size
 ```
 
-`schedule` 决定训练哪些 logical draws；`transforms` 决定同一个 draw 如何呈现；`batching` 决定 draws 如何
-组合执行。planned batching 可以在有界窗口内重排 draws，但不能额外丢失、复制或改变 schedule 已产生的
-`draw_id` multiset。weighted schedule 在 canonical draw 顺序中对每个 source 独立无放回；source 全部行
+`schedule` 决定训练哪些 logical draws；dataset transforms 与 PromptSource 决定同一个 draw 如何呈现；
+`batching` 决定 draws 如何组合执行。planned batching 可以在有界窗口内重排 draws，但不能额外丢失、复制
+或改变 schedule 已产生的 `draw_id` multiset。weighted schedule 在 canonical draw 顺序中对每个 source
+独立无放回；source 全部行
 耗尽后才进入下一轮确定性置换。这里守恒的是 draw identity；batching 可以重排 draws，GRPO 也有算法要求的
 grouped repeat，因此不能从最终 tensor 顺序反推 canonical source cycle。
 
-offline transform 改变正式 record store，因此发生在 schedule 之前；online transform 和 prompt sampling
+offline transform 改变正式 record store，因此发生在 schedule 之前；online transform 和 PromptSource
 只生成 draw view。planned 路径会在 cost planning 时重放同一份 planning-safe view，worker 真正取样时再按
 相同 draw context 确定性执行，并不会提前物化全量 transformed samples。train 的 schedule/mixing/
 grouping/packing 不作用于 eval；`data.datasets[*].weight` 只控制 train schedule，
@@ -182,7 +183,8 @@ grouping/packing 不作用于 eval；`data.datasets[*].weight` 只控制 train s
 |---|---|---|---|
 | `catalog / datasets` | 配置 -> source snapshots | source 集合、路径、权重、train/eval 资格 | batch 大小、训练顺序 |
 | `schedule` | `draw_id` -> `SampleRef` | source mixing、source 内 row 顺序 | prompt 内容、batch 成员关系 |
-| `transforms` | `SampleRef` -> logical sample view | prompt variant、planning-safe 在线视图 | `draw_id`、source 权重、row identity |
+| `datasets[*].online_transforms` | `SampleRef` -> logical sample view | dataset 声明的 planning-safe 在线视图 | `draw_id`、source 权重、row identity |
+| `prompt_sources` | canonical row -> prompt/target view | formulation、prompt variant、原子 target 投影 | `draw_id`、source 权重、row identity |
 | `batching.grouping` | draws -> 有界重排后的 draws | 候选分组和局部顺序 | draw multiset、prompt variant |
 | `batching.cardinality` | draws -> local batch membership | 每卡本 microstep 的 physical-pack 数 | pack 内 segment 组合、tensor layout |
 | `batching.packing` | logical samples -> physical packs | 多个完整 segment 是否共享一个 pack | 样本内容、segment 内 token 顺序 |
@@ -636,7 +638,7 @@ DataLoader 每 rank 一次取得 `B × gradient_accumulation_steps` 条，再受
 weighted source schedule
         │
         ▼
-prompt sampling
+PromptSource / online transform
         │
         ▼
 bounded_cost，lookahead buffer=64
@@ -853,104 +855,99 @@ data:
 同一个 `draw_id`、seed 和 source snapshot 必须解析到同一个 source/row。batching 可以在有界窗口内重组
 已经选中的 draws，但不能改变 schedule 的 multiset。
 
-### `data.transforms.prompt_sampling`
+### `data.prompt_sources`
 
-用途：训练运行时对同一数据样本随机轮换等价 prompt，避免把固定 prompt 学成任务 one-hot 编码。
+用途：把一条 canonical SFT row 投影成完整的 `system_prompt/user_prompt/target_text`。它统一承载两层选择：
 
-关键字段：
+- task formulation：决定问什么、监督什么，例如 reconstruction 的 A、B、AB；
+- prompt variant：同一 formulation 内轮换语义等价的措辞。
 
-- `enabled`: 是否启用，默认 `false`。
-- `train_only`: 是否只对 train dataset 生效，默认 `true`。推荐保持 `true`，让 val/eval 使用固定 canonical
-  prompt。
-- `seed`: prompt 采样种子；未设置时使用 `experiment.seed`。
-- `pools`: 按 `dataset_name` 配置单个版本化 prompt pool YAML 文件。
+未配置的 dataset 直接使用 materialized 数据，不执行在线投影。这就是与普通 HF/LLaMA-Factory 风格离线
+数据的退化路径，不需要 `enabled: false`。
 
-示例：
+配置示例：
 
 ```yaml
 data:
-  transforms:
-    prompt_sampling:
-      enabled: true
-      train_only: true
-      seed: 42
-      pools:
-        dataset_a: /path/to/dataset_a_prompt_pool.yaml
-        dataset_b: /path/to/dataset_b_prompt_pool.yaml
+  prompt_sources:
+    reconstruction:
+      path: ../prompts/reconstruction.formulations.yaml
+      apply_to: train       # train | all
+      seed: 42              # 省略时继承 experiment.seed
+      schedule:
+        interpolation: linear  # step | linear
+        points:
+          - source_draw: 0
+            weights: {a: 1.0, b: 1.0, ab: 0.0}
+          - source_draw: 50000
+            weights: {a: 0.5, b: 0.5, ab: 1.0}
 ```
 
-Prompt pool 示例：
+formulation pool 示例：
 
 ```yaml
-metadata:
-  id: shaft.example.prompt_pool.v1
-  version: v1
-prompts:
-  - id: canonical
-    sampling_weight: 3.0
-    user_prompt: Return the requested JSON.
-  - id: concise
-    sampling_weight: 1.0
-    user_prompt: JSON only.
-```
-
-参数化 variant 使用 pool 级 `arguments` schema；同一个 pool 的所有静态/动态 variant 共用该 schema：
-
-```yaml
-metadata:
-  id: shaft.reconstruction.prompt_pool.v1
-  version: v1
+metadata: {id: shaft.reconstruction.formulations.v1, version: v1}
 arguments:
-  target_type:
-    type: enum
-    values: [shape, line]
-    required: true
-  target_bbox:
-    type: bbox_2d_0_999
-    required: true
-prompts:
-  - id: main
-    system_prompt: Return JSON only.
-    user_prompt_template: >-
-      Reconstruct {{ target_type }} at {{ target_bbox | json }}.
+  object_a: {type: json}
+  object_b: {type: json}
+formulations:
+  - id: a
+    sampling_weight: 1.0
+    target_template: '{{ object_a | json }}'
+    prompts:
+      - id: direct
+        system_prompt: Return compact JSON only.
+        user_prompt: Reconstruct attribute A.
+  - id: b
+    sampling_weight: 1.0
+    target_template: '{{ object_b | json }}'
+    prompts:
+      - id: direct
+        user_prompt: Reconstruct attribute B.
+  - id: ab
+    sampling_weight: 0.0
+    target_template: '{"A":{{ object_a | json }},"B":{{ object_b | json }}}'
+    prompts:
+      - id: direct
+        user_prompt: Reconstruct attributes A and B.
 ```
 
-对应 SFT 行只保存参数：
+对应 rendered-target canonical 行不物化多个答案：
 
 ```json
-{"image_path":"images/a.png","target_text":"{}","prompt_args":{"target_type":"shape","target_bbox":[10,20,300,400]}}
+{"image_path":"images/a.png","prompt_args":{"object_a":{"x":1},"object_b":{"y":2}}}
 ```
+
+现有顶层 `prompts` pool 是正式简写：它会编译成一个名为 `default`、使用 materialized target 的
+formulation，因此当前 prompt 轮换自然属于 PromptSource，而不是另一条兼容链路。
 
 约束：
 
-- prompt pool 路径相对训练 YAML 所在目录解析；一个数据集只能指向一个 pool 文件。
-- pool 只按 `dataset_name` 匹配，不能跨任务复用不同 label scope 的 prompt。
-- 每个 pool YAML 必须包含 `metadata.id`、版本信息和非空 `prompts` 列表；每个 variant 必须包含 `id`，并且
-  只能选择静态 `user_prompt` 或动态 `user_prompt_template` 之一。
-- 动态语法只有 `{{ name }}` 与 `{{ name | json }}`。普通单花括号按字面量保留，因此 JSON 示例无需转义；
-  不支持 Jinja、属性访问、表达式或任意代码。无 `json` filter 的插值只适用于 `string/enum`。
-- 参数类型支持 `string/enum/integer/float/boolean/json/bbox_2d_0_999`。参数必须齐全且不能多出 schema
-  外字段；数值必须有限，bbox 必须是合法的 `0..999` 整数坐标且顺序正确。`json` filter 使用稳定的
-  UTF-8 compact/sorted-key JSON。
-- `system_prompt` 始终静态。pool 未声明参数时样本不得携带非空 `prompt_args`；关闭 prompt sampling 时同样
-  fail fast，避免参数被静默忽略。
-- variant 可配置非负 `sampling_weight`；运行时会归一化为概率。省略时默认为 `1.0`，因此整个 pool
-  省略该字段就是等概率。至少一个 variant 的 weight 必须大于 0。
-- 启用后，所有正权重 train source 都必须有对应 pool；当 `train_only=false` 时，启用的 eval source
-  也必须有 pool。`weight=0` 且不需要 eval prompt 的 source 不要求配置。SFT 行里的 `user_prompt` 不再
-  作为 prompt 真源。
-- 采样单位是 logical sample draw，采样键包含 prompt seed、sample ref 的 transform seed、
-  `dataset_name + sample_id + draw_id`。同一个
-  GRPO grouped-generation 位置保持同一 prompt；同一 source row 被再次抽到时可随 draw_id 轮换，且
-  在 resume、多 worker 和分布式场景下仍可复现。
-- 当前实现只替换 `system_prompt/user_prompt` 形式的样本；如果样本已经提供多轮 `messages`，会跳过采样并在
-  `extra.prompt_sampling_skipped` 里记录原因。
-- 规划读取和实际 DataLoader 读取调用同一 transform/renderer。审计 metadata 记录 renderer 版本、模板、参数
-  与最终文本的 SHA256；transform fingerprint 同时绑定 pool schema、模板内容与 renderer 版本。
-- exact resume 的 sample execution identity 同时绑定 sample plan/schedule、按 dataset 排序的规范化 record-store
-  fingerprint、`media_snapshot_id` 和 online transform fingerprint；修改 JSONL `prompt_args`、媒体快照、prompt
-  program、schema、weight 或 renderer 后，都不能继续旧 optimizer schedule，只能恢复原输入或把旧 checkpoint
-  作为 `init_from_checkpoint` 启动新 schedule。
+- pool 路径相对训练 YAML 解析。`apply_to=train` 要求 eval 行已经 materialized；`apply_to=all` 也投影 eval，
+  eval 固定使用 `source_draw_id=0`。
+- `formulations` 与顶层 `prompts` 只能二选一。每个 formulation 必须选择 `target_template` 或
+  `target: materialized`，并至少包含一个正权重 prompt variant。
+- pool 级 `arguments` 是 prompt 与 target program 的共同 schema。SFT `prompt_args` 因此表示整个
+  PromptSource 的参数，而不只是 user prompt 参数。
+- 动态语法只有 `{{ name }}` 与 `{{ name | json }}`；不支持 Jinja、属性访问、表达式或任意代码。类型支持
+  `string/enum/integer/float/boolean/json/bbox_2d_0_999`，所有参数必须齐全且不能多出 schema。
+- pool 模式禁止 materialized `messages/user_prompt`。rendered-target formulation 禁止非空 `target_text`；
+  materialized-target formulation 要求非空 `target_text`。所有可达 formulation/variant 在 Arrow preflight
+  阶段统一验证，不能等随机抽到时才失败。
+- `schedule.points` 首点必须是 0 且严格递增；每点完整列出所有 formulation，权重有限、非负并至少有一个
+  正值。未配置 schedule 时使用 formulation 的静态 `sampling_weight`。
+- curriculum 使用 `ShaftSampleContext.source_draw_id`，即该 dataset 自己第几次进入逻辑样本流；修改其他
+  dataset 的 mixing 不会移动本 dataset 的 A/B/AB 阶段。`step` 保持左值，`linear` 对原始权重插值。
+- formulation 和 prompt variant 使用独立的确定性 hash 随机域。增加 prompt wording 不会改变 A/B/AB
+  分布；planning/runtime、多 worker、DP rank 和 exact resume 结果一致。
+- 投影审计集中写入 `extra.prompt_source`，包含 pool/formulation/variant、全局和 source-local draw、实际权重
+  以及 prompt/target/arguments 的 SHA256，不再维护散落的 `runtime_prompt_*` 字段。
+- execution fingerprint 绑定 sample stream、`source_draw_id` 算法、record/media snapshot、pool schema、
+  prompt/target programs、schedule、weights、seed 与 renderer。任一合同变化后旧 checkpoint 只能作为
+  `init_from_checkpoint` 启动新 schedule。
+
+完整 pool schema、合法 row 模式、选择算法与验收门禁见
+[data.md](data.md)。
 
 补充说明：
 

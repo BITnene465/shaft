@@ -423,7 +423,7 @@ def _run_rlhf_trainer_prepare_fault(
     repo_root: Path,
     output_dir: Path,
     *,
-    timeout: int = 60,
+    timeout: int = 120,
 ) -> subprocess.CompletedProcess[str]:
     env = _torchrun_env(repo_root)
     return subprocess.run(

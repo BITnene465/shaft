@@ -9,7 +9,13 @@ from PIL import Image
 import pytest
 from torch.utils.data import DataLoader
 
-from shaft.config import DatasetSourceConfig, PromptSamplingConfig, RuntimeConfig
+from shaft.config import (
+    DatasetSourceConfig,
+    PromptSourceConfig,
+    PromptSourceScheduleConfig,
+    PromptSourceSchedulePointConfig,
+    RuntimeConfig,
+)
 from shaft.data import (
     DPODataset,
     SFTDataset,
@@ -304,7 +310,7 @@ def test_bounded_dataset_suppresses_pil_bomb_warning_but_not_hard_error(
         bounded[0]
 
 
-def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> None:
+def test_data_center_prompt_source_applies_only_to_train(tmp_path: Path) -> None:
     image = _write_image(tmp_path / "img.png")
     train_path = _write_jsonl(
         tmp_path / "train.jsonl",
@@ -313,8 +319,6 @@ def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> No
                 "image_path": str(image),
                 "target_text": '{"a":1}',
                 "sample_id": "sample-1",
-                "system_prompt": "canonical system",
-                "user_prompt": "canonical user",
             }
         ],
     )
@@ -344,12 +348,11 @@ def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> No
     config.experiment.seed = 11
     config.data.schedule.mixing = "concat"
     config.data.schedule.shuffle = False
-    config.data.transforms.prompt_sampling = PromptSamplingConfig(
-        enabled=True,
-        train_only=True,
+    config.data.prompt_sources = {"ds": PromptSourceConfig(
+        path=str(prompt_pool),
+        apply_to="train",
         seed=99,
-        pools={"ds": str(prompt_pool)},
-    )
+    )}
     config.data.datasets = [
         DatasetSourceConfig(dataset_name="ds", train_path=str(train_path), val_path=str(val_path))
     ]
@@ -360,20 +363,22 @@ def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> No
     train_sample = dataset_bundle.train_dataset[0]
     assert train_sample["user_prompt"] in {"user a", "user b"}
     assert train_sample["system_prompt"] in {"system a", "system b"}
-    assert train_sample["extra"]["runtime_prompt_id"] in {"prompt.pool.a", "prompt.pool.b"}
-    assert train_sample["extra"]["runtime_prompt_version"] == "test-version"
-    assert train_sample["extra"]["runtime_prompt_draw_id"] == 0
+    assert train_sample["extra"]["prompt_source"]["variant_id"] in {"a", "b"}
+    assert train_sample["extra"]["prompt_source"]["pool_version"] == "test-version"
+    assert train_sample["extra"]["prompt_source"]["draw_id"] == 0
+    assert train_sample["extra"]["prompt_source"]["source_draw_id"] == 0
 
     assert dataset_bundle.train_sampler is not None
     dataset_bundle.train_sampler.set_epoch(3)
     refreshed_ref = next(iter(dataset_bundle.train_sampler))
     refreshed_sample = dataset_bundle.train_dataset[refreshed_ref]
-    assert refreshed_sample["extra"]["runtime_prompt_draw_id"] == 3
+    assert refreshed_sample["extra"]["prompt_source"]["draw_id"] == 3
+    assert refreshed_sample["extra"]["prompt_source"]["source_draw_id"] == 3
 
     val_sample = dataset_bundle.eval_dataset[0]
     assert val_sample["user_prompt"] == "canonical user"
     assert val_sample["system_prompt"] == "canonical system"
-    assert "runtime_prompt_id" not in val_sample["extra"]
+    assert "prompt_source" not in val_sample["extra"]
 
 
 def test_dynamic_prompt_is_identical_for_planning_and_actual_reads(tmp_path: Path) -> None:
@@ -414,11 +419,10 @@ prompts:
     config = RuntimeConfig()
     config.data.schedule.mixing = "concat"
     config.data.schedule.shuffle = False
-    config.data.transforms.prompt_sampling = PromptSamplingConfig(
-        enabled=True,
+    config.data.prompt_sources = {"ds": PromptSourceConfig(
+        path=str(prompt_pool),
         seed=5,
-        pools={"ds": str(prompt_pool)},
-    )
+    )}
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="ds",
@@ -436,9 +440,80 @@ prompts:
     assert planned["user_prompt"] == actual["user_prompt"]
     assert planned["user_prompt"] == "Reconstruct shape at [10,20,300,400]."
     assert (
-        planned["extra"]["runtime_prompt_rendered_sha256"]
-        == (actual["extra"]["runtime_prompt_rendered_sha256"])
+        planned["extra"]["prompt_source"]["user_prompt_sha256"]
+        == (actual["extra"]["prompt_source"]["user_prompt_sha256"])
     )
+
+
+def test_formulation_target_is_identical_for_planning_and_actual_reads(
+    tmp_path: Path,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "sample_id": "sample-1",
+                "prompt_args": {"a": {"x": 1}, "b": [2, 3]},
+            }
+        ],
+    )
+    prompt_pool = tmp_path / "formulation-pool.yaml"
+    prompt_pool.write_text(
+        """
+metadata: {id: prompt.formulation, version: v1}
+arguments:
+  a: {type: json}
+  b: {type: json}
+formulations:
+  - id: a
+    target_template: '{{ a | json }}'
+    prompts:
+      - id: main
+        user_prompt: Reconstruct A.
+  - id: ab
+    target_template: '{"A":{{ a | json }},"B":{{ b | json }}}'
+    prompts:
+      - id: main
+        user_prompt: Reconstruct A and B.
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.prompt_sources = {
+        "ds": PromptSourceConfig(
+            path=str(prompt_pool),
+            schedule=PromptSourceScheduleConfig(
+                points=[
+                    PromptSourceSchedulePointConfig(
+                        source_draw=0,
+                        weights={"a": 0.0, "ab": 1.0},
+                    )
+                ]
+            ),
+        )
+    }
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+    bundle = ShaftDataCenter(config.data, seed=5).build_dataset_bundle(SFTDataset)
+    assert bundle.train_sampler is not None
+    sample_ref = next(iter(bundle.train_sampler))
+
+    planned = bundle.train_dataset.get_planning_item(sample_ref)
+    actual = bundle.train_dataset[sample_ref]
+
+    assert planned["user_prompt"] == actual["user_prompt"] == "Reconstruct A and B."
+    assert planned["target_text"] == actual["target_text"] == '{"A":{"x":1},"B":[2,3]}'
+    assert planned["extra"]["prompt_source"] == actual["extra"]["prompt_source"]
 
 
 @pytest.mark.parametrize("grouping", ["none", "length"])
@@ -467,10 +542,7 @@ prompts:
     config.data.batching.grouping = grouping
     config.data.schedule.mixing = "concat"
     config.data.schedule.shuffle = False
-    config.data.transforms.prompt_sampling = PromptSamplingConfig(
-        enabled=True,
-        pools={"ds": str(prompt_pool)},
-    )
+    config.data.prompt_sources = {"ds": PromptSourceConfig(path=str(prompt_pool))}
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="ds",
@@ -547,10 +619,7 @@ prompts:
     )
     config = RuntimeConfig()
     config.data.record_cache_dir = str(tmp_path / "record-cache")
-    config.data.transforms.prompt_sampling = PromptSamplingConfig(
-        enabled=True,
-        pools={"ds": str(prompt_pool)},
-    )
+    config.data.prompt_sources = {"ds": PromptSourceConfig(path=str(prompt_pool))}
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="ds",

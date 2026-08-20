@@ -8,10 +8,11 @@ from typing import Any, Generic, TypeVar
 
 from torch.utils.data import Sampler
 
-from shaft.config import DataConfig, PromptSamplingConfig
+from shaft.config import DataConfig
 from shaft.prompting import canonical_json
 
 from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule
+from .prompt_source import build_prompt_source_resolver
 from .record_store import ShaftConcatRecordStore
 from .sampler import ShaftSampleSampler
 from .meta import build_dataset_metas
@@ -19,7 +20,6 @@ from .sources import build_data_source
 from .transforms import (
     build_offline_pipeline,
     build_online_pipeline,
-    build_prompt_sampling_transform,
     is_planning_safe_online_transform,
     planning_online_transform_fingerprint,
     planning_safe_online_transform,
@@ -161,9 +161,8 @@ class ShaftDataCenter:
         records_by_dataset_val: dict[str, Sequence[Any]] = {}
         weights: dict[str, float] = {}
         dataset_online_pipelines: dict[str, OnlineSampleTransform] = {}
-        prompt_sampling = self.data_config.transforms.prompt_sampling
-        prompt_sampling_transform = build_prompt_sampling_transform(
-            prompt_sampling,
+        prompt_source = build_prompt_source_resolver(
+            self.data_config.prompt_sources,
             default_seed=self.seed,
         )
 
@@ -174,18 +173,27 @@ class ShaftDataCenter:
                 dataset_meta,
                 cache_dir=self.data_config.record_cache_dir,
                 record_validator=lambda record, split, dataset_name=dataset_meta.dataset_name: (
-                    prompt_sampling_transform.validate_record(
+                    prompt_source.validate_record(
                         record,
                         dataset_name=dataset_name,
-                        active=(
-                            prompt_sampling.enabled
-                            and (split == "train" or not prompt_sampling.train_only)
-                        ),
+                        split=split,
                     )
                 ),
                 validation_fingerprint=(
-                    f"{prompt_sampling_transform.record_validation_fingerprint(dataset_meta.dataset_name)}:"
-                    f"train_only={prompt_sampling.train_only}"
+                    hashlib.sha256(
+                        repr(
+                            (
+                                prompt_source.record_validation_fingerprint(
+                                    dataset_meta.dataset_name,
+                                    split="train",
+                                ),
+                                prompt_source.record_validation_fingerprint(
+                                    dataset_meta.dataset_name,
+                                    split="val",
+                                ),
+                            )
+                        ).encode("utf-8")
+                    ).hexdigest()
                 ),
             )
             offline_pipeline = build_offline_pipeline(dataset_meta.offline_transforms)
@@ -253,13 +261,8 @@ class ShaftDataCenter:
         )
         train_online_transforms = [train_dataset_aware_transform]
         eval_online_transforms = [eval_dataset_aware_transform]
-        train_online_transforms.append(prompt_sampling_transform)
-        if prompt_sampling.enabled and not prompt_sampling.train_only:
-            eval_online_transforms.append(prompt_sampling_transform)
-        else:
-            eval_online_transforms.append(
-                build_prompt_sampling_transform(PromptSamplingConfig(enabled=False))
-            )
+        train_online_transforms.append(prompt_source)
+        eval_online_transforms.append(prompt_source)
         return ShaftPreparedRecords(
             train_records=records_by_dataset_train,
             val_records=val_records,

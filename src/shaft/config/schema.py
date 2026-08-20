@@ -5,9 +5,10 @@ from .data import (
     DataConfig,
     DataPackingConfig,
     DataScheduleConfig,
-    DataTransformsConfig,
     DatasetSourceConfig,
-    PromptSamplingConfig,
+    PromptSourceConfig,
+    PromptSourceScheduleConfig,
+    PromptSourceSchedulePointConfig,
 )
 from .model import FinetuneConfig, ModelConfig
 from .generation_backend import GRPOVLLMConfig, OPDVLLMConfig, VLLMGenerationBackendConfig
@@ -37,7 +38,6 @@ __all__ = [
     "DataConfig",
     "DataPackingConfig",
     "DataScheduleConfig",
-    "DataTransformsConfig",
     "DatasetSourceConfig",
     "DPOConfig",
     "EvalConfig",
@@ -58,7 +58,9 @@ __all__ = [
     "OPDVLLMConfig",
     "PPOConfig",
     "PluginsConfig",
-    "PromptSamplingConfig",
+    "PromptSourceConfig",
+    "PromptSourceScheduleConfig",
+    "PromptSourceSchedulePointConfig",
     "ProgressConfig",
     "RLHFConfig",
     "RuntimeConfig",

@@ -26,10 +26,11 @@ _WEIGHTED_ROTATION_MAX_BALANCED_WORLD_SIZE = 64
 _WEIGHTED_ROTATION_RANK_MODULUS = math.lcm(
     *range(1, _WEIGHTED_ROTATION_MAX_BALANCED_WORLD_SIZE + 1)
 )
-_WEIGHTED_SCHEDULE_VERSION = "shaft-weighted-ticket-schedule-v3"
-_WEIGHTED_PLAN_VERSION = "shaft-weighted-ticket-plan-v3"
-_WEIGHTED_UNSHUFFLED_PLAN_VERSION = "shaft-weighted-unshuffled-ticket-plan-v3"
-_WEIGHTED_UNSHUFFLED_STREAM_VERSION = "shaft-weighted-unshuffled-ticket-stream-v3"
+_WEIGHTED_SCHEDULE_VERSION = "shaft-weighted-ticket-schedule-v4"
+_WEIGHTED_PLAN_VERSION = "shaft-weighted-ticket-plan-v4"
+_WEIGHTED_UNSHUFFLED_PLAN_VERSION = "shaft-weighted-unshuffled-ticket-plan-v4"
+_WEIGHTED_UNSHUFFLED_STREAM_VERSION = "shaft-weighted-unshuffled-ticket-stream-v4"
+_SAMPLE_CONTEXT_VERSION = "shaft-sample-context-v2-source-draw"
 _TICKET_SHUFFLE_SALT = 0xD2B74407B1CE6E93
 _TICKET_BLOCK_SALT = 0xCA5A826395121157
 _SOURCE_CYCLE_SALT = 0x9E3779B185EBCA87
@@ -49,13 +50,70 @@ def _splitmix64(value: int) -> int:
 def _affine_permute(position: int, size: int, *, seed: int) -> int:
     if size <= 1:
         return 0
+    multiplier, offset = _affine_parameters(size, seed=seed)
+    return (multiplier * int(position) + offset) % size
+
+
+def _affine_parameters(size: int, *, seed: int) -> tuple[int, int]:
+    if size <= 1:
+        return 0, 0
     multiplier = int(_splitmix64(seed) % size) | 1
     while math.gcd(multiplier, size) != 1:
         multiplier = (multiplier + 2) % size
         if multiplier == 0:
             multiplier = 1
     offset = int(_splitmix64(seed ^ _AFFINE_OFFSET_SALT) % size)
-    return (multiplier * int(position) + offset) % size
+    return multiplier, offset
+
+
+def _floor_sum(count: int, modulus: int, multiplier: int, offset: int) -> int:
+    """Return sum(floor((multiplier * i + offset) / modulus), i=0..count-1)."""
+
+    count = int(count)
+    modulus = int(modulus)
+    multiplier = int(multiplier)
+    offset = int(offset)
+    answer = 0
+    while True:
+        if multiplier >= modulus:
+            answer += (count - 1) * count * (multiplier // modulus) // 2
+            multiplier %= modulus
+        if offset >= modulus:
+            answer += count * (offset // modulus)
+            offset %= modulus
+        maximum = multiplier * count + offset
+        if maximum < modulus:
+            return answer
+        count = maximum // modulus
+        offset = maximum % modulus
+        modulus, multiplier = multiplier, modulus
+
+
+def _affine_prefix_range_count(
+    count: int,
+    size: int,
+    *,
+    multiplier: int,
+    offset: int,
+    lower: int,
+    upper: int,
+) -> int:
+    """Count prefix positions whose affine-permuted value is in [lower, upper)."""
+
+    def _count_less(bound: int) -> int:
+        if bound <= 0:
+            return 0
+        if bound >= size:
+            return count
+        wrapped = _floor_sum(
+            count,
+            size,
+            multiplier,
+            offset + size - bound,
+        ) - _floor_sum(count, size, multiplier, offset)
+        return count - wrapped
+
+    return _count_less(upper) - _count_less(lower)
 
 
 def _feistel_permute(position: int, size: int, *, seed: int) -> int:
@@ -663,12 +721,14 @@ class ShaftSampleContext:
     draw_id: int
     plan_cycle: int
     transform_seed: int
+    source_draw_id: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return {
             "draw_id": self.draw_id,
             "plan_cycle": self.plan_cycle,
             "transform_seed": self.transform_seed,
+            "source_draw_id": self.source_draw_id,
         }
 
 
@@ -741,6 +801,7 @@ class ShaftSampleSchedule:
             )
             payload = (
                 _WEIGHTED_SCHEDULE_VERSION,
+                _SAMPLE_CONTEXT_VERSION,
                 self.source_names,
                 self.source_sizes,
                 self.source_weights,
@@ -778,6 +839,7 @@ class ShaftSampleSchedule:
         else:
             payload = (
                 "shaft-sample-schedule-v1",
+                _SAMPLE_CONTEXT_VERSION,
                 self.strategy,
                 self.source_names,
                 self.source_sizes,
@@ -799,9 +861,9 @@ class ShaftSampleSchedule:
         if draw_id < 0:
             raise IndexError(draw_id)
         if self.strategy == "concat":
-            dataset_name, row_index = self._resolve_concat(draw_id)
+            dataset_name, row_index, source_draw_id = self._resolve_concat(draw_id)
         else:
-            dataset_name, row_index = self._resolve_weighted(draw_id)
+            dataset_name, row_index, source_draw_id = self._resolve_weighted(draw_id)
         return ShaftSampleRef(
             dataset_name=dataset_name,
             row_index=row_index,
@@ -809,22 +871,44 @@ class ShaftSampleSchedule:
                 draw_id=draw_id,
                 plan_cycle=0,
                 transform_seed=_splitmix64(self.seed ^ draw_id ^ _TRANSFORM_SEED_SALT),
+                source_draw_id=source_draw_id,
             ),
         )
 
-    def _resolve_concat(self, draw_id: int) -> tuple[str, int]:
-        source_cycle, position = divmod(draw_id, self.base_size)
+    def _resolve_concat(self, draw_id: int) -> tuple[str, int, int]:
+        source_cycle, schedule_position = divmod(draw_id, self.base_size)
+        position = schedule_position
+        multiplier = 0
+        offset = 0
         if self.shuffle:
-            position = _affine_permute(
-                position,
+            cycle_seed = _splitmix64(self.seed ^ source_cycle)
+            multiplier, offset = _affine_parameters(
                 self.base_size,
-                seed=_splitmix64(self.seed ^ source_cycle),
+                seed=cycle_seed,
             )
+            position = (multiplier * schedule_position + offset) % self.base_size
         source_index = bisect_right(self._source_ends, position)
         source_start = 0 if source_index == 0 else self._source_ends[source_index - 1]
-        return self.source_names[source_index], position - source_start
+        source_size = self.source_sizes[source_index]
+        if self.shuffle:
+            local_occurrence = _affine_prefix_range_count(
+                schedule_position,
+                self.base_size,
+                multiplier=multiplier,
+                offset=offset,
+                lower=source_start,
+                upper=source_start + source_size,
+            )
+        else:
+            local_occurrence = position - source_start
+        source_draw_id = source_cycle * source_size + local_occurrence
+        return (
+            self.source_names[source_index],
+            position - source_start,
+            source_draw_id,
+        )
 
-    def _resolve_weighted(self, draw_id: int) -> tuple[str, int]:
+    def _resolve_weighted(self, draw_id: int) -> tuple[str, int, int]:
         block_id, offset = divmod(draw_id, self.ticket_block_size)
         rotation = _ticket_block_rotation(
             block_id,
@@ -859,7 +943,7 @@ class ShaftSampleSchedule:
                 ^ (source_cycle * _SOURCE_CYCLE_SALT)
             ),
         )
-        return self.source_names[source_index], row_index
+        return self.source_names[source_index], row_index, source_occurrence
 
 
 class ShaftSamplePlan:
@@ -931,6 +1015,7 @@ class ShaftSamplePlan:
         elif self.strategy == "weighted":
             stream_payload = (
                 _WEIGHTED_UNSHUFFLED_STREAM_VERSION,
+                _SAMPLE_CONTEXT_VERSION,
                 self.source_names,
                 self.source_sizes,
                 self.source_weights,
@@ -1009,9 +1094,10 @@ class ShaftSamplePlan:
                     draw_id=draw_id,
                     plan_cycle=plan_cycle,
                     transform_seed=scheduled.context.transform_seed,
+                    source_draw_id=scheduled.context.source_draw_id,
                 ),
             )
-        dataset_name, row_index = self._resolve_unshuffled_weighted(
+        dataset_name, row_index, source_draw_id = self._resolve_unshuffled_weighted(
             position,
             plan_cycle=plan_cycle,
         )
@@ -1022,6 +1108,7 @@ class ShaftSamplePlan:
                 draw_id=draw_id,
                 plan_cycle=plan_cycle,
                 transform_seed=_splitmix64(self.seed ^ draw_id ^ _TRANSFORM_SEED_SALT),
+                source_draw_id=source_draw_id,
             ),
         )
 
@@ -1030,7 +1117,7 @@ class ShaftSamplePlan:
         position: int,
         *,
         plan_cycle: int,
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, int]:
         draw_id = plan_cycle * self.num_samples + position
         block_id, block_position = divmod(
             draw_id,
@@ -1048,4 +1135,4 @@ class ShaftSamplePlan:
             + local_occurrence
         )
         row_index = source_occurrence % self.source_sizes[source_index]
-        return self.source_names[source_index], row_index
+        return self.source_names[source_index], row_index, source_occurrence

@@ -50,16 +50,22 @@ data:
     - line_context_reconstruction
     - line_context_points
     - image_context_reconstruction
-  transforms:
-    prompt_sampling:
-      enabled: true
-      train_only: true
-      pools:
-        grounding_layout: ../prompts/pools/grounding_layout.v5.7.yaml
-        shape_context_reconstruction: ../prompts/pools/shape_context_reconstruction.v5.7.yaml
-        line_context_reconstruction: ../prompts/pools/line_context_reconstruction.v5.7.yaml
-        line_context_points: ../prompts/pools/line_context_points.v5.7.yaml
-        image_context_reconstruction: ../prompts/pools/image_context_reconstruction.v5.3.yaml
+  prompt_sources:
+    grounding_layout:
+      path: ../prompts/pools/grounding_layout.v5.7.yaml
+      apply_to: train
+    shape_context_reconstruction:
+      path: ../prompts/pools/shape_context_reconstruction.v5.7.yaml
+      apply_to: train
+    line_context_reconstruction:
+      path: ../prompts/pools/line_context_reconstruction.v5.7.yaml
+      apply_to: train
+    line_context_points:
+      path: ../prompts/pools/line_context_points.v5.7.yaml
+      apply_to: train
+    image_context_reconstruction:
+      path: ../prompts/pools/image_context_reconstruction.v5.3.yaml
+      apply_to: train
   schedule:
     mixing: weighted
     shuffle: true

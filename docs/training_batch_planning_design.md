@@ -39,8 +39,8 @@ data
 ├── schedule
 │   ├── mixing
 │   └── shuffle
-├── transforms
-│   └── prompt_sampling
+├── prompt_sources
+│   └── formulation / variant / target / curriculum
 └── batching
     ├── grouping
     ├── cardinality
@@ -135,7 +135,8 @@ startup 明确失败。
 - fingerprint 绑定 source names/sizes/weights、mix strategy、shuffle、seed、weighted ticket 算法版本、salt
   与 canonical base-block digest；
 - 不绑定 max steps 或有限 plan 长度；
-- `draw_id` 同时驱动 prompt rotation 与 deterministic online transform；
+- `draw_id` 驱动 deterministic online transform；schedule 还精确给出每个 dataset 自身从 0 开始的
+  `source_draw_id`，供 PromptSource curriculum 使用；
 - bounded weighted mixing 要求 `shuffle=true`。
 
 `weighted + shuffle=true` 不再为每个 draw 独立随机选择 row。source 选择使用固定配额 ticket block；常见
@@ -146,10 +147,11 @@ denominator-derived 候选作为 fast path，若没有满足 5% 每源相对误�
 seed-specific base block 只构造一次；rotation 每 256 blocks 用 keyed SplitMix64 更换 phase，group 内使用
 与 block/full-cycle 和 `1..64` rank modulus 互质的短 counter step。这样任意 block 的 source quota 一致，
 有限 block 前缀还有确定性的 rank-count discrepancy 上界，并可从
-`draw_id` 通过每源 ticket-position rank 查询，以 O(log quota) 求出该 source 的全局 occurrence。occurrence
+`draw_id` 通过每源 ticket-position rank 查询，以 O(log quota) 求出该 source 的全局 occurrence，并作为
+`source_draw_id` 写入 sample context。occurrence
 按 source size 划分为独立 keyed-Feistel row permutation cycle：一轮耗尽前无重复，耗尽后才进入下一轮。
 它不物化训练 horizon，也不保存 checkpoint cursor；fixed plan fingerprint 与 planned schedule fingerprint
-都绑定 v3 语义，旧 v2 rotation/quota checkpoint 会 fail closed。
+都绑定 v4 stream / v2 source-draw context 语义，旧 v3 及更早的 checkpoint 会 fail closed。
 
 普通 map-style 路径仍可使用有限 `ShaftSamplePlan`。bounded SFT 直接消费 schedule，不构造 duration-sized
 Python 索引或 CostPlan。

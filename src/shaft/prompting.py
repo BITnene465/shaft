@@ -534,23 +534,62 @@ def _load_pool_prompts(
     version = str(metadata.get("version") or "").strip()
     if not version:
         raise ValueError(f"Missing prompt pool version in {prompt_path}.")
-    raw_arguments = payload["arguments"] if "arguments" in payload else None
-    schema = ShaftPromptSchema.from_mapping(raw_arguments, source=str(prompt_path))
-    prompts = payload["prompts"]
+    return compile_prompt_variants(
+        payload["prompts"],
+        arguments=payload["arguments"] if "arguments" in payload else None,
+        metadata=metadata,
+        pool_id=pool_id,
+        version=version,
+        source=str(prompt_path),
+    )
+
+
+def compile_prompt_variants(
+    prompts: list[Any],
+    *,
+    arguments: dict[str, Any] | ShaftPromptSchema | None,
+    metadata: dict[str, Any],
+    pool_id: str,
+    version: str,
+    source: str,
+) -> list[ShaftPromptTemplate]:
+    """Compile one ordered prompt-variant list for a pool or task formulation."""
+
+    if not isinstance(prompts, list) or not prompts:
+        raise ValueError(f"Prompt variants must be a non-empty list: {source}")
+    schema = (
+        arguments
+        if isinstance(arguments, ShaftPromptSchema)
+        else ShaftPromptSchema.from_mapping(arguments, source=source)
+    )
     variants: list[ShaftPromptTemplate] = []
     seen_ids: set[str] = set()
     for index, item in enumerate(prompts):
         if not isinstance(item, dict):
-            raise TypeError(f"Prompt pool item must be a mapping: {prompt_path}:prompts[{index}]")
+            raise TypeError(f"Prompt pool item must be a mapping: {source}:prompts[{index}]")
+        unknown = sorted(
+            set(item)
+            - {
+                "id",
+                "sampling_weight",
+                "system_prompt",
+                "user_prompt",
+                "user_prompt_template",
+            }
+        )
+        if unknown:
+            raise ValueError(
+                f"Unknown prompt variant keys {unknown}: {source}:prompts[{index}]"
+            )
         variant_id = str(item.get("id") or "").strip()
         if not variant_id:
-            raise ValueError(f"Prompt pool item is missing id: {prompt_path}:prompts[{index}]")
+            raise ValueError(f"Prompt pool item is missing id: {source}:prompts[{index}]")
         if variant_id in seen_ids:
-            raise ValueError(f"Duplicate prompt variant id {variant_id!r} in {prompt_path}")
+            raise ValueError(f"Duplicate prompt variant id {variant_id!r} in {source}")
         seen_ids.add(variant_id)
         variants.append(
             _load_pool_prompt_item(
-                prompt_path,
+                source,
                 item=item,
                 metadata=metadata,
                 pool_id=pool_id,
@@ -560,12 +599,12 @@ def _load_pool_prompts(
             )
         )
     if not any(prompt.sampling_weight > 0 for prompt in variants):
-        raise ValueError(f"Prompt pool must have at least one positive sampling_weight: {prompt_path}")
+        raise ValueError(f"Prompt pool must have at least one positive sampling_weight: {source}")
     return variants
 
 
 def _load_pool_prompt_item(
-    prompt_path: Path,
+    prompt_path: str | Path,
     *,
     item: dict[str, Any],
     metadata: dict[str, Any],

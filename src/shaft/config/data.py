@@ -7,11 +7,23 @@ SHAFT_BATCH_RESOURCE_NAMES = frozenset({"vision_patches"})
 
 
 @dataclass
-class PromptSamplingConfig:
-    enabled: bool = False
-    train_only: bool = True
+class PromptSourceSchedulePointConfig:
+    source_draw: int
+    weights: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class PromptSourceScheduleConfig:
+    interpolation: str = "step"
+    points: list[PromptSourceSchedulePointConfig] = field(default_factory=list)
+
+
+@dataclass
+class PromptSourceConfig:
+    path: str
+    apply_to: str = "train"
     seed: int | None = None
-    pools: dict[str, str] = field(default_factory=dict)
+    schedule: PromptSourceScheduleConfig = field(default_factory=PromptSourceScheduleConfig)
 
 
 @dataclass
@@ -20,13 +32,6 @@ class DataScheduleConfig:
 
     mixing: str = "weighted"
     shuffle: bool = True
-
-
-@dataclass
-class DataTransformsConfig:
-    """Resolve per-draw sample views without owning sample order or batching."""
-
-    prompt_sampling: PromptSamplingConfig = field(default_factory=PromptSamplingConfig)
 
 
 @dataclass
@@ -73,7 +78,7 @@ class DataConfig:
     catalog_names: list[str] = field(default_factory=list)
     datasets: list[DatasetSourceConfig] = field(default_factory=list)
     schedule: DataScheduleConfig = field(default_factory=DataScheduleConfig)
-    transforms: DataTransformsConfig = field(default_factory=DataTransformsConfig)
+    prompt_sources: dict[str, PromptSourceConfig] = field(default_factory=dict)
     batching: DataBatchingConfig = field(default_factory=DataBatchingConfig)
     num_workers: int = 4
     prefetch_factor: int | None = 2

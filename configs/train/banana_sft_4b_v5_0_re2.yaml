@@ -51,16 +51,22 @@ data:
     - line_reconstruction
     - image_reconstruction
     - background
-  transforms:
-    prompt_sampling:
-      enabled: true
-      train_only: true
-      pools:
-        grounding_layout: ../prompts/pools/grounding_layout.v5.0.yaml
-        shape_reconstruction: ../prompts/pools/shape_reconstruction.v5.0.yaml
-        line_reconstruction: ../prompts/pools/line_reconstruction.v5.0.yaml
-        image_reconstruction: ../prompts/pools/image_reconstruction.v5.0.yaml
-        background: ../prompts/pools/background.v5.0.yaml
+  prompt_sources:
+    grounding_layout:
+      path: ../prompts/pools/grounding_layout.v5.0.yaml
+      apply_to: train
+    shape_reconstruction:
+      path: ../prompts/pools/shape_reconstruction.v5.0.yaml
+      apply_to: train
+    line_reconstruction:
+      path: ../prompts/pools/line_reconstruction.v5.0.yaml
+      apply_to: train
+    image_reconstruction:
+      path: ../prompts/pools/image_reconstruction.v5.0.yaml
+      apply_to: train
+    background:
+      path: ../prompts/pools/background.v5.0.yaml
+      apply_to: train
   schedule:
     mixing: weighted
     shuffle: true

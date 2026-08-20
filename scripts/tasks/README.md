@@ -6,6 +6,7 @@
 ## 当前任务文档
 
 - [banana_v5_7.md](banana_v5_7.md)：Banana v5.7 的数据、prompt、训练配置、构建顺序与完整性基线。
+- [banana_v5_8.md](banana_v5_8.md)：Banana v5.8 的 source/structured/SFT、A/B/AB PromptSource 与发布合同。
 
 ## 边界
 

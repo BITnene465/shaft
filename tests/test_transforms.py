@@ -5,12 +5,97 @@ from pathlib import Path
 
 import pytest
 
-from shaft.config import PromptSamplingConfig
-from shaft.data import SFTRecord, build_offline_pipeline, build_online_pipeline
-from shaft.data.transforms import (
-    build_prompt_sampling_transform,
-    planning_online_transform_fingerprint,
+from shaft.config import (
+    PromptSourceConfig,
+    PromptSourceScheduleConfig,
+    PromptSourceSchedulePointConfig,
 )
+from shaft.data import SFTRecord, build_offline_pipeline, build_online_pipeline
+from shaft.data.prompt_source import (
+    ShaftPromptSourceSchedule,
+    build_prompt_source_resolver,
+)
+from shaft.data.transforms import planning_online_transform_fingerprint
+
+
+def _write_formulation_pool(path: Path) -> None:
+    path.write_text(
+        """
+metadata:
+  id: pool.reconstruction
+  version: v1
+arguments:
+  a: {type: json}
+  b: {type: json}
+formulations:
+  - id: a
+    sampling_weight: 1
+    target_template: '{{ a | json }}'
+    prompts:
+      - id: direct
+        system_prompt: JSON only.
+        user_prompt: Reconstruct A.
+      - id: alternate
+        user_prompt: Output attribute A.
+  - id: b
+    sampling_weight: 1
+    target_template: '{{ b | json }}'
+    prompts:
+      - id: direct
+        user_prompt: Reconstruct B.
+  - id: ab
+    sampling_weight: 0
+    target_template: '{"A":{{ a | json }},"B":{{ b | json }}}'
+    prompts:
+      - id: direct
+        user_prompt: Reconstruct A and B.
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _scheduled_config(path: Path) -> PromptSourceConfig:
+    return PromptSourceConfig(
+        path=str(path),
+        seed=7,
+        schedule=PromptSourceScheduleConfig(
+            interpolation="step",
+            points=[
+                PromptSourceSchedulePointConfig(
+                    source_draw=0,
+                    weights={"a": 1.0, "b": 0.0, "ab": 0.0},
+                ),
+                PromptSourceSchedulePointConfig(
+                    source_draw=10,
+                    weights={"a": 0.0, "b": 1.0, "ab": 0.0},
+                ),
+                PromptSourceSchedulePointConfig(
+                    source_draw=20,
+                    weights={"a": 0.0, "b": 0.0, "ab": 1.0},
+                ),
+            ],
+        ),
+    )
+
+
+def _sample(source_draw_id: int) -> dict[str, object]:
+    return {
+        "dataset_name": "ds",
+        "sample_id": "same-row",
+        "target_text": "",
+        "prompt_args": {"a": {"value": 1}, "b": [2, 3]},
+        "system_prompt": "",
+        "user_prompt": "",
+        "messages": None,
+        "_split": "train",
+        "_sample_context": {
+            "draw_id": source_draw_id * 3,
+            "source_draw_id": source_draw_id,
+            "transform_seed": 99,
+        },
+        "extra": {},
+    }
 
 
 def test_offline_dedup() -> None:
@@ -31,242 +116,185 @@ def test_online_identity() -> None:
     assert out["x"] == 1
 
 
-def test_prompt_sampling_transform_records_version(tmp_path: Path) -> None:
-    version = "test-version"
-    prompt_pool = tmp_path / "pool.yaml"
-    prompt_pool.write_text(
-        "\n".join(
-            [
-                "metadata:",
-                "  id: pool.test",
-                f"  version: {version}",
-                "prompts:",
-                "  - id: main",
-                "    system_prompt: sys",
-                "    user_prompt: user",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    transform = build_prompt_sampling_transform(
-        PromptSamplingConfig(enabled=True, seed=1, pools={"ds": str(prompt_pool)})
-    )
+def test_prompt_source_atomically_projects_a_b_and_ab(tmp_path: Path) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
 
-    sample = transform({"dataset_name": "ds", "sample_id": "s1", "extra": {}})
+    a = resolver(_sample(0))
+    b = resolver(_sample(10))
+    ab = resolver(_sample(20))
 
-    assert sample["system_prompt"] == "sys"
-    assert sample["user_prompt"] == "user"
-    assert sample["extra"]["runtime_prompt_id"] == "pool.test.main"
-    assert sample["extra"]["runtime_prompt_version"] == version
+    assert a["user_prompt"] in {"Reconstruct A.", "Output attribute A."}
+    assert a["target_text"] == '{"value":1}'
+    assert b["user_prompt"] == "Reconstruct B."
+    assert b["target_text"] == "[2,3]"
+    assert ab["user_prompt"] == "Reconstruct A and B."
+    assert ab["target_text"] == '{"A":{"value":1},"B":[2,3]}'
+    assert [
+        item["extra"]["prompt_source"]["formulation_id"]
+        for item in (a, b, ab)
+    ] == ["a", "b", "ab"]
+
+    invalid_context = _sample(0)
+    invalid_context["_sample_context"]["source_draw_id"] = 1.5  # type: ignore[index]
+    with pytest.raises(ValueError, match="source_draw_id must be an integer"):
+        resolver(invalid_context)
 
 
-def test_prompt_sampling_transform_requires_pool_version(tmp_path: Path) -> None:
-    prompt_pool = tmp_path / "pool.yaml"
-    prompt_pool.write_text(
-        "\n".join(
-            [
-                "metadata:",
-                "  id: pool.test",
-                "prompts:",
-                "  - id: main",
-                "    user_prompt: user",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
+def test_prompt_source_records_one_structured_audit_object(tmp_path: Path) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
 
-    with pytest.raises(ValueError, match="Missing prompt pool version"):
-        build_prompt_sampling_transform(
-            PromptSamplingConfig(enabled=True, pools={"ds": str(prompt_pool)})
-        )
+    resolved = resolver(_sample(20))
+    audit = resolved["extra"]["prompt_source"]
+
+    assert audit["pool_id"] == "pool.reconstruction"
+    assert audit["pool_version"] == "v1"
+    assert audit["formulation_id"] == "ab"
+    assert audit["draw_id"] == 60
+    assert audit["source_draw_id"] == 20
+    assert len(audit["prompt_program_sha256"]) == 64
+    assert len(audit["target_program_sha256"]) == 64
+    assert len(audit["arguments_sha256"]) == 64
+    assert len(audit["user_prompt_sha256"]) == 64
+    assert len(audit["target_text_sha256"]) == 64
+    assert not any(str(key).startswith("runtime_prompt_") for key in resolved["extra"])
 
 
-def test_prompt_sampling_uses_draw_id_and_configured_weights(tmp_path: Path) -> None:
-    prompt_pool = tmp_path / "weighted_pool.yaml"
-    prompt_pool.write_text(
-        """
-metadata:
-  id: pool.weighted
-  version: test-version
-prompts:
-  - id: disabled
-    sampling_weight: 0
-    user_prompt: never
-  - id: active
-    sampling_weight: 1
-    user_prompt: always
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    transform = build_prompt_sampling_transform(
-        PromptSamplingConfig(enabled=True, seed=9, pools={"ds": str(prompt_pool)})
-    )
-
-    samples = [
-        transform(
-            {
-                "dataset_name": "ds",
-                "sample_id": "same-row",
-                "_sample_context": {"draw_id": draw_id},
-                "extra": {},
-            }
-        )
-        for draw_id in range(4)
+def test_prompt_source_schedule_supports_step_and_linear_interpolation() -> None:
+    points = [
+        PromptSourceSchedulePointConfig(source_draw=0, weights={"a": 1, "b": 0}),
+        PromptSourceSchedulePointConfig(source_draw=10, weights={"a": 0, "b": 2}),
     ]
 
-    assert {sample["user_prompt"] for sample in samples} == {"always"}
-    assert [sample["extra"]["runtime_prompt_draw_id"] for sample in samples] == list(range(4))
+    step = ShaftPromptSourceSchedule(
+        formulation_ids=("a", "b"),
+        static_weights=(1.0, 1.0),
+        config=PromptSourceScheduleConfig(interpolation="step", points=points),
+    )
+    linear = ShaftPromptSourceSchedule(
+        formulation_ids=("a", "b"),
+        static_weights=(1.0, 1.0),
+        config=PromptSourceScheduleConfig(interpolation="linear", points=points),
+    )
+
+    assert step.weights_at(9) == (1.0, 0.0)
+    assert step.weights_at(10) == (0.0, 2.0)
+    assert linear.weights_at(5) == (0.5, 1.0)
+    assert linear.weights_at(100) == (0.0, 2.0)
+    with pytest.raises(ValueError, match="integer >= 0"):
+        linear.weights_at(1.5)  # type: ignore[arg-type]
 
 
-def test_prompt_sampling_defaults_to_equal_probability(tmp_path: Path) -> None:
-    prompt_pool = tmp_path / "equal_pool.yaml"
-    prompt_pool.write_text(
-        """
-metadata:
-  id: pool.equal
-  version: test-version
-prompts:
-  - id: a
-    user_prompt: a
-  - id: b
-    user_prompt: b
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    transform = build_prompt_sampling_transform(
-        PromptSamplingConfig(enabled=True, seed=9, pools={"ds": str(prompt_pool)})
-    )
+def test_prompt_variant_sampling_does_not_change_formulation_distribution(
+    tmp_path: Path,
+) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    config = PromptSourceConfig(path=str(pool), seed=11)
+    resolver = build_prompt_source_resolver({"ds": config}, default_seed=3)
 
     counts = Counter(
-        transform(
-            {
-                "dataset_name": "ds",
-                "sample_id": "same-row",
-                "_sample_context": {"draw_id": draw_id},
-                "extra": {},
-            }
-        )["user_prompt"]
-        for draw_id in range(2000)
+        resolver(_sample(source_draw))["extra"]["prompt_source"]["formulation_id"]
+        for source_draw in range(2000)
     )
 
     assert counts["a"] / 2000 == pytest.approx(0.5, abs=0.04)
     assert counts["b"] / 2000 == pytest.approx(0.5, abs=0.04)
+    assert counts["ab"] == 0
 
 
-def test_prompt_sampling_normalizes_large_finite_weights(tmp_path: Path) -> None:
-    prompt_pool = tmp_path / "large_weight_pool.yaml"
-    prompt_pool.write_text(
-        """
-metadata:
-  id: pool.large
-  version: test-version
-prompts:
-  - id: a
-    sampling_weight: 1.0e308
-    user_prompt: a
-  - id: b
-    sampling_weight: 1.0e308
-    user_prompt: b
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    transform = build_prompt_sampling_transform(
-        PromptSamplingConfig(enabled=True, seed=21, pools={"ds": str(prompt_pool)})
-    )
-
-    counts = Counter(
-        transform(
-            {
-                "dataset_name": "ds",
-                "sample_id": "same-row",
-                "_sample_context": {"draw_id": draw_id},
-                "extra": {},
-            }
-        )["user_prompt"]
-        for draw_id in range(2000)
-    )
-
-    assert counts["a"] / 2000 == pytest.approx(0.5, abs=0.05)
-    assert counts["b"] / 2000 == pytest.approx(0.5, abs=0.05)
-
-
-def test_prompt_sampling_renders_sample_arguments_and_records_audit_hashes(
+def test_top_level_prompts_are_one_materialized_default_formulation(
     tmp_path: Path,
 ) -> None:
-    prompt_pool = tmp_path / "dynamic_pool.yaml"
-    prompt_pool.write_text(
+    pool = tmp_path / "shorthand.yaml"
+    pool.write_text(
         """
-metadata:
-  id: pool.dynamic
-  version: v2
-arguments:
-  kind:
-    type: enum
-    values: [shape, line]
-  bbox:
-    type: bbox_2d_0_999
+metadata: {id: pool.shorthand, version: v1}
 prompts:
   - id: main
-    system_prompt: Return JSON only.
-    user_prompt_template: "Reconstruct {{ kind }} at {{ bbox | json }}."
+    user_prompt: first
+  - id: alternate
+    user_prompt: second
 """.strip()
         + "\n",
         encoding="utf-8",
     )
-    transform = build_prompt_sampling_transform(
-        PromptSamplingConfig(enabled=True, seed=3, pools={"ds": str(prompt_pool)})
+    resolver = build_prompt_source_resolver(
+        {"ds": PromptSourceConfig(path=str(pool), seed=9)},
+        default_seed=3,
     )
+    sample = _sample(0)
+    sample["target_text"] = "materialized"
+    sample["prompt_args"] = {}
 
-    sample = transform(
-        {
-            "dataset_name": "ds",
-            "sample_id": "s1",
-            "prompt_args": {"kind": "shape", "bbox": [1, 2, 30, 40]},
-            "extra": {},
-        }
-    )
+    resolved = resolver(sample)
 
-    assert sample["user_prompt"] == "Reconstruct shape at [1,2,30,40]."
-    assert sample["system_prompt"] == "Return JSON only."
-    assert sample["extra"]["runtime_prompt_renderer_version"]
-    assert len(sample["extra"]["runtime_prompt_template_sha256"]) == 64
-    assert len(sample["extra"]["runtime_prompt_arguments_sha256"]) == 64
-    assert len(sample["extra"]["runtime_prompt_rendered_sha256"]) == 64
-
-    changed = transform(
-        {
-            "dataset_name": "ds",
-            "sample_id": "s1",
-            "prompt_args": {"kind": "line", "bbox": [1, 2, 30, 40]},
-            "extra": {},
-        }
-    )
-    assert changed["extra"]["runtime_prompt_arguments_sha256"] != (
-        sample["extra"]["runtime_prompt_arguments_sha256"]
-    )
-    assert changed["extra"]["runtime_prompt_rendered_sha256"] != (
-        sample["extra"]["runtime_prompt_rendered_sha256"]
-    )
+    assert resolved["user_prompt"] in {"first", "second"}
+    assert resolved["target_text"] == "materialized"
+    assert resolved["extra"]["prompt_source"]["formulation_id"] == "default"
 
 
-def test_prompt_schema_change_changes_transform_fingerprint(tmp_path: Path) -> None:
+def test_materialized_mode_is_identity_and_rejects_ignored_args() -> None:
+    resolver = build_prompt_source_resolver({}, default_seed=3)
+    materialized = {
+        "dataset_name": "ds",
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+        "target_text": "answer",
+        "prompt_args": {},
+        "extra": {},
+    }
+
+    assert resolver(materialized) is materialized
+
+    with pytest.raises(ValueError, match="no configured PromptSource"):
+        resolver({**materialized, "prompt_args": {"value": "ignored"}})
+
+
+def test_pool_mode_rejects_materialized_messages(tmp_path: Path) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
+    sample = _sample(0)
+    sample["messages"] = [{"role": "user", "content": []}]
+
+    with pytest.raises(ValueError, match="pool mode.*messages"):
+        resolver(sample)
+
+
+def test_prompt_source_rejects_unknown_prompt_variant_keys(tmp_path: Path) -> None:
+    pool = tmp_path / "pool.yaml"
+    pool.write_text(
+        """
+metadata: {id: pool.invalid, version: v1}
+prompts:
+  - id: main
+    user_prompt: answer
+    typo_weight: 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unknown prompt variant keys.*typo_weight"):
+        build_prompt_source_resolver(
+            {"ds": PromptSourceConfig(path=str(pool))},
+            default_seed=3,
+        )
+
+
+def test_prompt_source_fingerprint_binds_schema_and_schedule(tmp_path: Path) -> None:
     paths = []
     for name, argument_type in (("string", "string"), ("enum", "enum")):
         path = tmp_path / f"{name}.yaml"
-        values = "\n    values: [x]" if argument_type == "enum" else ""
+        values = ", values: [x]" if argument_type == "enum" else ""
         path.write_text(
             f"""
-metadata:
-  id: pool.fingerprint
-  version: v1
+metadata: {{id: pool.fingerprint, version: v1}}
 arguments:
-  value:
-    type: {argument_type}{values}
+  value: {{type: {argument_type}{values}}}
 prompts:
   - id: main
     user_prompt_template: "{{{{ value }}}}"
@@ -278,57 +306,12 @@ prompts:
 
     fingerprints = [
         planning_online_transform_fingerprint(
-            build_prompt_sampling_transform(
-                PromptSamplingConfig(enabled=True, pools={"ds": str(path)})
+            build_prompt_source_resolver(
+                {"ds": PromptSourceConfig(path=str(path))},
+                default_seed=3,
             )
         )
         for path in paths
     ]
 
     assert fingerprints[0] != fingerprints[1]
-
-
-def test_prompt_sampling_rejects_messages_with_prompt_args(tmp_path: Path) -> None:
-    prompt_pool = tmp_path / "pool.yaml"
-    prompt_pool.write_text(
-        """
-metadata:
-  id: pool.dynamic
-  version: v1
-arguments:
-  value:
-    type: string
-prompts:
-  - id: main
-    user_prompt_template: "Value: {{ value }}"
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    transform = build_prompt_sampling_transform(
-        PromptSamplingConfig(enabled=True, pools={"ds": str(prompt_pool)})
-    )
-
-    with pytest.raises(ValueError, match="messages.*prompt_args"):
-        transform(
-            {
-                "dataset_name": "ds",
-                "sample_id": "s1",
-                "messages": [{"role": "user", "content": []}],
-                "prompt_args": {"value": "x"},
-                "extra": {},
-            }
-        )
-
-
-def test_disabled_prompt_sampling_rejects_nonempty_prompt_args() -> None:
-    transform = build_prompt_sampling_transform(PromptSamplingConfig(enabled=False))
-
-    with pytest.raises(ValueError, match="prompt sampling is disabled"):
-        transform(
-            {
-                "dataset_name": "ds",
-                "sample_id": "s1",
-                "prompt_args": {"value": "x"},
-            }
-        )

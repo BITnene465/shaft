@@ -28,7 +28,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_config_online_eval.py",
         "test_config_online_eval_best_metric.py",
         "test_config_online_eval_validation.py",
-        "test_config_prompt_sampling.py",
+        "test_config_prompt_source.py",
         "test_config_rlhf.py",
         "test_config_validation.py",
         "test_data_center.py",

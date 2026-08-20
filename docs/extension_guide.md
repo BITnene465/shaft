@@ -147,6 +147,7 @@ exact state-key 验证由通用 builder 统一处理。
 - 解析错误要聚合输出
 - 样本元信息统一使用 `dataset_name`
 - 数据源配置进入运行时前，先解析为 `ShaftDatasetMeta`
+- SFT JSONL、PromptSource 与 derived/source-truth 边界遵循 [data.md](data.md)
 - catalog 扩展通过：
   - `data.catalog_path`
   - `data.catalog_names`

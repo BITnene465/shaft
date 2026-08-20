@@ -218,8 +218,8 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   ├── schedule
   │   ├── mixing
   │   └── shuffle
-  ├── transforms
-  │   └── prompt_sampling
+  ├── prompt_sources
+  │   └── task formulation / prompt variant / target projection / curriculum
   └── batching
       ├── grouping
       ├── cardinality
@@ -227,8 +227,8 @@ fallback，也禁止按 partial message 重跑多模态 processor。
       └── layout
   ```
 
-  运行顺序是 `schedule -> transforms -> grouping/cardinality -> packing -> layout`。这些字段不存在相互
-  覆盖的“优先级”；每层只解释自己的语义，不兼容组合由 normalize 在启动前拒绝。
+  运行顺序是 `schedule -> dataset transforms -> PromptSource -> grouping/cardinality -> packing -> layout`。
+  这些字段不存在相互覆盖的“优先级”；每层只解释自己的语义，不兼容组合由 normalize 在启动前拒绝。
 - 训练选择真源分成两层：
   - `ShaftSampleSchedule` 是 horizon-independent 的 `draw_id -> SampleRef` 映射，绑定 source、mixing、
     shuffle 和 seed，不绑定训练总步数。
@@ -693,17 +693,20 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - train split 由不可变 source snapshot、`ShaftSampleSchedule`、有限 `ShaftSamplePlan` adapter 与
   `ShaftSampleRef` 组成：
   - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache，worker 只读 mmap record store。
-  - SFT `prompt_args` 是 normalized record 的正式 JSON 字段；prompt pool、训练 planning 与标准 infer pipeline
-    共用 `shaft.prompting` 的受限模板编译器，最终下游仍只消费普通 `system_prompt/user_prompt`。
+  - SFT `prompt_args` 是 normalized record 的正式 JSON 字段；PromptSource 的 prompt/target program、训练
+    planning 与标准 infer pipeline 共用 `shaft.prompting` 的受限模板编译器，最终下游仍只消费普通
+    `system_prompt/user_prompt/target_text`。现有 prompt 轮换是单一 formulation 内的 variant 选择；A/B/AB
+    等任务由多个 formulation 原子投影 prompt 与 target。
   - `concat` 表示覆盖式计划；`weighted + shuffle=true` 表示固定配额的可复现 stratified source stream，
     每个 source 内部独立置换并在耗尽前无放回。
   - plan 按位置计算 sample ref，不物化或复制全量 Python tuple index。
-- `ShaftSampleRef` 显式携带 draw context。dataset 不保存 sampler，也不读取跨进程可变 epoch 状态。
+- `ShaftSampleRef` 显式携带全局 `draw_id` 与 dataset-local `source_draw_id`。后者驱动 formulation curriculum；
+  dataset 不保存 sampler，也不读取跨进程可变 epoch 状态。
 - GRPO 的 grouped repeat 由 epoch-aware `ShaftGroupedSampleSampler` 输出 sample refs，避免 TRL 本地
   generator 在多 epoch resume 时回到 epoch 0 排列。
 - step duration 在 fixed batch 下按标准 global batch 公式生成有限 sample budget；bounded 模式只生成
   map-style Dataset 的最大 draw 上界，runtime 从 duration-independent schedule 惰性消费。epoch 只作为
-  HF 有限时长兼容单位，不控制 prompt 或 transform 刷新。
+  HF 有限时长兼容单位，不控制 PromptSource 或 transform 刷新。
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 
@@ -721,6 +724,7 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - [docs/README.md](README.md)
 - [docs/module_reference.md](module_reference.md)
 - [docs/config_reference.md](config_reference.md)
+- [docs/data.md](data.md)
 - [docs/infer.md](infer.md)
 - [docs/online_eval_design.md](online_eval_design.md)
 - [docs/training_batch_planning_design.md](training_batch_planning_design.md)

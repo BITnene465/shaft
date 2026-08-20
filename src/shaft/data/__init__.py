@@ -64,6 +64,14 @@ from .record_store import (
     ShaftRecordSubset,
     register_record_type,
 )
+from .prompt_source import (
+    ShaftPromptSource,
+    ShaftPromptSourcePool,
+    ShaftPromptSourceSchedule,
+    ShaftTaskFormulation,
+    build_prompt_source_resolver,
+    load_prompt_source_pool,
+)
 from .sampler import (
     ShaftGroupedSampleContract,
     ShaftGroupedSampleSampler,
@@ -159,6 +167,12 @@ __all__ = [
     "validate_sft_cost_model_adapter",
     "validate_sft_cost_dataset",
     "ShaftPreparedRecords",
+    "ShaftPromptSource",
+    "ShaftPromptSourcePool",
+    "ShaftPromptSourceSchedule",
+    "ShaftTaskFormulation",
+    "build_prompt_source_resolver",
+    "load_prompt_source_pool",
     "load_jsonl_dpo_records",
     "load_jsonl_ppo_records",
     "load_jsonl_sft_records",

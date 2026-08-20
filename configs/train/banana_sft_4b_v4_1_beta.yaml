@@ -46,18 +46,28 @@ data:
     - point_arrow
     - lin_point_arrow_style
     - drawio_shape
-  transforms:
-    prompt_sampling:
-      enabled: true
-      train_only: true
-      pools:
-        grounding_arrow: ../prompts/pools/grounding_arrow.v2.4.yaml
-        grounding_layout: ../prompts/pools/grounding_layout.v2.4.yaml
-        grounding_shape: ../prompts/pools/grounding_shape.v2.4.yaml
-        grounding_icon_image: ../prompts/pools/grounding_icon_image.v2.4.yaml
-        point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
-        lin_point_arrow_style: ../prompts/pools/point_arrow_style.v2.4.yaml
-        drawio_shape: ../prompts/pools/drawio_shape.v4.0.yaml
+  prompt_sources:
+    grounding_arrow:
+      path: ../prompts/pools/grounding_arrow.v2.4.yaml
+      apply_to: train
+    grounding_layout:
+      path: ../prompts/pools/grounding_layout.v2.4.yaml
+      apply_to: train
+    grounding_shape:
+      path: ../prompts/pools/grounding_shape.v2.4.yaml
+      apply_to: train
+    grounding_icon_image:
+      path: ../prompts/pools/grounding_icon_image.v2.4.yaml
+      apply_to: train
+    point_arrow:
+      path: ../prompts/pools/point_arrow.v2.4.yaml
+      apply_to: train
+    lin_point_arrow_style:
+      path: ../prompts/pools/point_arrow_style.v2.4.yaml
+      apply_to: train
+    drawio_shape:
+      path: ../prompts/pools/drawio_shape.v4.0.yaml
+      apply_to: train
   schedule:
     mixing: weighted
     shuffle: true

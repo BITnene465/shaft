@@ -31,8 +31,9 @@
 - `FinetuneConfig`
 - `DataConfig`
 - `DataScheduleConfig`：logical draw 的 mixing / shuffle
-- `DataTransformsConfig`：逐 draw 的 prompt sampling 等样本视图变换
-- `PromptSamplingConfig`
+- `DatasetSourceConfig.offline_transforms/online_transforms`：dataset 声明的通用变换边界
+- `PromptSourceConfig`：dataset 级 task formulation/prompt/target 投影入口
+- `PromptSourceScheduleConfig`：按 `source_draw_id` 的 step/linear curriculum
 - `DataBatchingConfig`：grouping / cardinality / packing / layout 的父 contract
 - `DataPackingConfig`：独立的 logical-sequence packing 入口
 - `DatasetSourceConfig`
@@ -132,7 +133,7 @@
   stream，不重新舍入 quota。row occurrence 在 block/cycle 边界连续，unshuffled v2 checkpoint 不能 exact
   resume 到 v3。stream fingerprint 排除 finite horizon，plan/execution fingerprint 再绑定 `num_samples`，
   不能用跨 horizon 比较身份替代 exact-resume 身份。
-- prompt sampling/online transform 使用 `draw_id/transform_seed`，并必须通过
+- PromptSource/online transform 使用 `draw_id/transform_seed`，并必须通过
   `planning_safe_online_transform(fingerprint=...)` 声明可重复、保持媒体 identity/geometry 和 placeholder。
 - `ShaftSFTSampleCostProvider` 调用 Dataset 的 `get_planning_item()`，不解码图片，只读取按需 image
   header。sample cost 按 logical draw 缓存，header 按 canonical path 缓存；两者都受容量限制。provider
@@ -160,9 +161,10 @@
   加载前参与 resume 校验，不能用乘积相同但 cadence 不同的配置续训。contract 同时证明并返回真实的
   rank-local epoch microstep 数；sampler 与 checkpoint cadence 不再各自推导一份 epoch 几何。
 - `data.schedule` 只决定 mixing 与 shuffle，形成确定性的 logical draw stream。
-- `data.transforms.prompt_sampling` 按 dataset name 选择 prompt pool，采样键来自 draw context，默认只作用于
-  train；它变换 draw view，不改变 draw 顺序或 mixing 权重。静态/参数化 variant 都由 `shaft.prompting`
-  编译和渲染，SFT `prompt_args` 保持 JSON 类型进入同一 planning-safe transform。
+- `data.prompt_sources` 按 dataset name 选择 PromptSource pool，默认只作用于 train；它先选择 task
+  formulation，再在 formulation 内选择 prompt variant，并原子地产生 prompt/target，不改变 draw 顺序或
+  dataset mixing 权重。curriculum 由 dataset-local `source_draw_id` 驱动，静态/参数化 prompt 与 target
+  program 都复用 `shaft.prompting` 的受限编译器。未配置的 dataset 直接消费 materialized SFT 数据。
 - Arrow build-time record validator 与非空 validation fingerprint 是不可拆分的 API contract；二者必须同时
   提供或同时省略，防止 cache hit 绕过新校验。train execution fingerprint 还组合规范化 record store 与
   `media_snapshot_id`，不能只绑定 sample 数量和 transform。Arrow source fingerprint 绑定 cache format、

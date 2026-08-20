@@ -18,8 +18,10 @@ import time
 import pytest
 import torch
 from safetensors.torch import load_file
+import yaml
 
 from shaft.config import load_config
+from shaft.data import SFTDataset, ShaftDataCenter
 from shaft.model.smoke_vlm import SmokeProcessor
 from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
 from shaft.pipeline import run_sft
@@ -186,6 +188,80 @@ def test_smoke_full(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(SmokeProcessor, "__call__", _counting_call)
     _run_mode(tmp_path, "full")
     assert processor_batch_sizes == [1, 1]
+
+
+def test_prompt_source_formulation_sft_smoke(tmp_path: Path) -> None:
+    config_path = write_sft_smoke_config(
+        tmp_path,
+        finetune_mode="full",
+        train_size=2,
+        val_size=1,
+    )
+    train_path = tmp_path / "train.jsonl"
+    image_path = tmp_path / "image.png"
+    rows = [
+        {
+            "image_path": str(image_path),
+            "sample_id": f"s{index}",
+            "prompt_args": {"a": {"value": index}, "b": [index, index + 1]},
+        }
+        for index in range(2)
+    ]
+    train_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    pool_path = tmp_path / "prompt-source.yaml"
+    pool_path.write_text(
+        """
+metadata: {id: smoke.prompt-source, version: v1}
+arguments:
+  a: {type: json}
+  b: {type: json}
+formulations:
+  - id: a
+    target_template: '{{ a | json }}'
+    prompts:
+      - id: direct
+        user_prompt: Reconstruct A.
+  - id: ab
+    target_template: '{"A":{{ a | json }},"B":{{ b | json }}}'
+    prompts:
+      - id: direct
+        user_prompt: Reconstruct A and B.
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    payload["data"]["prompt_sources"] = {
+        "smoke_ds": {
+            "path": str(pool_path),
+            "schedule": {
+                "interpolation": "step",
+                "points": [
+                    {"source_draw": 0, "weights": {"a": 0.0, "ab": 1.0}}
+                ],
+            },
+        }
+    }
+    config_path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    bundle = ShaftDataCenter(config.data, seed=config.experiment.seed).build_dataset_bundle(
+        SFTDataset
+    )
+    assert bundle.train_sampler is not None
+    sample = bundle.train_dataset[next(iter(bundle.train_sampler))]
+    assert sample["user_prompt"] == "Reconstruct A and B."
+    assert sample["target_text"].startswith('{"A":')
+    assert sample["extra"]["prompt_source"]["formulation_id"] == "ab"
+
+    metrics = run_sft(config)
+
+    assert "train_loss" in metrics
 
 
 def test_smoke_lora(tmp_path: Path) -> None:

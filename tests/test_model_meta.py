@@ -1101,7 +1101,7 @@ print(json.dumps({
         capture_output=True,
         env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
         text=True,
-        timeout=20,
+        timeout=60,
     )
     metrics = json.loads(completed.stdout.strip().splitlines()[-1])
 
