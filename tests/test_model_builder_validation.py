@@ -143,6 +143,31 @@ def test_local_hf_config_model_type_validation_accepts_qwen36_config(tmp_path: P
     assert plan.model_adapter.group_name == "dense"
 
 
+def test_local_hf_config_model_type_validation_accepts_qwen38_config(tmp_path: Path) -> None:
+    model_dir = tmp_path / "Qwen3.8-27B"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": "qwen3_5",
+                "architectures": ["Qwen3_5ForConditionalGeneration"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RuntimeConfig()
+    config.model.model_type = "qwen38vl"
+    config.model.model_name_or_path = str(model_dir)
+
+    plan = resolve_model_plan(config)
+
+    assert plan.descriptor is not None
+    assert plan.descriptor.hf_model_type == "qwen3_5"
+    assert plan.model_adapter.group_name == "dense"
+    assert plan.model_adapter.template_type == "qwen38vl"
+
+
 def test_init_from_full_checkpoint_overrides_model_path(tmp_path: Path) -> None:
     config = RuntimeConfig()
     config.model.model_type = "qwen3vl"

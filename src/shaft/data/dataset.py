@@ -59,6 +59,7 @@ class _OrderedImageRecord:
 class SFTRecord(_OrderedImageRecord):
     image_paths: tuple[str, ...]
     target_text: str
+    target_reasoning_content: str | None = None
     dataset_name: str = "default"
     sample_id: str | None = None
     messages: list[dict[str, Any]] | None = None
@@ -71,6 +72,7 @@ class SFTRecord(_OrderedImageRecord):
         self,
         image_path: str | Path | None = None,
         target_text: str = "",
+        target_reasoning_content: str | None = None,
         dataset_name: str = "default",
         sample_id: str | None = None,
         messages: list[dict[str, Any]] | None = None,
@@ -87,6 +89,11 @@ class SFTRecord(_OrderedImageRecord):
             required=True,
         )
         self.target_text = str(target_text)
+        self.target_reasoning_content = (
+            None
+            if target_reasoning_content is None
+            else str(target_reasoning_content)
+        )
         self.dataset_name = str(dataset_name)
         self.sample_id = sample_id
         self.messages = messages
@@ -324,6 +331,7 @@ class SFTDataset(ShaftVisionDatasetBase):
             "images": images,
             "image": image_row,
             "target_text": record.target_text,
+            "target_reasoning_content": record.target_reasoning_content,
             "messages": record.messages,
             "system_prompt": record.system_prompt,
             "user_prompt": record.user_prompt,

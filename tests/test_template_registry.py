@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from shaft.model import build_model_meta
 from shaft.template import (
     ShaftChatRenderer,
@@ -40,6 +42,12 @@ def test_resolve_template_meta_uses_qwen35vl_model_default() -> None:
     assert meta.template_type == "qwen35vl"
 
 
+def test_resolve_template_meta_uses_qwen38vl_non_thinking_default() -> None:
+    model_meta = build_model_meta("qwen38vl")
+    meta = resolve_template_meta(model_meta=model_meta)
+    assert meta.template_type == "qwen38vl"
+
+
 def test_resolve_template_meta_accepts_model_adapter() -> None:
     model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     meta = resolve_template_meta(model_adapter=model_adapter)
@@ -70,8 +78,45 @@ def test_template_default_system_is_injected() -> None:
     ) == "ok"
 
 
-def test_qwen35vl_template_disables_thinking_by_default() -> None:
-    template = build_template("qwen35vl")
+@pytest.mark.parametrize(
+    ("template_name", "expected_options"),
+    [
+        ("qwen35vl", {"enable_thinking": False}),
+        ("qwen35vl_thinking", {"enable_thinking": True}),
+        ("qwen36vl", {"enable_thinking": False, "preserve_thinking": False}),
+        ("qwen36vl_thinking", {"enable_thinking": True, "preserve_thinking": True}),
+        ("qwen38vl", {"enable_thinking": False, "preserve_thinking": False}),
+        (
+            "qwen38vl_thinking",
+            {
+                "enable_thinking": True,
+                "preserve_thinking": True,
+                "reasoning_effort": "xhigh",
+            },
+        ),
+        (
+            "qwen38vl_thinking_medium",
+            {
+                "enable_thinking": True,
+                "preserve_thinking": True,
+                "reasoning_effort": "medium",
+            },
+        ),
+        (
+            "qwen38vl_thinking_low",
+            {
+                "enable_thinking": True,
+                "preserve_thinking": True,
+                "reasoning_effort": "low",
+            },
+        ),
+    ],
+)
+def test_qwen35_architecture_templates_forward_exact_product_options(
+    template_name: str,
+    expected_options: dict[str, object],
+) -> None:
+    template = build_template(template_name)
     captured = {}
 
     class _Tokenizer:
@@ -89,28 +134,11 @@ def test_qwen35vl_template_disables_thinking_by_default() -> None:
     )
     assert captured["kwargs"]["tokenize"] is False
     assert captured["kwargs"]["add_generation_prompt"] is True
-    assert captured["kwargs"]["enable_thinking"] is False
-    assert captured["kwargs"]["preserve_thinking"] is False
-
-
-def test_qwen35vl_thinking_template_enables_thinking_explicitly() -> None:
-    template = build_template("qwen35vl_thinking")
-    captured = {}
-
-    class _Tokenizer:
-        def apply_chat_template(self, messages, **kwargs):
-            captured["kwargs"] = kwargs
-            return "ok"
-
-    assert (
-        template.apply_chat_template(
-            renderer=_renderer(_Tokenizer()),
-            messages=[{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
-        )
-        == "ok"
-    )
-    assert captured["kwargs"]["enable_thinking"] is True
-    assert captured["kwargs"]["preserve_thinking"] is True
+    assert {
+        key: value
+        for key, value in captured["kwargs"].items()
+        if key not in {"tokenize", "add_generation_prompt"}
+    } == expected_options
 
 
 def test_template_respects_generation_prompt_flag() -> None:

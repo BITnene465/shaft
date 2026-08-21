@@ -236,10 +236,10 @@ full HF 权重默认按 `train.max_shard_size: 4GB` 分片，可按训练盘与�
 FSDP/ZeRO-3 的完整权重门禁及配置约束见 [`docs/config_reference.md`](docs/config_reference.md)。
 当前 planned batching 只开放 SFT + step duration，eval 保持普通 padded fixed batch。DDP 支持完整的已登记
 planned 组合；FSDP/DeepSpeed 只开放 `bounded_cost + fixed + none + padded`。Qwen3VL 与 HF `qwen3_5`
-dense/MoE（Qwen3.5/Qwen3.6）的 image SFT 已接通
+dense/MoE（`qwen35vl`/`qwen36vl`/`qwen38vl`）的 image SFT 已接通
 `grouping=length + cardinality=fixed + packing.mode=greedy + layout=varlen`：planner 在
 有界窗口内按真实 processor 后长度分组，把多个完整 logical segment 装入固定数量的 physical packs；
-CUDA 执行要求 FlashAttention 2、bf16/fp16 与 DDP；Qwen3.5/3.6 hybrid attention 还要求
+CUDA 执行要求 FlashAttention 2、bf16/fp16 与 DDP；`qwen3_5` hybrid attention 还要求
 flash-linear-attention 与 causal-conv1d。未验收的模型族/backend/topology 会在加载数据和权重前 fail closed。
 `per_device_train_batch_size` 表示每卡 physical pack 数，不等于 pack 内 logical segment 数。当前 varlen
 release/tiny gates 使用 BF16；FP16 只是运行时 allowlisted，尚无 varlen 专项验收。
@@ -254,9 +254,14 @@ batch-local auxiliary loss，`eval_loss` 只统计 token-normalized CE，dataset
 `eval_aux/router_global_balance`。MoE LoRA 显式配置 `target_parameters: [auto]` 后，通过 PEFT 覆盖 fused routed
 experts 与 router；该字段默认空，不会由普通 `target_modules: [auto]` 隐式启用。
 
-Qwen3.5/3.6 的 MTP speculative head 当前不受支持：Shaft 不加载、训练、保存、合并或部署 `mtp.*`，
+Qwen3.5/3.6/3.8 的 MTP speculative head 当前不受支持：Shaft 不加载、训练、保存、合并或部署 `mtp.*`，
 也不提供 MTP loss/speculative-serving contract。Shaft 产物仍完整支持标准 autoregressive target-model
 推理；不得仅根据上游 config 中的 `mtp_num_hidden_layers` 判断 MTP 可用。
+
+Qwen3.5/3.6/3.8 分别使用同名的非 thinking 默认模板；需要 CoT SFT 时选择对应的 `*_thinking` 模板，并在
+SFT JSONL 中以 `target_reasoning_content`（或末尾 assistant 的 `reasoning_content`）保存推理正文、
+`target_text`（或 assistant 的 `content`）保存最终答案。Qwen3.8 另提供 `xhigh`、`medium`、`low` 三档
+reasoning effort；完整模板名和 fail-closed 数据合同见 [`docs/config_reference.md`](docs/config_reference.md)。
 
 通常无需改 router coefficient；确需实验性覆写时使用下列 SFT-only 接口，未设置时仍读取模型
 `router_aux_loss_coef`，完整语义见 `docs/config_reference.md`：

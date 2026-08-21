@@ -89,11 +89,15 @@ class QwenVLInferencePolicy(ShaftImageTextInferencePolicy):
                     "by the model inference policy before the request."
                 )
         if self.supports_thinking_templates and "chat_template_kwargs" not in options:
-            thinking = str(template_type).strip().lower() == "qwen35vl_thinking"
-            options["chat_template_kwargs"] = {
-                "enable_thinking": thinking,
-                "preserve_thinking": thinking,
-            }
+            from shaft.template import build_template_meta
+
+            template_meta = build_template_meta(str(template_type).strip().lower())
+            chat_template_options = dict(template_meta.chat_template_options)
+            if not chat_template_options:
+                raise ValueError(
+                    f"Template {template_type!r} does not declare Qwen chat-template options."
+                )
+            options["chat_template_kwargs"] = chat_template_options
         return options
 
 

@@ -50,7 +50,7 @@ class Qwen35VLPeftPolicy(DefaultPeftPolicy):
         normalized_name = str(model_name_or_path or "").strip().lower()
         if quantization_config or normalized_name.rstrip("/").endswith("-fp8"):
             raise ValueError(
-                "Pre-quantized Qwen3.5/3.6 artifacts are inference-only in "
+                "Pre-quantized Qwen3.5/3.6/3.8 artifacts are inference-only in "
                 "Shaft; use an unquantized base checkpoint for training."
             )
 
@@ -75,7 +75,6 @@ _QWEN35_MOE_PEFT_POLICY = Qwen35MoePeftPolicy(
 
 _QWEN35VL_COMMON = dict(
     family="qwen",
-    default_template="qwen35vl",
     hf_model_types=("qwen3_5", "qwen3_5_moe"),
     capabilities=ModelCapabilities(is_multimodal=True),
     module_groups=ModelModuleGroups(
@@ -99,10 +98,11 @@ QWEN35VL_META = ModelMeta(
             "qwen3.5-27b",
             "qwen3.6-27b",
             "qwen3.6-27b-fp8",
+            "qwen3.8-27b",
+            "qwen3.8-27b-fp8",
             name="dense",
             hf_model_types=("qwen3_5",),
             descriptor_matcher=_is_qwen35_dense_descriptor,
-            template="qwen35vl",
             sharding_policy=ModelShardingPolicy(
                 fsdp_transformer_layer_cls_to_wrap=(
                     "Qwen3_5DecoderLayer",
@@ -118,7 +118,6 @@ QWEN35VL_META = ModelMeta(
             name="moe",
             hf_model_types=("qwen3_5_moe",),
             descriptor_matcher=_is_qwen35_moe_descriptor,
-            template="qwen35vl",
             sharding_policy=ModelShardingPolicy(
                 fsdp_transformer_layer_cls_to_wrap=(
                     "Qwen3_5MoeDecoderLayer",
@@ -139,6 +138,7 @@ QWEN35VL_META = ModelMeta(
         ),
         supports_fsdp_activation_checkpointing=False,
     ),
+    default_template="qwen35vl",
     **_QWEN35VL_COMMON,
 )
 
@@ -147,6 +147,16 @@ QWEN36VL_META = ModelMeta(
     model_type="qwen36vl",
     model_groups=QWEN35VL_META.model_groups,
     sharding_policy=QWEN35VL_META.sharding_policy,
+    default_template="qwen36vl",
+    **_QWEN35VL_COMMON,
+)
+
+
+QWEN38VL_META = ModelMeta(
+    model_type="qwen38vl",
+    model_groups=QWEN35VL_META.model_groups,
+    sharding_policy=QWEN35VL_META.sharding_policy,
+    default_template="qwen38vl",
     **_QWEN35VL_COMMON,
 )
 
@@ -158,4 +168,9 @@ class Qwen35VLLoader(Qwen3VLLoader):
 
 @register_model(QWEN36VL_META)
 class Qwen36VLLoader(Qwen3VLLoader):
+    pass
+
+
+@register_model(QWEN38VL_META)
+class Qwen38VLLoader(Qwen3VLLoader):
     pass

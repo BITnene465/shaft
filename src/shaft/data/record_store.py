@@ -17,7 +17,7 @@ RecordT = TypeVar("RecordT")
 
 # Bump whenever normalized record schema, row-building semantics, or source
 # snapshot identity changes.
-_CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v6"
+_CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v7"
 _JSON_FIELDS = {"image_paths", "messages", "prompt_args", "extra"}
 _RECORD_TYPES: dict[str, type[Any]] = {}
 

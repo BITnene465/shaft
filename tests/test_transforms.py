@@ -71,6 +71,7 @@ def _sample(
     draw_id: int,
     *,
     targets: dict[str, str] | None = None,
+    reasoning_targets: dict[str, str | None] | None = None,
 ) -> dict[str, object]:
     resolved_targets = targets or {
         "a": '{"value":1}',
@@ -85,6 +86,9 @@ def _sample(
                     dataset_name="ds",
                     sample_id="same-row",
                     target_text=target_text,
+                    target_reasoning_content=(reasoning_targets or {}).get(
+                        formulation_id
+                    ),
                 )
             ]
             for formulation_id, target_text in resolved_targets.items()
@@ -95,6 +99,7 @@ def _sample(
         "dataset_name": "ds",
         "sample_id": "same-row",
         "target_text": "",
+        "target_reasoning_content": None,
         "prompt_args": {},
         "system_prompt": "",
         "user_prompt": "",
@@ -121,6 +126,23 @@ def test_offline_dedup() -> None:
     assert len(out) == 2
 
 
+def test_offline_dedup_preserves_distinct_reasoning_targets() -> None:
+    records = [
+        SFTRecord(
+            image_path="/tmp/a.png",
+            target_text="answer",
+            target_reasoning_content="reasoning one",
+        ),
+        SFTRecord(
+            image_path="/tmp/a.png",
+            target_text="answer",
+            target_reasoning_content="reasoning two",
+        ),
+    ]
+
+    assert len(build_offline_pipeline(["dedup_image_target"])(records)) == 2
+
+
 def test_online_identity() -> None:
     pipeline = build_online_pipeline(["identity"])
     sample = {"x": 1}
@@ -145,6 +167,23 @@ def test_inline_formulation_store_fingerprint_binds_materialized_targets() -> No
             "a": [SFTRecord(target_text="A", **common)],
             "full": [SFTRecord(target_text="FULL-2", **common)],
         }
+    )
+
+    assert first.fingerprint != second.fingerprint
+
+
+def test_inline_formulation_store_fingerprint_binds_reasoning_targets() -> None:
+    common = {
+        "image_path": "/tmp/a.png",
+        "dataset_name": "ds",
+        "sample_id": "same",
+        "target_text": "answer",
+    }
+    first = ShaftFormulationRecordStore(
+        {"full": [SFTRecord(target_reasoning_content="reasoning-1", **common)]}
+    )
+    second = ShaftFormulationRecordStore(
+        {"full": [SFTRecord(target_reasoning_content="reasoning-2", **common)]}
     )
 
     assert first.fingerprint != second.fingerprint
@@ -177,6 +216,29 @@ def test_prompt_source_selects_materialized_a_b_and_ab(tmp_path: Path) -> None:
     invalid_context["_sample_context"]["draw_id"] = 1.5  # type: ignore[index]
     with pytest.raises(ValueError, match="draw_id must be an integer"):
         resolver(invalid_context)
+
+
+def test_prompt_source_selects_reasoning_from_the_same_formulation(tmp_path: Path) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    resolver = build_prompt_source_resolver({"ds": _static_config(pool)}, default_seed=3)
+    reasoning_targets = {
+        "a": "reason-a",
+        "b": None,
+        "ab": "reason-ab",
+    }
+
+    selected = {
+        resolved["extra"]["prompt_source"]["formulation_id"]: resolved
+        for draw_id in range(200)
+        for resolved in (
+            resolver(_sample(draw_id, reasoning_targets=reasoning_targets)),
+        )
+    }
+
+    assert selected["a"]["target_reasoning_content"] == "reason-a"
+    assert selected["b"]["target_reasoning_content"] is None
+    assert selected["ab"]["target_reasoning_content"] == "reason-ab"
 
 
 def test_prompt_source_selects_only_the_configured_shared_pool_subset(
@@ -246,6 +308,7 @@ def test_prompt_source_records_one_structured_audit_object(tmp_path: Path) -> No
     assert len(audit["arguments_sha256"]) == 64
     assert len(audit["user_prompt_sha256"]) == 64
     assert len(audit["target_text_sha256"]) == 64
+    assert len(audit["target_reasoning_content_sha256"]) == 64
     assert not any(str(key).startswith("runtime_prompt_") for key in resolved["extra"])
 
 

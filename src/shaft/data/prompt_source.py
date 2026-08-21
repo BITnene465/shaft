@@ -27,11 +27,12 @@ from .sources import build_data_source
 from .transforms import planning_safe_online_transform
 
 
-PROMPT_SOURCE_VERSION = "shaft-prompt-source-v4-formulation-eligibility"
+PROMPT_SOURCE_VERSION = "shaft-prompt-source-v5-reasoning-targets"
 PROMPT_SOURCE_POOL_VERSION = "shaft-prompt-source-pool-v2"
-PROMPT_SOURCE_SELECTION_VERSION = "shaft-prompt-source-selection-v4-eligible-formulations"
-FORMULATION_RECORD_STORE_VERSION = "shaft-formulation-record-store-v1"
+PROMPT_SOURCE_SELECTION_VERSION = "shaft-prompt-source-selection-v5-reasoning-targets"
+FORMULATION_RECORD_STORE_VERSION = "shaft-formulation-record-store-v2"
 _PROMPT_SOURCE_TARGETS_KEY = "_shaft_prompt_source_targets"
+_PROMPT_SOURCE_REASONING_TARGETS_KEY = "_shaft_prompt_source_reasoning_targets"
 
 
 def _sha256_text(value: str) -> str:
@@ -82,10 +83,12 @@ class _ShaftPromptSourceRecord(SFTRecord):
         *,
         canonical: SFTRecord,
         targets: Mapping[str, str],
+        reasoning_targets: Mapping[str, str | None],
     ) -> None:
         super().__init__(
             image_paths=canonical.image_paths,
             target_text="",
+            target_reasoning_content=None,
             dataset_name=canonical.dataset_name,
             sample_id=canonical.sample_id,
             messages=canonical.messages,
@@ -100,9 +103,20 @@ class _ShaftPromptSourceRecord(SFTRecord):
                 for formulation_id, target_text in targets.items()
             }
         )
+        self._reasoning_targets = MappingProxyType(
+            {
+                str(formulation_id): (
+                    None if reasoning_content is None else str(reasoning_content)
+                )
+                for formulation_id, reasoning_content in reasoning_targets.items()
+            }
+        )
 
     def runtime_sample_fields(self) -> Mapping[str, Any]:
-        return {_PROMPT_SOURCE_TARGETS_KEY: dict(self._targets)}
+        return {
+            _PROMPT_SOURCE_TARGETS_KEY: dict(self._targets),
+            _PROMPT_SOURCE_REASONING_TARGETS_KEY: dict(self._reasoning_targets),
+        }
 
 
 class ShaftFormulationRecordStore(Sequence[SFTRecord]):
@@ -171,6 +185,7 @@ class ShaftFormulationRecordStore(Sequence[SFTRecord]):
             }
             payload["image_paths"] = list(record.image_paths)
             payload["target_text"] = record.target_text
+            payload["target_reasoning_content"] = record.target_reasoning_content
             encoded = canonical_json(payload).encode("utf-8")
             digest.update(len(encoded).to_bytes(8, "big"))
             digest.update(encoded)
@@ -225,6 +240,10 @@ class ShaftFormulationRecordStore(Sequence[SFTRecord]):
             canonical=canonical,
             targets={
                 formulation_id: self.stores[formulation_id][position].target_text
+                for formulation_id in self.formulation_ids
+            },
+            reasoning_targets={
+                formulation_id: self.stores[formulation_id][position].target_reasoning_content
                 for formulation_id in self.formulation_ids
             },
         )
@@ -584,6 +603,9 @@ class ShaftPromptSource:
                     f"({context})."
                 )
             formulation_targets = dict(getattr(record, "_targets", {}) or {})
+            formulation_reasoning_targets = dict(
+                getattr(record, "_reasoning_targets", {}) or {}
+            )
             expected_ids = {
                 formulation.formulation_id for formulation in source.eligible_formulations
             }
@@ -597,6 +619,11 @@ class ShaftPromptSource:
                 )
             if any(not str(value).strip() for value in formulation_targets.values()):
                 raise ValueError(f"Materialized formulation targets cannot be empty ({context}).")
+            if set(formulation_reasoning_targets) != expected_ids:
+                raise ValueError(
+                    "Materialized formulation reasoning targets must match the dataset "
+                    f"eligibility subset exactly ({context})."
+                )
         else:
             if getattr(record, "_targets", None):
                 raise ValueError(
@@ -716,16 +743,30 @@ class ShaftPromptSource:
                     f"Missing materialized target_text for formulation "
                     f"{formulation.formulation_id!r} ({render_context})."
                 )
+            formulation_reasoning_targets = (
+                sample.get(_PROMPT_SOURCE_REASONING_TARGETS_KEY) or {}
+            )
+            if not isinstance(formulation_reasoning_targets, dict):
+                raise ValueError(
+                    f"PromptSource runtime reasoning targets must be a mapping "
+                    f"({render_context})."
+                )
+            target_reasoning_content = formulation_reasoning_targets.get(
+                formulation.formulation_id
+            )
         else:
             target_text = str(sample.get("target_text", "") or "")
             if not target_text.strip():
                 raise ValueError(f"Materialized target_text is missing ({render_context}).")
+            target_reasoning_content = sample.get("target_reasoning_content")
 
         updated = dict(sample)
         updated.pop(_PROMPT_SOURCE_TARGETS_KEY, None)
+        updated.pop(_PROMPT_SOURCE_REASONING_TARGETS_KEY, None)
         updated["system_prompt"] = prompt.system_prompt
         updated["user_prompt"] = user_prompt
         updated["target_text"] = target_text
+        updated["target_reasoning_content"] = target_reasoning_content
         extra = dict(updated.get("extra") or {})
         extra["prompt_source"] = {
             "pool_id": source.pool.pool_id,
@@ -741,6 +782,9 @@ class ShaftPromptSource:
             "arguments_sha256": prompt_audit["args_sha256"],
             "user_prompt_sha256": _sha256_text(user_prompt),
             "target_text_sha256": _sha256_text(target_text),
+            "target_reasoning_content_sha256": _sha256_text(
+                str(target_reasoning_content or "")
+            ),
         }
         updated["extra"] = extra
         return updated

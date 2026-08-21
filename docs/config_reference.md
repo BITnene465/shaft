@@ -281,31 +281,36 @@ model:
   objective、标准 adapter exact resume、backend-native optimizer state 和标准 PEFT reload。它不代表两卡
   支持 30B 全参数 AdamW，
   也不替代长程收敛验收；dense 32B 仍未做生产 gate。
-- `model_type=qwen35vl` / `qwen36vl` 适用于 Qwen3.5 / Qwen3.6 新一代 VLM。两者共享
-  同一套 loader、processor policy 和模板默认值；`qwen36vl` 是为了让训练配置保留 3.6 口径。
-- Qwen3.5 / Qwen3.6 训练需要安装支持 `qwen3_5`/`qwen3_5_moe` 架构的 Transformers。当前
+- `model_type=qwen35vl` / `qwen36vl` / `qwen38vl` 适用于 Qwen3.5 / Qwen3.6 / Qwen3.8
+  新一代 VLM。三个注册项共享同一套 `qwen3_5` loader、processor、sequence 与 sharding policy，
+  但默认模板按产品版本分离；`qwen36vl`、`qwen38vl` 也让配置与 artifact identity 保留明确的产品版本口径。
+- Qwen3.5 / Qwen3.6 / Qwen3.8 训练需要安装支持 `qwen3_5`/`qwen3_5_moe` 架构的
+  Transformers。当前
   `qwen35vl` meta 会在运行前检查 `transformers>=5.10.1` 以及
   `transformers.models.qwen3_5` 模块是否存在；MoE profile 还要求 `transformers.models.qwen3_5_moe`。
   MoE padded SFT 已实现 router auxiliary objective、full/LoRA 保存恢复和 HF/PEFT 导出。Qwen3.6-27B
   dense 已有真实权重短程训练证据；MoE 证据仍主要来自 tiny upstream architecture 的 CPU 与 CUDA gate，
   不能解释为真实 35B MoE 权重的生产容量。完整验收条件见 `docs/TODO.md`。
-- **MTP 当前不在 Shaft 支持范围内。** Qwen3.5/3.6 上游 artifact 可能携带 `mtp.*` speculative-draft
-  权重，但当前 Transformers 标准 Qwen3.5/3.6 model class 不实例化这些模块，并把它们作为 ignored
+- **MTP 当前不在 Shaft 支持范围内。** Qwen3.5/3.6/3.8 上游 artifact 可能携带 `mtp.*`
+  speculative-draft 权重，但当前 Transformers 标准 `qwen3_5` model class 不实例化这些模块，并把它们作为 ignored
   unexpected keys。Shaft 因而不加载、不训练、不恢复、不导出 MTP，也没有 `mtp_loss` 或 MTP
   speculative-serving 配置。Shaft full SFT 产物只包含标准 target model；PEFT adapter 也不声明对基座 MTP
   的兼容性。`config.text_config.mtp_num_hidden_layers > 0` 只是上游 config 残留，不能作为 checkpoint 包含
   MTP 的证据。该限制不影响标准逐 token autoregressive 推理和任务质量，但 Shaft 产物不得启用 vLLM/SGLang
   MTP speculative decoding；未来若开发该能力，必须先补模型装配、objective、artifact 完整性和部署门禁，
   不能只在导出时复制 `mtp.*` 文件。
-- Qwen3.5/3.6 dense/MoE 的 `layout=varlen` 只开放 CUDA + DDP + bf16/fp16，且要求
+- HF `qwen3_5` dense/MoE（包括 `qwen35vl`、`qwen36vl`、`qwen38vl` alias）的
+  `layout=varlen` 只开放 CUDA + DDP + bf16/fp16，且要求
   `flash-attn`、`flash-linear-attention` 与 `causal-conv1d`。这是 hybrid full/linear attention 的完整
   segment-isolation contract，不能只安装 FlashAttention 后强行开启。Qwen3.6 在 Transformers 5.10.1
   中复用 `qwen3_5` architecture；`qwen36vl` 是产品版本 alias，不是另一套 HF forward。现有 varlen
   dense/MoE gates 使用 BF16；FP16 当前仅是 runtime allowlist，尚未完成 varlen 专项验收。
 - 仓库基础依赖要求 `transformers>=5.10.1,<6`；当前验证过的 lock 口径固定为
   `transformers==5.10.1`。旧的 `>=4.57.6` 声明与 checkpoint/runtime 实现不一致，已删除，不能把未测试的
-  4.x 环境当成支持面。当前已接通 Qwen3.5 / Qwen3.6 dense/MoE 的 HF 本地训练与推理接口；Qwen3.6-27B
-  dense 有短程真实权重训练记录，MoE 的完整 backend 矩阵仍限于 tiny upstream architecture。
+  4.x 环境当成支持面。当前已接通 Qwen3.5 / Qwen3.6 / Qwen3.8 的 HF 本地训练与推理接口；
+  Qwen3.6-27B dense 有短程真实权重训练记录，Qwen3.8-27B 目前只有共享架构合同和可选真实 processor
+  integration gate，尚未完成目标八卡 full-SFT canary；MoE 的完整 backend 矩阵仍限于 tiny upstream
+  architecture。
   `qwen-next` extra 用于进一步精确固定新一代 Qwen 口径；业务 vLLM
   推理镜像使用同一份
   `uv.lock`，当前标准为 `vllm==0.19.1` + `transformers==5.10.1`。对本地 HF 训练环境，
@@ -332,9 +337,34 @@ model:
   `uv.lock` 构建。推理效果对 prompt、pixel budget、generation 参数和 JSON 解析都敏感，
   不能只对齐模型权重；镜像构建和 `shaft-contract-smoke` 验收见
   `docker/inference/README.md`。
-- `qwen35vl` / `qwen36vl` 默认使用 `template=qwen35vl`，该模板会在 generation prompt 中关闭
-  thinking，避免结构化 JSON 任务无意训练或生成 `<think>` 内容。确实需要 CoT 数据时，显式设置
-  `model.template: qwen35vl_thinking`。
+- 三个产品注册项分别默认使用 `qwen35vl`、`qwen36vl`、`qwen38vl` 非 thinking 模板，避免结构化
+  JSON 任务无意训练或生成 `<think>` 内容。chat-template 选项由模板元数据统一提供给本地 processor 与
+  vLLM/OpenAI-compatible backend，不再由推理 policy 根据模板名重复推导：
+  - Qwen3.5：`qwen35vl_thinking` 只传 `enable_thinking=true`；上游 3.5 模板没有
+    `preserve_thinking` 参数。
+  - Qwen3.6：`qwen36vl_thinking` 传 `enable_thinking=true`、`preserve_thinking=true`。
+  - Qwen3.8：`qwen38vl_thinking` 使用官方默认 `reasoning_effort=xhigh`；还可显式选择
+    `qwen38vl_thinking_medium` 或 `qwen38vl_thinking_low`。三个 thinking 变体都启用并保留 thinking。
+- SFT 的结构化 CoT 标注使用 `target_text` 保存最终答案，使用可选字符串
+  `target_reasoning_content` 保存推理正文；也可在标准 `messages` 的末尾 assistant 消息中同时提供
+  `content` 与 `reasoning_content`，loader 会将它们提取为当前轮目标，并保留历史 assistant 的
+  `reasoning_content` 供产品 chat template 处理。例如：
+
+  ```json
+  {
+    "image": "image.png",
+    "messages": [
+      {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "Solve it."}]},
+      {"role": "assistant", "reasoning_content": "Reason step by step.", "content": "Final answer."}
+    ]
+  }
+  ```
+
+  thinking 模板会把 generation prompt 已打开的 `<think>` 与上述推理正文、`</think>`、最终答案编译成
+  连续监督目标。非 thinking 模板遇到非空 `target_reasoning_content` 会报错；thinking 模板若既没有该字段，
+  也没有已经物化且包含 `</think>` 的 continuation，同样会报错，避免静默训练错误边界。PromptSource 的
+  formulation source 会随选中的 materialized `target_text` 同步选择同一 formulation 的
+  `target_reasoning_content`。
 - `data.min_pixels/max_pixels` 是否以及如何传给 processor 由模型的 `ProcessorPolicy` 唯一决定；
   `qwen_vl` 使用 `images_kwargs`，通用/identity policy 默认不假设 processor 支持 pixel budget。
   新模型不得在 collator、template 或 pipeline 中再维护一份转发开关。
@@ -343,7 +373,7 @@ model:
   `train.distributed.strategy` 切到 `fsdp` 或 `deepspeed`。`data`、`algorithm`、SFT target
   格式和 Qwen3-VL 主链保持一致。
 - Shaft 会对本地 `config.json` 的 HF `model_type` 做早期校验：`qwen3vl` 期望
-  `qwen3_vl` 或 `qwen3_vl_moe`，`qwen35vl` / `qwen36vl` 期望 `qwen3_5` 或
+  `qwen3_vl` 或 `qwen3_vl_moe`，`qwen35vl` / `qwen36vl` / `qwen38vl` 期望 `qwen3_5` 或
   `qwen3_5_moe`。这能在模型加载前
   发现 `model.model_type` 与权重目录不匹配的问题。
 - 同一本地 config 还会解析为 `ResolvedModelDescriptor`，按 `hf_model_type/architectures` 选择 dense/MoE
@@ -376,7 +406,7 @@ model:
 - `target_parameters` 只适用于 adapter mode，要求 `peft>=0.18.1`、`lora_dropout=0`，不支持 DoRA；
   Qwen3.5/3.6 MoE 同时拒绝 QLoRA，因为 bitsandbytes 不会量化这些 fused 3-D expert 参数。resolved 参数名
   进入 finetune/adapter signature，init、resume 与 export 会做一致性校验。
-- Qwen3.5/3.6 的预量化 FP8 artifact 在 Shaft 中是 inference-only；dense 和 MoE 训练都必须从未预量化
+- Qwen3.5/3.6/3.8 的预量化 FP8 artifact 在 Shaft 中是 inference-only；dense 和 MoE 训练都必须从未预量化
   base checkpoint 启动（发布权重通常为 BF16），不能靠路径或未知 dtype 静默退化。FP16 AMP full
   finetune 仍按精度合同以 FP32 参数加载。
 - `freeze.groups` 当前只允许：

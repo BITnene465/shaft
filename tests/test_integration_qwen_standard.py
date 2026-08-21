@@ -978,7 +978,8 @@ def _validate_qwen_peft_export(
     ("model_type", "template_name", "model_path"),
     [
         ("qwen3vl", "qwen3vl", Path("models/Qwen3-VL-4B-Instruct")),
-        ("qwen36vl", "qwen35vl", Path("models/Qwen3.6-27B")),
+        ("qwen36vl", "qwen36vl", Path("models/Qwen3.6-27B")),
+        ("qwen38vl", "qwen38vl", Path("models/Qwen3.8-27B")),
     ],
 )
 def test_qwen_vl_runtime_cost_matches_real_processor_and_collator(
@@ -1166,8 +1167,9 @@ def test_qwen3vl_bounded_planner_hard_caps_match_heterogeneous_real_batches(
     ("model_type", "template_name", "model_path"),
     [
         ("qwen3vl", "qwen3vl", Path("models/Qwen3-VL-4B-Instruct")),
-        ("qwen36vl", "qwen35vl", Path("models/Qwen3.6-27B")),
-        ("qwen36vl", "qwen35vl_thinking", Path("models/Qwen3.6-27B")),
+        ("qwen36vl", "qwen36vl", Path("models/Qwen3.6-27B")),
+        ("qwen36vl", "qwen36vl_thinking", Path("models/Qwen3.6-27B")),
+        ("qwen38vl", "qwen38vl", Path("models/Qwen3.8-27B")),
     ],
 )
 def test_qwen_vl_sft_multiround_supervision_uses_one_processor_call(
@@ -1207,6 +1209,8 @@ def test_qwen_vl_sft_multiround_supervision_uses_one_processor_call(
         "user_prompt": "",
         "extra": {},
     }
+    if template_name.endswith("_thinking"):
+        item["target_reasoning_content"] = "reasoning for answer two"
 
     outputs = {}
     processors = {}
@@ -1236,7 +1240,8 @@ def test_qwen_vl_sft_multiround_supervision_uses_one_processor_call(
     ("model_type", "template_name", "model_path"),
     [
         ("qwen3vl", "qwen3vl", Path("models/Qwen3-VL-4B-Instruct")),
-        ("qwen36vl", "qwen35vl", Path("models/Qwen3.6-27B")),
+        ("qwen36vl", "qwen36vl", Path("models/Qwen3.6-27B")),
+        ("qwen38vl", "qwen38vl", Path("models/Qwen3.8-27B")),
     ],
 )
 def test_qwen_vl_dpo_reuses_one_processed_prompt_for_both_completions(
@@ -1339,8 +1344,17 @@ def test_qwen3vl_standard_model_load_and_chat() -> None:
 
 @pytest.mark.integration
 @pytest.mark.manual
-def test_qwen36vl_processor_template_disables_thinking_by_default() -> None:
-    model_path = Path("models/Qwen3.6-27B")
+@pytest.mark.parametrize(
+    ("model_type", "model_path"),
+    [
+        ("qwen36vl", Path("models/Qwen3.6-27B")),
+        ("qwen38vl", Path("models/Qwen3.8-27B")),
+    ],
+)
+def test_qwen3_5_architecture_processor_template_disables_thinking_by_default(
+    model_type: str,
+    model_path: Path,
+) -> None:
     required_files = [
         "config.json",
         "tokenizer_config.json",
@@ -1348,18 +1362,18 @@ def test_qwen36vl_processor_template_disables_thinking_by_default() -> None:
     ]
     missing_files = [name for name in required_files if not (model_path / name).exists()]
     if missing_files:
-        pytest.skip(f"Qwen3.6 model path is incomplete: missing {missing_files}")
+        pytest.skip(f"{model_type} model path is incomplete: missing {missing_files}")
     if importlib.util.find_spec("transformers.models.qwen3_5") is None:
         pytest.skip("Current Transformers build does not include qwen3_5 support.")
-    if not MODEL_REGISTRY.has("qwen36vl"):
-        pytest.skip("qwen36vl model adapter is not registered in current runtime.")
+    if not MODEL_REGISTRY.has(model_type):
+        pytest.skip(f"{model_type} model adapter is not registered in current runtime.")
 
     processor = AutoProcessor.from_pretrained(
         model_path,
         trust_remote_code=True,
         fix_mistral_regex=False,
     )
-    template = build_template("qwen35vl")
+    template = build_template(model_type)
     rendered = template.apply_chat_template(
         renderer=ShaftChatRenderer.from_components(
             processor=processor,
@@ -1378,6 +1392,51 @@ def test_qwen36vl_processor_template_disables_thinking_by_default() -> None:
 
     assert "<|im_start|>assistant" in rendered
     assert "<think>\n\n</think>" in rendered
+
+
+@pytest.mark.integration
+@pytest.mark.manual
+@pytest.mark.parametrize(
+    ("template_name", "model_path", "preserves_historical_reasoning"),
+    [
+        ("qwen35vl_thinking", Path("models/Qwen3.5-4B"), False),
+        ("qwen36vl_thinking", Path("models/Qwen3.6-27B"), True),
+        ("qwen38vl_thinking", Path("models/Qwen3.8-27B"), True),
+    ],
+)
+def test_qwen_product_thinking_templates_match_real_processor_history_policy(
+    template_name: str,
+    model_path: Path,
+    preserves_historical_reasoning: bool,
+) -> None:
+    required_files = ["tokenizer_config.json", "preprocessor_config.json"]
+    missing_files = [name for name in required_files if not (model_path / name).exists()]
+    if missing_files:
+        pytest.skip(f"{template_name} processor path is incomplete: missing {missing_files}")
+
+    processor = AutoProcessor.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        fix_mistral_regex=False,
+    )
+    rendered = build_template(template_name).apply_chat_template(
+        renderer=ShaftChatRenderer.from_components(
+            processor=processor,
+            tokenizer=getattr(processor, "tokenizer", None),
+        ),
+        messages=[
+            {"role": "user", "content": "first question"},
+            {
+                "role": "assistant",
+                "reasoning_content": "historical private reasoning",
+                "content": "historical final answer",
+            },
+            {"role": "user", "content": "next question"},
+        ],
+    )
+
+    assert rendered.endswith("<think>\n")
+    assert ("historical private reasoning" in rendered) is preserves_historical_reasoning
 
 
 @pytest.mark.integration

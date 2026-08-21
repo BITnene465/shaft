@@ -50,7 +50,13 @@ def _normalize_messages(record: dict[str, Any]) -> list[dict[str, Any]] | None:
             raise TypeError("Each message must be a dict.")
         role = str(message.get("role", "user")).strip().lower()
         content = _normalize_message_content(message.get("content", ""))
-        normalized.append({"role": role, "content": content})
+        normalized_message: dict[str, Any] = {"role": role, "content": content}
+        if "reasoning_content" in message and message["reasoning_content"] is not None:
+            reasoning_content = message["reasoning_content"]
+            if not isinstance(reasoning_content, str):
+                raise TypeError("Message reasoning_content must be a string when provided.")
+            normalized_message["reasoning_content"] = reasoning_content
+        normalized.append(normalized_message)
     return normalized
 
 
@@ -59,14 +65,17 @@ def _content_to_text(content: list[dict[str, Any]]) -> str:
     return "".join(texts).strip()
 
 
-def _extract_target_from_messages(messages: list[dict[str, Any]]) -> tuple[str | None, list[dict[str, Any]]]:
+def _extract_target_from_messages(
+    messages: list[dict[str, Any]],
+) -> tuple[str | None, str | None, list[dict[str, Any]]]:
     if not messages:
-        return None, messages
+        return None, None, messages
     last = messages[-1]
     if str(last.get("role", "")).strip().lower() != "assistant":
-        return None, messages
+        return None, None, messages
     target_text = _content_to_text(last.get("content", []))
-    return target_text, messages[:-1]
+    target_reasoning_content = last.get("reasoning_content")
+    return target_text, target_reasoning_content, messages[:-1]
 
 
 def _resolve_image_paths(
@@ -156,10 +165,20 @@ def _build_sft_record_from_raw(
     if not isinstance(prompt_args, dict):
         raise ValueError("`prompt_args` must be a JSON object when provided.")
     target_text = raw.get("target_text")
+    target_reasoning_content = raw.get("target_reasoning_content")
+    if target_reasoning_content is not None and not isinstance(
+        target_reasoning_content,
+        str,
+    ):
+        raise ValueError("`target_reasoning_content` must be a string when provided.")
     if target_text is None and messages is not None:
-        extracted_target, prompt_messages = _extract_target_from_messages(messages)
+        extracted_target, extracted_reasoning, prompt_messages = (
+            _extract_target_from_messages(messages)
+        )
         if extracted_target is not None:
             target_text = extracted_target
+            if target_reasoning_content is None:
+                target_reasoning_content = extracted_reasoning
             messages = prompt_messages
     if target_text is None:
         raise ValueError(
@@ -186,6 +205,7 @@ def _build_sft_record_from_raw(
             "image",
             "images",
             "target_text",
+            "target_reasoning_content",
             "messages",
             "conversation",
             "conversations",
@@ -201,6 +221,7 @@ def _build_sft_record_from_raw(
     return SFTRecord(
         image_paths=image_paths,
         target_text="" if target_text is None else str(target_text),
+        target_reasoning_content=target_reasoning_content,
         dataset_name=dataset_name,
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,

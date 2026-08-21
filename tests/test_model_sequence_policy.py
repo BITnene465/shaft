@@ -191,13 +191,13 @@ def test_qwen35vl_hybrid_varlen_adds_full_and_linear_attention_boundaries() -> N
     assert prepared["max_length_k"] == 4
 
 
-def test_qwen35vl_and_qwen36vl_adapters_share_verified_hybrid_policy() -> None:
+def test_qwen35vl_qwen36vl_and_qwen38vl_adapters_share_verified_hybrid_policy() -> None:
     with patch.object(
         Qwen35VLSequenceExecutionPolicy,
         "_package_version",
         return_value="test-version",
     ):
-        for model_type in ("qwen35vl", "qwen36vl"):
+        for model_type in ("qwen35vl", "qwen36vl", "qwen38vl"):
             adapter = build_model_meta(model_type).resolve_adapter(
                 model_name_or_path="models/Qwen3.6-27B"
             )

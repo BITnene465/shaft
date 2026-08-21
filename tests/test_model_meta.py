@@ -307,11 +307,37 @@ def test_qwen35vl_meta_exposes_family_and_policies() -> None:
     assert model_meta.candidate_templates == ("qwen35vl",)
 
 
-def test_qwen36vl_alias_uses_same_template() -> None:
+def test_qwen36vl_alias_uses_product_template() -> None:
     model_meta = build_model_meta("qwen36vl")
-    assert model_meta.default_template == "qwen35vl"
+    assert model_meta.default_template == "qwen36vl"
     assert model_meta.hf_model_types == ("qwen3_5", "qwen3_5_moe")
-    assert model_meta.resolve_template_type("models/Qwen3.6-27B") == "qwen35vl"
+    assert model_meta.resolve_template_type("models/Qwen3.6-27B") == "qwen36vl"
+
+
+def test_qwen38vl_alias_reuses_qwen35_architecture_contract() -> None:
+    qwen35_meta = build_model_meta("qwen35vl")
+    qwen38_meta = build_model_meta("qwen38vl")
+
+    assert qwen38_meta.default_template == "qwen38vl"
+    assert qwen38_meta.hf_model_types == ("qwen3_5", "qwen3_5_moe")
+    assert qwen38_meta.model_groups is qwen35_meta.model_groups
+    assert qwen38_meta.processor_policy is qwen35_meta.processor_policy
+    assert qwen38_meta.inference_policy is qwen35_meta.inference_policy
+    assert qwen38_meta.sequence_execution_policy is qwen35_meta.sequence_execution_policy
+
+    adapter = qwen38_meta.resolve_adapter(model_name_or_path="models/Qwen3.8-27B")
+    assert adapter.group_name == "dense"
+    assert adapter.template_type == "qwen38vl"
+    assert adapter.resolve_fsdp_transformer_layer_cls_to_wrap(["auto"]) == [
+        "Qwen3_5DecoderLayer",
+        "Qwen3_5VisionBlock",
+    ]
+
+    fp8_adapter = qwen38_meta.resolve_adapter(
+        model_name_or_path="models/Qwen3.8-27B-FP8"
+    )
+    with pytest.raises(ValueError, match="inference-only"):
+        fp8_adapter.validate_training_finetune_config(RuntimeConfig().model.finetune)
 
 
 def test_qwen35vl_dense_fsdp_auto_layers() -> None:

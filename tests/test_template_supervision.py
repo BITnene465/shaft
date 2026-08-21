@@ -99,8 +99,14 @@ class _ChatMLProcessor:
         self.tokenizer = _ChatMLTokenizer()
         self.render_count = 0
 
-    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
-        _ = tokenize
+    def apply_chat_template(
+        self,
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        **kwargs,
+    ):
+        _ = tokenize, kwargs
         self.render_count += 1
         rendered = []
         for message in messages:
@@ -213,6 +219,63 @@ def test_qwen_template_compiles_closed_chatml_assistant_spans() -> None:
     assert plan.trainable_prefix_spans == ((3, 6),)
     assert len(plan.rendered_prefix_token_ids) == 10
     assert processor.render_count == 1
+
+
+def test_qwen_thinking_template_serializes_structured_target_reasoning() -> None:
+    processor = _ChatMLProcessor()
+    item = {
+        "image_paths": (),
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "solve"}]}
+        ],
+        "target_reasoning_content": "step one\nstep two",
+    }
+
+    plan = build_template("qwen38vl_thinking_medium").build_supervision_plan(
+        item=item,
+        target_text="final answer",
+        renderer=_renderer(processor, processor.tokenizer),
+        loss_scale_name="default",
+    )
+
+    assert plan.target_text == "step one\nstep two\n</think>\n\nfinal answer"
+
+
+def test_qwen_non_thinking_template_rejects_structured_target_reasoning() -> None:
+    processor = _ChatMLProcessor()
+    item = {
+        "image_paths": (),
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "solve"}]}
+        ],
+        "target_reasoning_content": "private reasoning",
+    }
+
+    with pytest.raises(ValueError, match="non-thinking.*target_reasoning_content"):
+        build_template("qwen38vl").build_supervision_plan(
+            item=item,
+            target_text="final answer",
+            renderer=_renderer(processor, processor.tokenizer),
+            loss_scale_name="default",
+        )
+
+
+def test_qwen_thinking_template_rejects_unstructured_plain_target() -> None:
+    processor = _ChatMLProcessor()
+    item = {
+        "image_paths": (),
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "solve"}]}
+        ],
+    }
+
+    with pytest.raises(ValueError, match="target_reasoning_content"):
+        build_template("qwen36vl_thinking").build_supervision_plan(
+            item=item,
+            target_text="plain final answer",
+            renderer=_renderer(processor, processor.tokenizer),
+            loss_scale_name="default",
+        )
 
 
 def test_qwen_prefix_truncation_preserves_chatml_envelope_and_matches_cost() -> None:

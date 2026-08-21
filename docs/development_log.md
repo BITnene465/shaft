@@ -3817,3 +3817,55 @@
 - 最终占比 cap 必须施加在初始自然配额之后；若截断头部，需要显式重分配溢出配额并测试最终比例。
 - 多 formulation builder 必须单 pass 生成所有 eligible stores；训练在线阶段只能随机选已物化 target，不能从
   full target 截字段，也不能把 target 组合真值塞进 `prompt_args`。
+
+## 2026-08-22：Qwen 产品 alias 共用架构但误共用 thinking 模板合同
+
+### 现象
+
+- `qwen35vl`、`qwen36vl` 共用 `qwen35vl` / `qwen35vl_thinking` 两个模板，新增 `qwen38vl` 时也会继承同一
+  默认值；推理 policy 还通过模板名字符串独立猜测 thinking 开关。
+- 标准 SFT message loader 会丢弃 `reasoning_content`，当前轮也只能留下 `target_text`，因此配置 thinking
+  模板并不等于能正确监督 CoT。
+
+### 根因
+
+- 把 HF `qwen3_5` architecture 复用错误扩大成 chat-template 产品合同复用；Qwen3.5 只支持
+  `enable_thinking`，Qwen3.6 增加 `preserve_thinking`，Qwen3.8 又增加三档 `reasoning_effort`。
+- template、inference policy 与 SFT record 各自只实现了局部开关，没有统一的模板元数据真源和结构化
+  reasoning target 合同。
+- 本问题属于 template/data 语义偏差，不是模型能力问题，也不是 eval、codec 或 metric 误判。
+
+### 影响范围
+
+- 影响 Qwen3.5/3.6/3.8 本地 SFT prompt 渲染、CoT target 监督、历史 assistant reasoning 保留，以及
+  OpenAI-compatible/vLLM 推理的 `chat_template_kwargs`。
+- 非 thinking 的既有结构化任务仍保持关闭 thinking；旧配置若显式写 `template: qwen35vl`，继续按 3.5
+  非 thinking 合同执行，不会被产品默认值迁移隐式改写。
+
+### 修复方式
+
+- `qwen35vl`、`qwen36vl`、`qwen38vl` 保留共享 loader/processor/sequence/sharding 实现，但分别使用同名
+  非 thinking 默认模板；注册 3.5/3.6 thinking 模板及 Qwen3.8 `xhigh/medium/low` 三档模板。
+- `TemplateMeta.chat_template_options` 成为本地 processor 与远端推理的单一选项真源，删除 inference policy
+  的模板名判断。
+- SFT record、JSONL normalization、Arrow cache、dataset 与 PromptSource formulation selection 全链路携带
+  `target_reasoning_content`；历史 assistant 的 `reasoning_content` 保留在 messages。
+- thinking 模板把 generation prompt 已打开的 `<think>`、推理正文、闭合标签和最终答案编译为 continuation；
+  非 thinking 模板收到 reasoning，或 thinking 模板收到未结构化的普通答案时 fail closed。
+
+### 回归测试
+
+- 单测覆盖三代模板的精确 kwargs、Qwen3.8 reasoning effort、版本化模型默认模板与远端请求复用同一元数据。
+- 数据测试覆盖末尾 assistant reasoning 提取、历史 reasoning 保留、Arrow roundtrip、dataset 暴露，以及
+  PromptSource 同 formulation 的 answer/reasoning 联动选择与 fingerprint。
+- supervision 测试覆盖结构化 reasoning 编译、非 thinking 拒绝 reasoning、thinking 拒绝未闭合普通 target；
+  Qwen3.6/3.8 可选真实 processor integration gate 使用各自产品模板。
+
+### 后续防线
+
+- 新产品版本可以复用 HF architecture adapter，但必须独立审计官方 `chat_template.jinja` 的参数、默认值、
+  历史 reasoning 与 generation prompt 行为；不得仅凭 `config.model_type` 相同就复用模板。
+- chat-template 行为必须登记在 `TemplateMeta` 并同时驱动训练与推理；禁止在 backend policy 中维护模板名
+  allowlist。
+- CoT 数据必须显式区分 reasoning 与最终答案，loader/template 对不匹配的模板和标注 fail closed，不能静默
+  丢弃 reasoning 或猜测 `<think>` 边界。

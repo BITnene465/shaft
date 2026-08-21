@@ -237,11 +237,16 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - 用户训练 YAML 必须显式声明 `data.batching.grouping`、`cardinality`、`packing.mode` 与 `layout`。
   当前执行面是 `none + fixed + none + padded`、`length + fixed + none + padded|varlen`、
   `length + fixed + greedy + varlen`，以及 `bounded_cost + fixed|token_budget + none + padded`。
-  Qwen3VL 与 HF `qwen3_5` dense/MoE（Qwen3.5/Qwen3.6 alias）image SFT 已实现各自的 varlen execution policy；
+  Qwen3VL 与 HF `qwen3_5` dense/MoE（Qwen3.5/Qwen3.6/Qwen3.8 alias）image SFT 已实现各自的
+  varlen execution policy；
   其它模型族和未验收 backend/topology fail closed。
 - 数据与推理的单样本 media 真源都是有序 `image_paths`：JSONL 用 `images` 表达多图，运行时按顺序传给
   placeholder 和 processor。单数 `image_path/image` 只是单图兼容面。padded SFT/DPO 支持多图；varlen
   sequence packing 仍只支持单图并 fail closed。
+- SFT 的当前轮 CoT 真源是可选 `target_reasoning_content`，最终答案仍是 `target_text`；历史 assistant
+  reasoning 留在 `messages[*].reasoning_content`。template 层把二者编译成模型产品对应的 continuation，
+  data/collator/pipeline 不解析 `<think>` 语义。产品 chat-template kwargs 存在 `TemplateMeta`，本地渲染与
+  OpenAI-compatible 推理共用，不维护平行开关。
 - 旧 `data.batching.strategy`、`cost_aware`、`dynamic_cost_aware`、fixed guard、full-horizon CostPlan/mmap 和 exact
   optimizer sample target 已删除；loader 对这些旧字段 fail fast，避免双轨运行时。
 - bounded 主链固定为：
@@ -672,7 +677,9 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - OPD 是专项能力，不支持 eval、packing 或 varlen；已有真实门禁不能外推到未验收的发布模型容量和远端
   teacher 部署。
 - 当前正式 Qwen 多模态训练主线是 `qwen3vl`。`qwen36vl` dense 已有 Qwen3.6-27B 短程真实权重训练记录；
-  `qwen35vl` 与新一代 MoE 的完整后端矩阵仍是 experimental，主要证据来自 tiny upstream gate。
+  `qwen38vl` 已作为复用 HF `qwen3_5` 合同的显式 dense 产品 alias 接通，但 Qwen3.8-27B 的目标八卡
+  full-SFT canary 尚未完成。`qwen35vl` 与新一代 MoE 的完整后端矩阵仍是 experimental，主要证据来自
+  tiny upstream gate。
   `smoke_vlm` 仅用于测试。
 - Qwen3.5/3.6 MoE padded SFT 的接口和 tiny upstream release gate 已完成；真实 35B 权重的显存、吞吐、
   长程数值稳定性和目标集收敛尚未验证，不能从 tiny gate 推导生产容量。

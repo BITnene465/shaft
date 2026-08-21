@@ -270,8 +270,8 @@ policy 通过 `auxiliary_loss_names()` 声明可由配置覆写的稳定 term na
 全部稀疏层且 expert 维度一致；eval 由全局
 expert counts/probability sums 生成独立 router balance metric，不能把 per-batch aux 平均混入 `eval_loss`。
 
-Qwen3.5/3.6 的 MTP speculative head 当前不是已注册的 `TrainingObjectivePolicy` 或 model capability。
-`Qwen35VLLoader/Qwen36VLLoader` 复用 Transformers 标准 Qwen3.5/3.6 model class，因此上游 `mtp.*` 权重
+Qwen3.5/3.6/3.8 的 MTP speculative head 当前不是已注册的 `TrainingObjectivePolicy` 或 model capability。
+`Qwen35VLLoader/Qwen36VLLoader/Qwen38VLLoader` 复用 Transformers 标准 `qwen3_5` model class，因此上游 `mtp.*` 权重
 不会进入运行时 model state，也不会进入 full checkpoint、PEFT adapter 或 merge/export 结果。Shaft 不提供
 MTP loss、MTP checkpoint provenance、MTP artifact validation 或 speculative server contract；不得在
 trainer/collator/export 中加入临时复制逻辑来伪装支持。普通 target-model forward/generate 不依赖 MTP，
@@ -426,6 +426,8 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `Qwen3VLTemplate`
 - `Qwen35VLTemplate`
 - `Qwen35VLThinkingTemplate`
+- `Qwen36VLTemplate` / `Qwen36VLThinkingTemplate`
+- `Qwen38VLTemplate` / `Qwen38VLThinkingTemplate`
 
 ### 关键函数
 
@@ -436,14 +438,19 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `build_supervision_plan()`
 - `build_supervised_row()`
 
-### Qwen3.5 / Qwen3.6 thinking 策略
+### Qwen3.5 / Qwen3.6 / Qwen3.8 thinking 策略
 
-- `qwen35vl` 是默认模板，会向上游 chat template 传入 `enable_thinking=False` 和
-  `preserve_thinking=False`。结构化标注、JSON grounding、point 等任务应默认使用该模板。
-- `qwen35vl_thinking` 是显式 CoT 模板，会传入 `enable_thinking=True` 和
-  `preserve_thinking=True`。只有当训练数据 target 本身包含可监督 reasoning 内容时才应启用。
-- 模型注册项 `qwen35vl` / `qwen36vl` 默认都解析到 `qwen35vl`，防止新一代 Qwen chat template
-  默认打开 `<think>` 后污染结构化输出。
+- `TemplateMeta.chat_template_options` 是本地训练渲染与远端推理请求的单一选项真源。Qwen inference policy
+  读取该元数据生成 `chat_template_kwargs`，不能再通过模板名字符串猜测 thinking 状态。
+- `qwen35vl` / `qwen35vl_thinking` 只传上游 3.5 支持的 `enable_thinking`；
+  `qwen36vl` / `qwen36vl_thinking` 还显式控制 `preserve_thinking`。
+- `qwen38vl` 默认关闭 thinking；`qwen38vl_thinking`、`qwen38vl_thinking_medium`、
+  `qwen38vl_thinking_low` 分别绑定官方 `xhigh`、`medium`、`low` reasoning effort，并保留历史 thinking。
+- SFT record 将最终答案与当前轮推理分别保存在 `target_text`、`target_reasoning_content`。末尾 assistant
+  消息的 `content` / `reasoning_content` 可直接归一化到这两个字段；历史消息仍保留
+  `reasoning_content`。thinking 模板负责编译 continuation，普通模板对非空推理目标 fail closed。
+- 模型注册项 `qwen35vl` / `qwen36vl` / `qwen38vl` 分别默认解析到同名非 thinking 模板；共享 HF
+  architecture 不等于共享 chat-template 合同。
 
 ### 开发边界
 

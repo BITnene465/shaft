@@ -56,6 +56,53 @@ def test_new_message_format_extracts_target_and_drops_tail_assistant(tmp_path: P
     assert record.messages[-1]["role"] == "user"
 
 
+def test_sft_reasoning_content_survives_message_extraction_and_arrow_cache(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    jsonl = tmp_path / "reasoning.jsonl"
+    sample = {
+        "image": "img.png",
+        "sample_id": "reasoning-1",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "solve"},
+                ],
+            },
+            {
+                "role": "assistant",
+                "reasoning_content": "historical reasoning",
+                "content": "historical answer",
+            },
+            {"role": "user", "content": "solve again"},
+            {
+                "role": "assistant",
+                "reasoning_content": "target reasoning",
+                "content": "target answer",
+            },
+        ],
+    }
+    jsonl.write_text(json.dumps(sample, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    record = load_jsonl_sft_records(
+        jsonl,
+        dataset_name="reasoning",
+        cache_dir=tmp_path / "cache",
+    )[0]
+
+    assert record.target_text == "target answer"
+    assert record.target_reasoning_content == "target reasoning"
+    assert record.messages is not None
+    assert record.messages[1]["reasoning_content"] == "historical reasoning"
+    assert SFTDataset([record]).get_planning_item(0)["target_reasoning_content"] == (
+        "target reasoning"
+    )
+
+
 def test_jsonl_loader_builds_and_reuses_memory_mapped_arrow_store(tmp_path: Path) -> None:
     image = tmp_path / "img.png"
     Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)

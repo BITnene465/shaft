@@ -17,12 +17,13 @@ def test_hf_model_resolution_fields_are_normalized(tmp_path: Path) -> None:
             tmp_path,
             """
 model:
-  model_type: QWEN36VL
+  model_type: QWEN38VL
   model_name_or_path: " my-org/model "
   revision: " release-v2 "
   cache_dir: " /tmp/hf-cache "
   local_files_only: "true"
   trust_remote_code: "false"
+  experts_implementation: " GROUPED_MM "
 data:
   datasets:
     - dataset_name: ds1
@@ -32,12 +33,13 @@ data:
         )
     )
 
-    assert config.model.model_type == "qwen36vl"
+    assert config.model.model_type == "qwen38vl"
     assert config.model.model_name_or_path == "my-org/model"
     assert config.model.revision == "release-v2"
     assert config.model.cache_dir == "/tmp/hf-cache"
     assert config.model.local_files_only is True
     assert config.model.trust_remote_code is False
+    assert config.model.experts_implementation == "grouped_mm"
 
 
 def test_full_determinism_config_is_normalized(tmp_path: Path) -> None:

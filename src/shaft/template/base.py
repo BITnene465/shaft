@@ -44,7 +44,15 @@ class ShaftChatTemplate(Template):
         )
 
     def _chat_template_options(self) -> dict[str, Any]:
-        return {}
+        return dict(self.template_meta.chat_template_options)
+
+    def _prepare_target_text(self, *, item: dict[str, Any], target_text: str) -> str:
+        reasoning_content = item.get("target_reasoning_content")
+        if reasoning_content is not None and str(reasoning_content).strip():
+            raise ValueError(
+                f"Template {self.name!r} does not support target_reasoning_content."
+            )
+        return str(target_text)
 
     def decode(self, *, tokenizer: Any, token_ids: list[int]) -> str:
         if hasattr(tokenizer, "decode"):
@@ -63,6 +71,10 @@ class ShaftChatTemplate(Template):
         renderer: ShaftChatRenderer,
         loss_scale_name: str,
     ) -> ShaftTemplateSupervisionPlan:
+        prepared_target_text = self._prepare_target_text(
+            item=item,
+            target_text=str(target_text),
+        )
         messages = self.prepare_messages(self.resolve_messages(item))
         prompt_plan = self._build_prompt_plan(messages=messages, renderer=renderer)
         loss_scale = build_loss_scale(loss_scale_name)
@@ -86,7 +98,7 @@ class ShaftChatTemplate(Template):
                 )
         return ShaftTemplateSupervisionPlan(
             prompt_text=prompt_plan.prompt_text,
-            target_text=str(target_text),
+            target_text=prepared_target_text,
             loss_spec=loss_spec,
             rendered_prefix_token_ids=prompt_plan.rendered_prefix_token_ids,
             trainable_prefix_spans=trainable_prefix_spans,

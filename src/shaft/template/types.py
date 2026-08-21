@@ -207,3 +207,4 @@ class TemplateMeta:
     auto_add_generation_prompt: bool = True
     response_prefix: str = ""
     thinking_prefix: str = ""
+    chat_template_options: tuple[tuple[str, Any], ...] = field(default_factory=tuple)

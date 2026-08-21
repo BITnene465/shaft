@@ -20,6 +20,7 @@ def register_template(template_meta: TemplateMeta):
                 auto_add_generation_prompt=template_meta.auto_add_generation_prompt,
                 response_prefix=template_meta.response_prefix,
                 thinking_prefix=template_meta.thinking_prefix,
+                chat_template_options=template_meta.chat_template_options,
             ),
         )
         return template_cls

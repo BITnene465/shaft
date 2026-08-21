@@ -90,14 +90,18 @@ def offline_identity(records: Sequence[Any]) -> Sequence[Any]:
 
 @OFFLINE_TRANSFORM_REGISTRY.register("dedup_image_target")
 def offline_dedup_image_target(records: Sequence[Any]) -> Sequence[Any]:
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     indices: list[int] = []
     for index, item in enumerate(records):
         target_text = getattr(item, "target_text", None)
         if target_text is None:
             indices.append(index)
             continue
-        key = (repr(tuple(getattr(item, "image_paths", ()) or ())), str(target_text))
+        key = (
+            repr(tuple(getattr(item, "image_paths", ()) or ())),
+            str(getattr(item, "target_reasoning_content", None)),
+            str(target_text),
+        )
         if key in seen:
             continue
         seen.add(key)

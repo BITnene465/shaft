@@ -214,7 +214,8 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         config.model.experts_implementation = None
     if (
         config.model.experts_implementation is not None
-        and config.model.model_type not in {"qwen3vl", "qwen35vl", "qwen36vl"}
+        and config.model.model_type
+        not in {"qwen3vl", "qwen35vl", "qwen36vl", "qwen38vl"}
     ):
         raise ValueError(
             "model.experts_implementation is currently supported only by Qwen VL MoE profiles."
