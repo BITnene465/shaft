@@ -3699,3 +3699,121 @@
 
 - 只有请求属性集合和离线 target 都发生变化时才新增 formulation；纯 wording 变化只能作为 prompt variant。
 - 数据准备前逐任务确认是否真的需要 partial target，不能仅因框架支持 formulation 就为所有任务机械拆分。
+
+## 2026-08-21：compact raw 缺失 background 与 image type 真值，不能直接重建 v5.8 任务
+
+### 现象
+
+- 当前 active compact raw 的 19,797 份 JSON 均不含顶层 `background`，54,152 个 image instance 也都不含
+  13 类 `image_type`；只读取当前 JSON 会把两个历史真实任务误判为不可恢复或诱发在线猜标签。
+- 历史 v5.3 任务 bundle 仍保存完整 structured/SFT/task-local media，人工审核 background 标注也仍可追溯，
+  但 image enriched raw 已不可用，二者的来源等级不同。
+
+### 根因
+
+- compact raw 收敛时只保留当前布局训练所需字段，没有承诺继续承载所有历史专项审核标签。
+- 旧 derived bundle、review annotation 与 active raw 的真值边界未在 v5.8 数据合同中显式记录，容易把恢复产物
+  误写回 raw 或把 derived image-type 数据冒充原始标注。
+- 本问题属于 data source truth 与派生层级偏差，不是模型能力问题，也不是 eval、codec 或 metric 误判。
+
+### 影响范围
+
+- 影响 v5.8 `background` 与 `image_context_reconstruction` 的可复现构建、测试集排除、媒体冻结、catalog、
+  PromptSource 绑定和 resume snapshot 语义；不改变 Shape/Line formulation 设计。
+- 若直接沿用旧目录而不复验，可能混入测试样本、丢失 target/媒体一致性或在训练时引用不可追溯像素。
+
+### 修复方式
+
+- 新增显式输入的恢复脚本：background 以 reviewed annotation 为标签真值，并与历史 structured/SFT/media
+  逐 ID、逐 target 对账；image type 标记为 `verified_recovered_v5_3_derived_bundle`，不提升为 raw truth。
+- 历史审核文件与 split manifest 复制到独立 raw import sidecar，active compact raw 保持不变；task media 原像素
+  hardlink/copy 到 staging，不执行 resize。
+- raw sidecar 与两个 task report 冻结历史 selection/structured/SFT、审核标注、split manifest 和 PromptSource
+  pool 的 SHA256，避免同名目录或同名配置变化后仍冒充同一 snapshot。
+- 恢复过程先完成 PromptSource、schema、测试集 identity、媒体解码与声明尺寸校验，再原子发布。即使指定
+  `--clean`，验证失败也不会先删除已有 task 目录。
+- `background.v5.8` 只保留一个 detailed prompt，明确区分大面积不可编辑 backing、简单画布与局部 image
+  object；catalog 和 preparation recipe 为 background 绑定普通 materialized SFT source。
+
+### 回归测试
+
+- 恢复脚本单测覆盖成功恢复、空 row prompt、materialized target、image formulation 路径，以及失败时已有输出
+  不被 `--clean` 覆盖。
+- 40 进程实际恢复并复验 38,443 条 background 与 21,184 条 image-type 数据；59,627 个媒体完整解码且尺寸
+  一致，错误为 0。
+- canonical `vlm.test.json` 当前/历史 manifest 均为 175 项且 SHA256 一致；grounding、background、image-type
+  已物化训练源的 source identity overlap 均为 0。background 进一步排除三个历史 test manifest 的 313 项
+  并证明恢复 ID 精确等于 reviewed annotation ID 减去该并集。
+
+### 后续防线
+
+- compact raw 缺字段时必须先定位可审核的上游/历史真值；不得从现有 target、prompt 参数或模型输出在线猜测。
+- 恢复 derived bundle 必须显式标注来源等级、冻结 snapshot、保存输入 hash 并保持 raw sidecar 与 active raw
+  解耦；只有可证明的原始审核标注才能称为 raw truth。
+- 每个 v5.8 物化 task 发布前必须证明与 canonical 175 张测试集 source identity 重叠为 0；“合成来源”也不能
+  替代正式去重审计。
+
+## 2026-08-22：V9 reconstruction selection 与 formulation 物化语义未覆盖 v5.8 合同
+
+### 现象
+
+- 旧 selection 先抽取 full line，再从已选 line 中只按 segment count 取 points subset；这会丢掉未进入 full
+  selection 的稀有多叉组合，也无法表达“完整 line 属性越稀有越优先”。
+- context builder 只写一份 full `sft/train.jsonl`，不能在同一 crop pass 中生成 appearance、geometry/points、
+  reconstruction 三份逐行对齐 target。
+- shape/line 头部只有平方根配额，没有显式 rectangle/单段 line 占比合同；直接把 rectangle capacity 提前截断
+  还会改变平方根权重，导致 rectangle 从合理降采样变成过度降采样。
+
+### 根因
+
+- v5.7 的单 target、二级 segment balancing 被直接沿用到 v5.8，没有把业务 formulation eligibility、稀有
+  stratum 保护与离线 materialization 收口到同一数据准备流程。
+- 把“限制最终占比”误实现为“在配额计算前改写自然 capacity”，混淆了抽样上限与分层权重真源。
+- 本问题属于 data selection / derived target 语义偏差，不是模型能力问题，也不是 eval、codec 或 metric 误判。
+
+### 影响范围
+
+- 影响 v5.8 shape/line/line-points 的样本分布、PromptSource formulation stores 对齐、合成噪声审计与训练
+  snapshot；不修改 V9 raw/gt_standard，也不改变 PromptSource 在线随机实现。
+- 若不修复，points-only cohort 可能遗漏最稀有的箭头/分叉组合，full reconstruction 仍只能训练单一 target，
+  训练配置中声明的 formulation sources 会指向不存在的数据。
+
+### 修复方式
+
+- 增加显式 `v5.8` selection profile：稀有 shape type 全保留；先按自然 stratum 分配，再只在超限时截断
+  rectangle 并把溢出配额补给其它类型；直接删除 120 个包含连续重复点/零长度 segment 的坏 line instance，
+  其余 118,996 个有效多叉 line 全保留，单段 line 最终最多 60%。
+- synthetic points 从全部有效 V9 多叉 line 独立选择；完整 line-attribute stratum 数量不超过 256 的行全保留，
+  再无放回补足 15,000 条，不依赖 full line selection。
+- context builder 使用统一 PromptSource pool 编译入口识别显式 formulation，在同一 worker pass 复用一份
+  crop/structured row，离线写出逐 formulation 标准 SFT；line points cohort 只声明共享 pool 的 `points`。
+- builder 增加 `--preflight-only`：全量执行 source resolution、确定性 crop/量化、formulation projection 和
+  augmentation plan，但不写媒体、不发布目录；避免单个晚序坏样本触发数十万 PNG staging 的昂贵回收。
+- formulation task 的构建报告只保留 `reports/build_summary.json` 一个真源；普通 v5.7 单目标输出继续保留
+  task 根目录旧路径，不为新目录复制两份相同 summary。
+- shape/line/synthetic-points crop 统一记录并应用尺寸不变的 `synthetic_realism_v1`；120,744 条真实 points
+  全保留且不加合成噪声，空 points 不补造。
+
+### 回归测试
+
+- selection 单测覆盖稀有 shape 保留、rectangle 最终 cap、多叉 line 全保留、单段 cap 与完整属性 rare-stratum
+  保留；旧 v5.7 默认行为保持通过。
+- builder 单测覆盖 card appearance/geometry exact projection、三 formulation 逐行 identity 对齐、相对媒体路径、
+  单一 reports 真源与单 points eligibility；focused builder/selection 测试及 changed-file ruff 通过。
+- 真实 V9 canary 覆盖 shape/line 各 2,000 条、合成 points 2,000 条和真实 points 2,000 条：合成样本全部记录
+  `synthetic_realism_v1`，真实样本全部为 `none`，三 formulation 行数与 identity 对齐。
+- 清洗后 297,489 条 full line 与 135,744 条真实+合成 points 全量 preflight 通过，量化后 segment collapse、
+  source/index drift 和 formulation projection error 均为 0。
+- 最终物化的 Shape 300,000、Line 297,489、Points 135,744 共 733,233 张 crop 全部重新解码且声明尺寸一致；
+  三类 formulation store 的 exact target、唯一 ID 和逐行 identity 全量通过。
+- 真实 v5.8 配置经 DataCenter 装配为 850,420 个 logical rows；首次建立 10 份 Arrow cache 后执行 6,000 次
+  weighted draw，覆盖全部合法 formulation 与长短 variant，六个 cohort 的实际媒体读取及 execution/stream
+  fingerprint 完整性通过。
+
+### 后续防线
+
+- selection 报告必须同时给出 available/selected 的 type、segment 与完整 attribute stratum 分布；不能用单一
+  segment count 代替业务稀有度。
+- 最终占比 cap 必须施加在初始自然配额之后；若截断头部，需要显式重分配溢出配额并测试最终比例。
+- 多 formulation builder 必须单 pass 生成所有 eligible stores；训练在线阶段只能随机选已物化 target，不能从
+  full target 截字段，也不能把 target 组合真值塞进 `prompt_args`。

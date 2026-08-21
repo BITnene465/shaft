@@ -11,6 +11,7 @@ import shutil
 import tempfile
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,7 @@ from shaft.data.synthetic_realism import (
     apply_synthetic_realism_augmentation as _apply_synthetic_pixel_augmentation,
     sample_synthetic_realism_augmentation as _sample_synthetic_pixel_augmentation,
 )
-from shaft.prompting import load_prompt_pool
+from shaft.data import load_prompt_source_pool
 
 
 DEFAULT_SYNTHETIC_ROOT = "data/regulated_layout_dataset_v9_20260802"
@@ -72,6 +73,7 @@ class TaskSpec:
     source_image_manifest: Path | None = None
     selection_limit: int | None = None
     additional_sources: tuple[TaskSourceSpec, ...] = ()
+    eligible_formulations: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -109,11 +111,13 @@ class WorkerConfig:
     min_crop_size: int
     max_aspect_ratio: float
     png_compress_level: int
+    formulation_ids: tuple[str, ...] = ()
+    write_images: bool = True
 
 
 @dataclass(frozen=True)
 class WorkerResult:
-    rows: tuple[tuple[str, str], ...]
+    rows: tuple[tuple[str, tuple[tuple[str, str], ...]], ...]
     counts: dict[str, int]
 
 
@@ -667,6 +671,96 @@ def _target_parameters(
     raise ValueError(f"Unsupported label: {label}")
 
 
+def _formulation_parameters(
+    label: str,
+    formulation_id: str,
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    """Materialize one v5.8 target from already crop-local canonical parameters."""
+    if formulation_id == "reconstruction":
+        return json.loads(json.dumps(parameters))
+    if label == "line":
+        if formulation_id == "appearance":
+            keys = (
+                "line_style",
+                "dash_style",
+                "begin_arrow",
+                "end_arrow",
+                "fill",
+                "border",
+            )
+        elif formulation_id == "points":
+            keys = ("is_single", "points")
+        else:
+            raise ValueError(f"Unsupported line formulation: {formulation_id}")
+        missing = [key for key in keys if key not in parameters]
+        if missing:
+            raise ValueError(
+                f"Line formulation {formulation_id} is missing parameters: {missing}"
+            )
+        return {key: json.loads(json.dumps(parameters[key])) for key in keys}
+    if label != "shape":
+        raise ValueError(f"Unsupported formulation label: {label}")
+    shape_type = parameters.get("shape_type")
+    if not isinstance(shape_type, str) or not shape_type:
+        raise ValueError("Shape formulation requires shape_type")
+    result: dict[str, Any] = {"shape_type": shape_type}
+    if shape_type == "other":
+        return result
+    if formulation_id == "appearance":
+        for key in ("border", "fill", "effect"):
+            if key not in parameters:
+                raise ValueError(f"Shape appearance is missing {key}: {shape_type}")
+            result[key] = json.loads(json.dumps(parameters[key]))
+        if shape_type == "card":
+            splits = parameters.get("splits")
+            if not isinstance(splits, list):
+                raise ValueError("Card appearance requires ordered splits")
+            result["splits"] = [
+                {
+                    key: json.loads(json.dumps(value))
+                    for key, value in split.items()
+                    if key != "split_corners"
+                }
+                for split in splits
+                if isinstance(split, dict)
+            ]
+            if len(result["splits"]) != len(splits):
+                raise ValueError("Card appearance received a non-object split")
+        return result
+    if formulation_id != "geometry":
+        raise ValueError(f"Unsupported shape formulation: {formulation_id}")
+    if shape_type == "oval":
+        return result
+    if shape_type == "callout":
+        for key in ("body_type", "tail"):
+            if key not in parameters:
+                raise ValueError(f"Callout geometry is missing {key}")
+            result[key] = json.loads(json.dumps(parameters[key]))
+        body_geometry_keys = [key for key in ("body_corners", "body_bbox") if key in parameters]
+        if len(body_geometry_keys) != 1:
+            raise ValueError("Callout geometry requires exactly one body geometry representation")
+        key = body_geometry_keys[0]
+        result[key] = json.loads(json.dumps(parameters[key]))
+        return result
+    corners = parameters.get("corners")
+    if not isinstance(corners, list) or not corners:
+        raise ValueError(f"Shape geometry requires corners: {shape_type}")
+    result["corners"] = json.loads(json.dumps(corners))
+    if shape_type == "card":
+        splits = parameters.get("splits")
+        if not isinstance(splits, list):
+            raise ValueError("Card geometry requires ordered splits")
+        result["splits"] = []
+        for split in splits:
+            if not isinstance(split, dict) or not isinstance(split.get("split_corners"), list):
+                raise ValueError("Card geometry requires split_corners")
+            result["splits"].append(
+                {"split_corners": json.loads(json.dumps(split["split_corners"]))}
+            )
+    return result
+
+
 def _resolve_source_instance(
     selection: Selection,
     *,
@@ -1168,10 +1262,17 @@ def _stratify_shape_attribute_selections(
     return selected, counts
 
 
-def _prompt_contract(path: Path) -> tuple[str, str | None]:
-    prompts = load_prompt_pool(path)
-    if not prompts:
-        raise ValueError(f"Empty prompt pool: {path}")
+def _prompt_contract(
+    path: Path,
+    *,
+    eligible_formulations: tuple[str, ...] = (),
+) -> tuple[str, str | None, tuple[str, ...]]:
+    pool = load_prompt_source_pool(path)
+    prompts = [
+        prompt
+        for formulation in pool.formulations
+        for prompt in formulation.prompt_variants
+    ]
     expected_arguments = ("proposal_bbox_2d",)
     for prompt in prompts:
         if prompt.program.schema.names != expected_arguments:
@@ -1182,10 +1283,26 @@ def _prompt_contract(path: Path) -> tuple[str, str | None]:
         rendered = prompt.render({"proposal_bbox_2d": [1, 2, 300, 400]})
         if "[1,2,300,400]" not in rendered:
             raise ValueError(f"Prompt does not render proposal_bbox_2d: {prompt.prompt_id}")
-    output_schema = prompts[0].metadata.get("output_schema")
-    return prompts[0].prompt_id.rsplit(".", 1)[0], (
-        str(output_schema) if output_schema is not None else None
-    )
+    output_schemas = {
+        str(value)
+        for prompt in prompts
+        if (value := prompt.metadata.get("output_schema")) is not None
+    }
+    if len(output_schemas) > 1:
+        raise ValueError(f"Prompt formulations disagree on output_schema: {path}")
+    formulation_ids: tuple[str, ...] = ()
+    if pool.explicit_formulations:
+        available = tuple(formulation.formulation_id for formulation in pool.formulations)
+        requested = eligible_formulations or available
+        unknown = sorted(set(requested) - set(available))
+        if unknown:
+            raise ValueError(
+                f"Unknown eligible formulations {unknown} for {path}; available={available}"
+            )
+        formulation_ids = tuple(item for item in available if item in set(requested))
+        if not formulation_ids:
+            raise ValueError(f"No eligible formulations selected for {path}")
+    return pool.pool_id, (next(iter(output_schemas)) if output_schemas else None), formulation_ids
 
 
 def _source_image_path(spec: TaskSpec, selection: Selection) -> Path:
@@ -1248,7 +1365,7 @@ def _build_row(
     source_layout: list[Any] | None,
     image_width: int,
     image_height: int,
-) -> tuple[str, str, Counter[str]]:
+) -> tuple[str, tuple[tuple[str, str], ...], Counter[str]]:
     spec = config.spec
     geometry_bbox = _geometry_bbox(spec.label, source_bbox, source_parameters)
     view = _sample_context_view(
@@ -1290,29 +1407,35 @@ def _build_row(
     shard = _image_shard(sample_id)
     filename = f"{sample_id}.png"
     image_relative = f"../images/train/{shard}/{filename}"
-    image_output = config.staging_root / "images/train" / shard / filename
-    image_output.parent.mkdir(parents=True, exist_ok=True)
-    crop = source_image.crop(view.crop_box)
     pixel_augmentation: dict[str, Any] = {"profile": "none", "operations": []}
-    augmented: Image.Image | None = None
-    try:
-        output_image = crop
-        if _is_synthetic_source(spec):
-            pixel_augmentation = _sample_synthetic_pixel_augmentation(
-                task=spec.name,
-                sample_id=selection.sample_id,
-                seed=config.seed,
-                target_short_span=target_short_span,
-                image_width=crop_width,
-                image_height=crop_height,
+    if _is_synthetic_source(spec):
+        pixel_augmentation = _sample_synthetic_pixel_augmentation(
+            task=spec.name,
+            sample_id=selection.sample_id,
+            seed=config.seed,
+            target_short_span=target_short_span,
+            image_width=crop_width,
+            image_height=crop_height,
+        )
+    if config.write_images:
+        image_output = config.staging_root / "images/train" / shard / filename
+        image_output.parent.mkdir(parents=True, exist_ok=True)
+        crop = source_image.crop(view.crop_box)
+        augmented: Image.Image | None = None
+        try:
+            output_image = crop
+            if _is_synthetic_source(spec):
+                augmented = _apply_synthetic_pixel_augmentation(crop, pixel_augmentation)
+                output_image = augmented
+            output_image.save(
+                image_output,
+                format="PNG",
+                compress_level=config.png_compress_level,
             )
-            augmented = _apply_synthetic_pixel_augmentation(crop, pixel_augmentation)
-            output_image = augmented
-        output_image.save(image_output, format="PNG", compress_level=config.png_compress_level)
-    finally:
-        if augmented is not None:
-            augmented.close()
-        crop.close()
+        finally:
+            if augmented is not None:
+                augmented.close()
+            crop.close()
 
     distractors = (
         _distractor_count(
@@ -1440,6 +1563,24 @@ def _build_row(
         "target_text": _json_dumps(target),
         "extra": sft_extra,
     }
+    materialized_sft: list[tuple[str, str]] = []
+    if config.formulation_ids:
+        formulation_image_relative = f"../../../images/train/{shard}/{filename}"
+        for formulation_id in config.formulation_ids:
+            formulation_target = {
+                "type": spec.label,
+                "parameters": _formulation_parameters(
+                    spec.label,
+                    formulation_id,
+                    target_parameters,
+                ),
+            }
+            formulation_sft = dict(sft)
+            formulation_sft["image_path"] = formulation_image_relative
+            formulation_sft["target_text"] = _json_dumps(formulation_target)
+            materialized_sft.append((formulation_id, _json_dumps(formulation_sft)))
+    else:
+        materialized_sft.append(("default", _json_dumps(sft)))
     counts: Counter[str] = Counter()
     counts["rows"] += 1
     counts[f"source_kind_{spec.source_kind}_rows"] += 1
@@ -1471,7 +1612,7 @@ def _build_row(
         )
     elif spec.label == "image":
         counts[f"image_type_{target_parameters.get('image_type', 'missing')}"] += 1
-    return _json_dumps(structured), _json_dumps(sft), counts
+    return _json_dumps(structured), tuple(materialized_sft), counts
 
 
 def _build_synthetic_source(
@@ -1495,7 +1636,7 @@ def _build_synthetic_source(
                 f"{opened.size} != {(image_width, image_height)}"
             )
         source = opened.convert("RGB")
-    rows: list[tuple[str, str]] = []
+    rows: list[tuple[str, tuple[tuple[str, str], ...]]] = []
     counts: Counter[str] = Counter()
     try:
         for selection in selections:
@@ -1522,7 +1663,7 @@ def _build_synthetic_source(
                     "is_single": False,
                     "points": json.loads(json.dumps(points)),
                 }
-            structured, sft, row_counts = _build_row(
+            structured, sft_rows, row_counts = _build_row(
                 config=config,
                 selection=selection,
                 source_image=source,
@@ -1533,7 +1674,7 @@ def _build_synthetic_source(
                 image_width=image_width,
                 image_height=image_height,
             )
-            rows.append((structured, sft))
+            rows.append((structured, sft_rows))
             counts.update(row_counts)
             counts["source_bbox_drift"] += int(drift)
             counts["source_index_remap"] += int(source_index != selection.instance_index)
@@ -1587,7 +1728,7 @@ def _build_real_source(
         finally:
             if candidate is not opened:
                 candidate.close()
-    rows: list[tuple[str, str]] = []
+    rows: list[tuple[str, tuple[tuple[str, str], ...]]] = []
     counts: Counter[str] = Counter()
     try:
         for selection in selections:
@@ -1624,7 +1765,7 @@ def _build_real_source(
                 if not isinstance(image_type, str) or not image_type:
                     raise ValueError(f"Missing raw image_type: {source_json_path}:{source_index}")
                 source_parameters = {"image_type": image_type}
-            structured, sft, row_counts = _build_row(
+            structured, sft_rows, row_counts = _build_row(
                 config=config,
                 selection=selection,
                 source_image=source,
@@ -1635,7 +1776,7 @@ def _build_real_source(
                 image_width=image_width,
                 image_height=image_height,
             )
-            rows.append((structured, sft))
+            rows.append((structured, sft_rows))
             counts.update(row_counts)
             counts["real_consecutive_duplicate_points_removed"] += duplicate_points_removed
             counts["source_bbox_drift"] += int(drift)
@@ -1654,7 +1795,7 @@ def _build_archived_point_source(
     with Image.open(image_path) as opened:
         image_width, image_height = opened.size
         source = opened.convert("RGB")
-    rows: list[tuple[str, str]] = []
+    rows: list[tuple[str, tuple[tuple[str, str], ...]]] = []
     counts: Counter[str] = Counter()
     try:
         for selection in selections:
@@ -1690,7 +1831,7 @@ def _build_archived_point_source(
                 raise ValueError(
                     f"Archived line points leave the clean full image: {selection.sample_id}"
                 )
-            structured, sft, row_counts = _build_row(
+            structured, sft_rows, row_counts = _build_row(
                 config=config,
                 selection=selection,
                 source_image=source,
@@ -1701,7 +1842,7 @@ def _build_archived_point_source(
                 image_width=image_width,
                 image_height=image_height,
             )
-            rows.append((structured, sft))
+            rows.append((structured, sft_rows))
             counts.update(row_counts)
             counts["source_bbox_drift"] += int(source_bbox != selection.source_bbox)
             counts["source_index_remap"] += 0
@@ -1799,6 +1940,7 @@ def _write_readme(
     max_aspect_ratio: float,
     excluded: int,
     shape_attribute_max_rectangle_fraction: float,
+    formulation_ids: tuple[str, ...],
 ) -> None:
     source_specs = _expanded_task_sources(spec)
     has_synthetic_source = any(_is_synthetic_source(source) for source in source_specs)
@@ -1850,10 +1992,16 @@ def _write_readme(
             else f"compact `{spec.label}` JSON; geometry uses the same crop-local Qwen `0..999`"
         )
     )
+    if formulation_ids:
+        target_policy = (
+            "one offline exact target per eligible formulation "
+            f"{list(formulation_ids)}; aligned formulation rows differ only in `target_text`"
+        )
     sampling_policy = (
         "keep every active human line with valid non-empty points without sampling, then add the "
-        "maintained capped synthetic multi-segment subset; empty human points are not synthesized "
-        "and no resize/multi-scale view expansion is performed"
+        "maintained capped synthetic multi-segment rarity-first subset selected from all valid V9 "
+        "line candidates; empty human points are not synthesized and no resize/multi-scale view "
+        "expansion is performed"
         if has_real_point_source and has_synthetic_source
         else (
             "keep every active human line with valid non-empty points without sampling"
@@ -1889,6 +2037,7 @@ Derived contextual-crop reconstruction training data.
 {source_lines}
 - Rebuild selection snapshot: `selection/train.jsonl` ({truth_policy})
 - Prompt pool: `{spec.prompt_path}`
+- Materialized formulations: `{list(formulation_ids) if formulation_ids else ['default']}`
 - Target label: `{spec.label}`
 - Split: train only; validation is intentionally empty
 - Rows: {counts["rows"]}
@@ -1914,8 +2063,14 @@ Derived contextual-crop reconstruction training data.
 ```
 """
     _atomic_write_text(staging / "README.md", content)
+    build_summary_path = (
+        staging / "reports/build_summary.json"
+        if formulation_ids
+        else staging / "build_summary.json"
+    )
+    build_summary_path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_text(
-        staging / "build_summary.json",
+        build_summary_path,
         json.dumps(
             {
                 "task": spec.name,
@@ -1932,6 +2087,7 @@ Derived contextual-crop reconstruction training data.
                 "synthetic_pixel_profile": (
                     SYNTHETIC_PIXEL_PROFILE if has_synthetic_source else "none"
                 ),
+                "formulations": list(formulation_ids),
                 "sources": [
                     {
                         "source_kind": source.source_kind,
@@ -1970,9 +2126,10 @@ def _build_task(
     excluded_ids: set[str],
     limit: int | None,
     shape_attribute_max_rectangle_fraction: float,
+    preflight_only: bool,
 ) -> Counter[str]:
     destination = output_root / spec.name
-    if destination.exists() and not clean:
+    if destination.exists() and not clean and not preflight_only:
         raise FileExistsError(f"Output already exists; pass --clean to replace: {destination}")
     staging = _prepare_staging(spec, output_root)
     try:
@@ -1990,6 +2147,7 @@ def _build_task(
             excluded_ids=excluded_ids,
             limit=limit,
             shape_attribute_max_rectangle_fraction=shape_attribute_max_rectangle_fraction,
+            preflight_only=preflight_only,
         )
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
@@ -2011,8 +2169,18 @@ def _build_task_in_staging(
     excluded_ids: set[str],
     limit: int | None,
     shape_attribute_max_rectangle_fraction: float,
+    preflight_only: bool,
 ) -> Counter[str]:
-    prompt_pool_id, output_schema = _prompt_contract(spec.prompt_path)
+    prompt_pool_id, output_schema, formulation_ids = _prompt_contract(
+        spec.prompt_path,
+        eligible_formulations=spec.eligible_formulations,
+    )
+    if formulation_ids:
+        (staging / "sft/val.jsonl").unlink(missing_ok=True)
+        for formulation_id in formulation_ids:
+            formulation_root = staging / "sft/formulations" / formulation_id
+            formulation_root.mkdir(parents=True, exist_ok=True)
+            _atomic_write_text(formulation_root / "val.jsonl", "")
     selections: list[Selection] = []
     sampling_counts: Counter[str] = Counter()
     excluded = 0
@@ -2068,23 +2236,44 @@ def _build_task_in_staging(
             min_crop_size=min_crop_size,
             max_aspect_ratio=max_aspect_ratio,
             png_compress_level=png_compress_level,
+            formulation_ids=formulation_ids,
+            write_images=not preflight_only,
         )
         work_items.extend(
             (source_key, tuple(items), config) for source_key, items in sorted(by_source.items())
         )
     if not selections:
         raise ValueError(f"{spec.name}: no selections remain after filtering")
-    _write_selection_manifest(
-        staging / "selection/train.jsonl",
-        spec=spec,
-        selections=selections,
-    )
+    if not preflight_only:
+        _write_selection_manifest(
+            staging / "selection/train.jsonl",
+            spec=spec,
+            selections=selections,
+        )
     counts: Counter[str] = Counter()
     try:
-        with (
-            (staging / "structured/train.jsonl").open("w", encoding="utf-8") as structured,
-            (staging / "sft/train.jsonl").open("w", encoding="utf-8") as sft,
-        ):
+        with ExitStack() as stack:
+            structured = stack.enter_context(
+                (staging / "structured/train.jsonl").open("w", encoding="utf-8")
+            )
+            if formulation_ids:
+                sft_outputs = {
+                    formulation_id: stack.enter_context(
+                        (
+                            staging
+                            / "sft/formulations"
+                            / formulation_id
+                            / "train.jsonl"
+                        ).open("w", encoding="utf-8")
+                    )
+                    for formulation_id in formulation_ids
+                }
+            else:
+                sft_outputs = {
+                    "default": stack.enter_context(
+                        (staging / "sft/train.jsonl").open("w", encoding="utf-8")
+                    )
+                }
             if workers == 1:
                 results = map(_build_source, work_items)
                 executor = None
@@ -2094,9 +2283,20 @@ def _build_task_in_staging(
             try:
                 for result in results:
                     counts.update(result.counts)
-                    for structured_line, sft_line in result.rows:
-                        structured.write(structured_line + "\n")
-                        sft.write(sft_line + "\n")
+                    for structured_line, materialized_sft in result.rows:
+                        if not preflight_only:
+                            structured.write(structured_line + "\n")
+                        actual_formulations = tuple(item[0] for item in materialized_sft)
+                        expected_formulations = formulation_ids or ("default",)
+                        if actual_formulations != expected_formulations:
+                            raise RuntimeError(
+                                f"{spec.name}: worker formulation order {actual_formulations} "
+                                f"!= {expected_formulations}"
+                            )
+                        for formulation_id, sft_line in materialized_sft:
+                            if not preflight_only:
+                                sft_outputs[formulation_id].write(sft_line + "\n")
+                            counts[f"formulation_{formulation_id}_rows"] += 1
             finally:
                 if executor is not None:
                     executor.shutdown(wait=True)
@@ -2107,6 +2307,10 @@ def _build_task_in_staging(
         counts.update(sampling_counts)
         counts["source_groups"] = len(work_items)
         counts["excluded_test_rows"] = excluded
+        if preflight_only:
+            counts["preflight_only"] = 1
+            shutil.rmtree(staging, ignore_errors=True)
+            return counts
         _write_readme(
             spec,
             staging,
@@ -2116,7 +2320,59 @@ def _build_task_in_staging(
             max_aspect_ratio=max_aspect_ratio,
             excluded=excluded,
             shape_attribute_max_rectangle_fraction=shape_attribute_max_rectangle_fraction,
+            formulation_ids=formulation_ids,
         )
+        reports_root = staging / "reports"
+        reports_root.mkdir(parents=True, exist_ok=True)
+        if formulation_ids:
+            _atomic_write_text(
+                reports_root / "formulation_alignment.json",
+                json.dumps(
+                    {
+                        "task": spec.name,
+                        "formulations": list(formulation_ids),
+                        "rows_per_formulation": {
+                            formulation_id: counts[f"formulation_{formulation_id}_rows"]
+                            for formulation_id in formulation_ids
+                        },
+                        "aligned_rows": counts["rows"],
+                        "construction": "single_pass_shared_row_only_target_text_varies",
+                        "identity_fields": [
+                            "image_path",
+                            "sample_id",
+                            "dataset_name",
+                            "system_prompt",
+                            "user_prompt",
+                            "prompt_args",
+                            "extra",
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+            )
+            _atomic_write_text(
+                reports_root / "schema_validation.json",
+                json.dumps(
+                    {
+                        "task": spec.name,
+                        "prompt_pool_id": prompt_pool_id,
+                        "formulations": list(formulation_ids),
+                        "validated_rows": {
+                            formulation_id: counts[f"formulation_{formulation_id}_rows"]
+                            for formulation_id in formulation_ids
+                        },
+                        "validator": "offline_exact_formulation_projection_v1",
+                        "status": "passed",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+            )
         _publish(staging, output_root / spec.name, clean=clean)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
@@ -2137,6 +2393,7 @@ def _task_specs(args: argparse.Namespace) -> dict[str, TaskSpec]:
             prompt_path=Path(args.line_point_prompt_pool),
             source_kind="synthetic_point_multi",
             selection_limit=args.line_point_synthetic_limit,
+            eligible_formulations=("points",),
         )
     elif args.line_point_real_selection:
         line_point_spec = TaskSpec(
@@ -2146,6 +2403,7 @@ def _task_specs(args: argparse.Namespace) -> dict[str, TaskSpec]:
             source_root=raw_root,
             prompt_path=Path(args.line_point_prompt_pool),
             source_kind="real_point",
+            eligible_formulations=("points",),
             additional_sources=(
                 TaskSourceSpec(
                     selection_path=Path(args.line_point_synthetic_selection),
@@ -2164,6 +2422,7 @@ def _task_specs(args: argparse.Namespace) -> dict[str, TaskSpec]:
             prompt_path=Path(args.line_point_prompt_pool),
             source_kind="archived_point",
             source_image_manifest=Path(args.line_point_full_image_manifest),
+            eligible_formulations=("points",),
             additional_sources=(
                 TaskSourceSpec(
                     selection_path=Path(args.line_point_synthetic_selection),
@@ -2263,7 +2522,9 @@ def main() -> None:
         type=int,
         default=15_000,
         help=(
-            "Maximum synthetic multi-segment line rows, balanced across observed segment counts."
+            "Maximum synthetic multi-segment line rows. A preselected rarity-first manifest is "
+            "preserved when it is already within this limit; legacy oversized manifests fall "
+            "back to deterministic segment-count balancing."
         ),
     )
     parser.add_argument(
@@ -2318,6 +2579,14 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--clean", action="store_true")
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help=(
+            "Resolve every selected source, crop transform, formulation target, and augmentation "
+            "plan without writing images or publishing a task directory."
+        ),
+    )
     args = parser.parse_args()
     if args.workers <= 0 or args.chunksize <= 0:
         parser.error("workers and chunksize must be positive")
@@ -2360,6 +2629,7 @@ def main() -> None:
                     shape_attribute_max_rectangle_fraction=float(
                         args.shape_attribute_max_rectangle_fraction
                     ),
+                    preflight_only=bool(args.preflight_only),
                 ).items()
             )
         )

@@ -200,3 +200,84 @@ def test_line_validator_reports_non_scalar_enums_instead_of_crashing() -> None:
     assert any(issue.startswith("line.begin_arrow:") for issue in issues)
     assert any(issue.startswith("line.end_arrow:") for issue in issues)
     assert any(issue.startswith("line.corner_style:") for issue in issues)
+
+
+def test_line_validator_rejects_zero_length_and_consecutive_duplicate_points() -> None:
+    module = _load_script_module()
+    parameters = _line()["parameters"]
+    parameters["points"] = [
+        [[10, 150], [100, 150], [100, 150], [190, 140]],
+        [[100, 150], [100, 150]],
+    ]
+
+    issues = module._validate_line(parameters, width=200, height=200)
+
+    assert "line.points[0].consecutive_duplicate" in issues
+    assert "line.points[1].degenerate" in issues
+    assert "line.points[1].consecutive_duplicate" in issues
+
+
+def test_v5_8_selection_keeps_rare_shapes_and_caps_dominant_heads() -> None:
+    module = _load_script_module()
+    shape_strata = {
+        "rectangle|uniform:solid|uniform|none|round0|splits0": 1_000,
+        "oval|uniform:solid|uniform|none|round0|splits0": 300,
+        "step|uniform:solid|uniform|none|round0|splits0": 3,
+    }
+
+    quotas, policy = module._shape_quotas_v5_8(
+        shape_strata,
+        target=100,
+        keep_all_threshold=10,
+        max_rectangle_fraction=0.20,
+    )
+
+    assert quotas["step|uniform:solid|uniform|none|round0|splits0"] == 3
+    assert sum(quotas.values()) == 100
+    assert policy["selected_by_shape_type"]["rectangle"] <= 20
+    assert policy["keep_all_shape_types"] == ["step"]
+
+
+def test_v5_8_line_selection_keeps_all_multi_branch_and_caps_simple_lines() -> None:
+    module = _load_script_module()
+    line_strata = {
+        "straight|path|segments1|solid|none|none|uniform|none:-|sharp": 300,
+        "curved|path|segments1|dash|none|triangle|uniform|none:-|-": 200,
+        "straight|path|segments2|solid|none|triangle|uniform|none:-|sharp": 50,
+        "straight|path|segments3|dash|none|stealth|uniform|none:-|round": 10,
+    }
+
+    quotas, policy = module._line_quotas_v5_8(
+        line_strata,
+        target=150,
+        max_single_segment_fraction=0.50,
+    )
+
+    assert quotas[
+        "straight|path|segments2|solid|none|triangle|uniform|none:-|sharp"
+    ] == 50
+    assert quotas[
+        "straight|path|segments3|dash|none|stealth|uniform|none:-|round"
+    ] == 10
+    assert policy["selected_multi_branch_rows"] == 60
+    assert policy["selected_single_segment_rows"] == 60
+    assert policy["selected_single_segment_fraction"] == 0.5
+
+
+def test_v5_8_line_point_selection_protects_rare_full_attribute_strata() -> None:
+    module = _load_script_module()
+    rare_two = "straight|path|segments2|dash|circle|circle|uniform|none:-|round"
+    rare_many = "straight|path|segments9|solid|none|none|uniform|none:-|sharp"
+    common = "straight|path|segments2|solid|none|triangle|uniform|none:-|sharp"
+
+    quotas, policy = module._line_point_quotas_v5_8(
+        {rare_two: 2, rare_many: 1, common: 100},
+        target=10,
+        keep_all_stratum_threshold=3,
+    )
+
+    assert quotas[rare_two] == 2
+    assert quotas[rare_many] == 1
+    assert sum(quotas.values()) == 10
+    assert policy["protected_rows"] == 3
+    assert policy["profile"] == "v5.8_multi_branch_rarity_first"

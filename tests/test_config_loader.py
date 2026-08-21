@@ -31,6 +31,7 @@ V5_7_CONFIGS = (
 
 V5_8_POOL_FORMULATIONS = {
     "grounding_layout": ("default",),
+    "background": ("default",),
     "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
     "line_context_reconstruction": ("appearance", "points", "reconstruction"),
     "line_context_points": ("appearance", "points", "reconstruction"),
@@ -38,6 +39,7 @@ V5_8_POOL_FORMULATIONS = {
 }
 V5_8_ELIGIBLE_FORMULATIONS = {
     "grounding_layout": (),
+    "background": (),
     "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
     "line_context_reconstruction": ("appearance", "points", "reconstruction"),
     "line_context_points": ("points",),
@@ -45,6 +47,7 @@ V5_8_ELIGIBLE_FORMULATIONS = {
 }
 V5_8_FORMULATION_WEIGHTS = {
     "grounding_layout": (1.0,),
+    "background": (1.0,),
     "shape_context_reconstruction": (1.0, 1.0, 4.0),
     "line_context_reconstruction": (1.0, 1.0, 4.0),
     "line_context_points": (1.0, 1.0, 4.0),
@@ -93,19 +96,23 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
     assert datasets["grounding_layout"].train_paths == [
         str(Path("data/grounding_layout/sft/train.jsonl").resolve())
     ]
+    assert datasets["background"].train_paths == [
+        str(Path("data/background/sft/train.jsonl").resolve())
+    ]
     assert all(
         not dataset.train_paths
         for name, dataset in datasets.items()
-        if name != "grounding_layout"
+        if name not in {"grounding_layout", "background"}
     )
     assert all(not dataset.use_for_eval for dataset in config.data.datasets)
     assert config.eval.enabled is False
-    assert config.data.media_snapshot_id == "banana-v5.8-preparation"
+    assert config.data.media_snapshot_id == "banana-v5.8-v9-20260802-reviewed-real-v1"
     dataset_weights = {
         dataset.dataset_name: dataset.weight for dataset in config.data.datasets
     }
     assert dataset_weights["line_context_reconstruction"] == pytest.approx(6.0)
     assert dataset_weights["line_context_points"] == pytest.approx(2.0)
+    assert dataset_weights["background"] == pytest.approx(1.0)
 
     system_prompts = set()
     line_full_source = config.data.prompt_sources["line_context_reconstruction"]
@@ -118,17 +125,21 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
         formulation_ids = tuple(item.formulation_id for item in pool.formulations)
 
         assert pool.version == "v5.8"
-        assert pool.explicit_formulations is (dataset_name != "grounding_layout")
+        assert pool.explicit_formulations is (
+            dataset_name not in {"grounding_layout", "background"}
+        )
         assert formulation_ids == expected_formulations
         assert tuple(source.formulation_sources) == V5_8_ELIGIBLE_FORMULATIONS[dataset_name]
         assert tuple(
             formulation.sampling_weight for formulation in pool.formulations
         ) == V5_8_FORMULATION_WEIGHTS[dataset_name]
+        expected_variants = (
+            ("detailed",) if dataset_name == "background" else ("detailed", "concise")
+        )
         for formulation in pool.formulations:
-            assert tuple(prompt.variant_id for prompt in formulation.prompt_variants) == (
-                "detailed",
-                "concise",
-            )
+            assert tuple(
+                prompt.variant_id for prompt in formulation.prompt_variants
+            ) == expected_variants
             system_prompts.update(
                 prompt.system_prompt for prompt in formulation.prompt_variants
             )

@@ -7,6 +7,14 @@
 
 - [banana_v5_7.md](banana_v5_7.md)：Banana v5.7 的数据、prompt、训练配置、构建顺序与完整性基线。
 - [banana_v5_8.md](banana_v5_8.md)：Banana v5.8 的 source/structured/SFT、人工 formulation 与在线随机合同。
+- `recover_v5_8_real_tasks.py`：从显式历史来源恢复 v5.8 `background` 与
+  `image_context_reconstruction`，完成测试集排除、target 对账和全量媒体校验后原子发布。
+- `prepare_gt_standard_v5_7.py --selection-profile v5.8`：审计 V9 后生成稀有 shape 全保留、
+  多叉 line 全保留、普通头部限比以及多叉 points 完整属性 rarity-first 的 source-identity selection。
+- `prepare_real_line_context_points.py`：排除 canonical test 后保留 active compact raw 中全部非空真实
+  line points，不采样、不补造空标注。
+- `build_context_reconstruction_sft.py`：一次 crop pass 同时物化 shape/line 的全部 eligible
+  formulations；合成 crop 使用 `synthetic_realism_v1`，真实 points crop 保持干净像素。
 
 ## 边界
 

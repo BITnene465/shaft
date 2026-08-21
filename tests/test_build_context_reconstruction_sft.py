@@ -215,6 +215,171 @@ def test_card_split_corners_use_the_context_crop_coordinate_space() -> None:
     )
 
 
+def test_v5_8_shape_formulations_project_exact_offline_targets() -> None:
+    module = _load_module()
+    parameters = {
+        "shape_type": "card",
+        "border": {"type": "uniform", "style": "solid", "color": "#112233"},
+        "fill": [{"type": "uniform", "color": "#FFFFFF"}],
+        "corners": [{"type": "sharp", "point": [1, 2]}],
+        "splits": [
+            {
+                "type": "uniform",
+                "style": "dash",
+                "color": "#445566",
+                "split_corners": [
+                    {"type": "sharp", "point": [3, 4]},
+                    {"type": "sharp", "point": [5, 6]},
+                ],
+            }
+        ],
+        "effect": {"type": "none"},
+    }
+
+    appearance = module._formulation_parameters("shape", "appearance", parameters)
+    geometry = module._formulation_parameters("shape", "geometry", parameters)
+    reconstruction = module._formulation_parameters(
+        "shape", "reconstruction", parameters
+    )
+
+    assert set(appearance) == {"shape_type", "border", "fill", "splits", "effect"}
+    assert appearance["splits"] == [
+        {"type": "uniform", "style": "dash", "color": "#445566"}
+    ]
+    assert set(geometry) == {"shape_type", "corners", "splits"}
+    assert geometry["splits"] == [{"split_corners": parameters["splits"][0]["split_corners"]}]
+    assert reconstruction == parameters
+
+
+def test_v5_8_builder_materializes_aligned_line_formulation_files(tmp_path: Path) -> None:
+    synthetic_root = tmp_path / "synthetic"
+    (synthetic_root / "img").mkdir(parents=True)
+    (synthetic_root / "gt_standard").mkdir()
+    Image.new("RGB", (240, 160), "white").save(synthetic_root / "img/line.png")
+    bbox = [20.0, 30.0, 220.0, 140.0]
+    parameters = {
+        "line_type": "straight",
+        "line_style": "path",
+        "is_single": False,
+        "points": [
+            [[20, 80], [120, 80], [220, 30]],
+            [[120, 80], [220, 140]],
+        ],
+        "dash_style": "solid",
+        "begin_arrow": "none",
+        "end_arrow": "triangle",
+        "fill": {"type": "uniform", "color": "#112233"},
+        "border": {"type": "none"},
+        "corner_style": "sharp",
+    }
+    (synthetic_root / "gt_standard/line.json").write_text(
+        json.dumps(
+            {
+                "size": [240, 160],
+                "layout": [{"type": "line", "bbox": bbox, "parameters": parameters}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    selection = tmp_path / "line_selection.jsonl"
+    _write_selection(
+        selection,
+        sample_id="line__line_0000",
+        label="line",
+        bbox=bbox,
+        source_json="gt_standard/line.json",
+        source_image="img/line.png",
+        instance_index=0,
+    )
+    excluded = tmp_path / "test.json"
+    excluded.write_text('{"items":[]}', encoding="utf-8")
+    output_root = tmp_path / "output"
+    common_args = (
+        "--synthetic-root",
+        str(synthetic_root),
+        "--line-selection",
+        str(selection),
+        "--line-prompt-pool",
+        "configs/prompts/pools/line_context_reconstruction.v5.8.yaml",
+        "--exclude-manifest",
+        str(excluded),
+        "--tasks",
+        "line_context_reconstruction",
+        "--workers",
+        "1",
+    )
+    preflight_root = tmp_path / "preflight"
+    completed = _run_builder(
+        *common_args,
+        "--output-root",
+        str(preflight_root),
+        "--preflight-only",
+    )
+    assert json.loads(completed.stdout)["line_context_reconstruction"]["preflight_only"] == 1
+    assert not (preflight_root / "line_context_reconstruction").exists()
+
+    _run_builder(
+        *common_args,
+        "--output-root",
+        str(output_root),
+        "--clean",
+    )
+
+    task_root = output_root / "line_context_reconstruction"
+    formulation_ids = ("appearance", "points", "reconstruction")
+    rows = {
+        formulation_id: _read_one(
+            task_root / f"sft/formulations/{formulation_id}/train.jsonl"
+        )
+        for formulation_id in formulation_ids
+    }
+    identity_fields = set(rows["appearance"]) - {"target_text"}
+    assert all(
+        {key: row[key] for key in identity_fields}
+        == {key: rows["appearance"][key] for key in identity_fields}
+        for row in rows.values()
+    )
+    assert set(json.loads(rows["appearance"]["target_text"])["parameters"]) == {
+        "line_style",
+        "dash_style",
+        "begin_arrow",
+        "end_arrow",
+        "fill",
+        "border",
+    }
+    assert set(json.loads(rows["points"]["target_text"])["parameters"]) == {
+        "is_single",
+        "points",
+    }
+    assert set(json.loads(rows["reconstruction"]["target_text"])["parameters"]) == set(
+        parameters
+    )
+    assert not (task_root / "sft/train.jsonl").exists()
+    assert all(
+        (task_root / "sft/formulations" / formulation_id / "val.jsonl").read_text() == ""
+        for formulation_id in formulation_ids
+    )
+    media = (
+        task_root
+        / "sft/formulations/appearance"
+        / rows["appearance"]["image_path"]
+    ).resolve()
+    assert media.is_file()
+    alignment = json.loads(
+        (task_root / "reports/formulation_alignment.json").read_text(encoding="utf-8")
+    )
+    build_summary = json.loads(
+        (task_root / "reports/build_summary.json").read_text(encoding="utf-8")
+    )
+    assert build_summary["formulations"] == list(formulation_ids)
+    assert not (task_root / "build_summary.json").exists()
+    assert alignment["rows_per_formulation"] == {
+        "appearance": 1,
+        "points": 1,
+        "reconstruction": 1,
+    }
+
+
 def test_zero_limit_is_rejected_before_output_creation(tmp_path: Path) -> None:
     completed = _run_builder(
         "--output-root",

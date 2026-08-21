@@ -1,7 +1,8 @@
 # Banana v5.8 数据准备合同
 
-本文定义 Banana v5.8 的数据准备方式。当前状态是 **preparation**：在业务 formulation 集合、每个 target
-schema、builder、物化数据和 smoke 都完成前，不登记 production catalog 或正式训练 recipe。
+本文定义 Banana v5.8 的数据准备方式。当前数据 snapshot 已完成物化并通过全量 schema、alignment、媒体解码
+和真实训练读取链 smoke。训练配置文件仍保留 `preparation` 后缀，用来表明尚未启动正式训练，而不是表示数据
+目录或 formulation source 尚未完成。
 
 框架公共合同见 [`docs/data.md`](../../docs/data.md)；v5.7 已发布数据见
 [`banana_v5_7.md`](banana_v5_7.md)。
@@ -20,13 +21,15 @@ formulation。当前配置如下，列表顺序只用于稳定配置与审计，
 | dataset cohort | shared pool / eligible formulations | 监督含义 |
 | --- | --- | --- |
 | `grounding_layout` | `grounding_layout` / 无 formulation | 始终输出完整 bbox + label objects |
+| `background` | `background` / 无 formulation | 判断完整页面是否存在大面积不可编辑视觉背景 |
 | `shape_context_reconstruction` | `shape_context_reconstruction` / `appearance, geometry, reconstruction` | 外观、几何、完整可重建属性 |
 | `line_context_reconstruction` | `line_context_reconstruction` / `appearance, points, reconstruction` | 外观、点序列、完整重建 |
 | `line_context_points` | `line_context_reconstruction` / `points` | line reconstruction 的真实/审计 points-only cohort |
 | `image_context_reconstruction` | `image_context_reconstruction` / `image_type` | 已审核的 13 类 image type |
 
-`grounding_layout` 沿用普通单 `target_text` 数据与顶层 prompt rotation，不生成 labels-only 或 boxes-only
-target。`line_context_points` 不是独立任务；它是 `line_context_reconstruction` 任务中只能监督 `points`
+`grounding_layout` 和 `background` 都沿用普通单 `target_text` 数据与顶层 prompt。Grounding 不生成
+labels-only 或 boxes-only target；background 只输出审核过的 `{"background":true|false}`。
+`line_context_points` 不是独立任务；它是 `line_context_reconstruction` 任务中只能监督 `points`
 formulation 的物理数据 cohort。它不虚构 appearance/full，`image_context_reconstruction` 也不虚构
 geometry/full。框架不生成幂集、不推断依赖。样本 eligibility 不同时，人工拆成不同 named dataset cohort；
 若 task/prompt 语义相同则继续复用同一个 pool，只由各 dataset 的 `formulation_sources` 键选择合法子集。
@@ -58,6 +61,73 @@ authoritative raw / gt_standard snapshot
 如果 v5.8 使用新的 synthetic/raw snapshot，必须冻结新的 snapshot id、split manifest 和 selection；不得只
 改目录名后沿用 v5.7 的审计结论。
 
+### 2.1 已恢复的真实任务
+
+当前 compact raw 已删除 background 字段，也没有 image instance 的 13 类 `image_type` 真值，因此这两个
+任务不能从当前 JSON 猜测重建。v5.8 使用显式历史来源恢复：
+
+- `background`：以人工审核后的
+  `background_annotations_opus48_reviewed_20260710.jsonl` 为标签真值，并与已验证的 v5.3 task-local
+  structured/SFT/media 逐 ID、逐 target 对账；
+- `image_context_reconstruction`：原 enriched raw 已不可用，以完整且经过媒体、schema 和来源身份复验的
+  v5.3 derived bundle 恢复。它被记录为 `verified_recovered_v5_3_derived_bundle`，不得反向冒充 active raw；
+- 两者共享恢复 snapshot `banana-v5.8-reviewed-real-recovery-v1`，不修改当前 `data/raw`；历史审核文件和
+  split manifest 只复制到 `data/raw/imports/banana_v5_3_replay_20260722` sidecar；
+- raw sidecar 和 task reports 保存历史 selection/structured/SFT、审核标注、split manifests 与实际 prompt
+  pool 的 SHA256；snapshot 不只依赖目录名；
+- 全部媒体保持原始像素，不做 resize；59,627 个 task-local 媒体均通过完整解码和声明尺寸校验。
+
+恢复结果：
+
+| task | train rows | unique source images | canonical 175 test overlap |
+| --- | ---: | ---: | ---: |
+| `background` | 38,443 | 38,443 | 0 |
+| `image_context_reconstruction` | 21,184 | 4,134 | 0 |
+
+`background` 还排除了三个历史测试 manifest 的 313 个 ID 并证明恢复 ID 精确等于审核标注 ID 减去该并集；
+因此 canonical `vlm.test.json` 的 175 张是其严格子集，而不是仅靠当前目录未发现重叠。
+
+### 2.2 V9 合成 reconstruction snapshot
+
+shape/line 使用 `regulated_layout_dataset_v9_20260802`：
+
+- `train.txt` 100,000 项、`val.txt` 500 项，内部唯一且交集为 0；
+- 解压后的 `gt_standard/`、`image_source/`、`img/` 各有 100,500 个一一对应文件；
+- `checksums.sha256` 的 24 项全部通过，包括两个 JSON zip、20 个图片分卷和 train/val；
+- train 全量图像可解码，100,000 个 source document 无 fatal error；有效 shape 3,234,558 个，
+  有效 line 409,768 个；120 个包含连续重复点/零长度 segment 的 line instance 直接排除，不修补坐标，
+  其它无效实例也只从 reconstruction selection 排除，不修改 V9 真源。
+
+v5.8 selection 位于 `data/reconstruction_v5_8_selection`，策略与结果为：
+
+| selection | rows | 规则 |
+| --- | ---: | --- |
+| shape | 300,000 | 数量不超过 60,000 的 9 个稀有 shape type 全保留；其余按完整外观/几何 stratum 无放回抽样；rectangle 上限 20%，实际 17.45% |
+| line | 297,489 | 118,996 个有效多叉 line 全保留；单段 line 无放回抽样且最终不超过 60% |
+| synthetic line points | 15,000 | 从全部 118,996 个有效 V9 多叉 line 选择；完整 line-attribute stratum 数量不超过 256 的 12,011 条先全保留，再从头部补足 |
+| real line points | 120,744 | 排除 canonical test 后，active compact raw 中所有非空 points 全保留，不抽样 |
+
+line 的完整 stratum 同时包含 line type/style、segment count、dash、begin/end arrow、fill、border 和
+corner style；points synthetic selection 不是只按分支数均衡，也不依赖 full-line selection 的子集。
+最终 `line_context_points` 是 120,744 条真实 points + 15,000 条带噪合成多叉 points，共 135,744 条。
+
+三个 V9/points cohort 的最终物化结果：
+
+| dataset cohort | shared crops | materialized formulation rows | 媒体终审 |
+| --- | ---: | --- | ---: |
+| `shape_context_reconstruction` | 300,000 | `appearance / geometry / reconstruction` 各 300,000 | 300,000 / 300,000 |
+| `line_context_reconstruction` | 297,489 | `appearance / points / reconstruction` 各 297,489 | 297,489 / 297,489 |
+| `line_context_points` | 135,744 | `points` 135,744 | 135,744 / 135,744 |
+
+733,233 张派生 crop 均完整解码且与声明尺寸一致。Shape/Line/Synthetic-points 的每张 crop 都实际应用
+1–3 层 `synthetic_realism_v1`；真实 points 的 120,744 张 crop 均保持 clean。所有 formulation store 均逐行
+identity 对齐，exact target schema、0–999 坐标、非退化 line segment 和唯一 `sample_id` 全量通过。
+
+完整 v5.8 配置实际装配为 850,420 个 logical rows。首次 DataCenter smoke 建立并复用了 10 份 Arrow source
+cache，在 6,000 个确定性 weighted schedule draw 中覆盖了全部合法 formulation 和 detailed/concise variant；
+`line_context_points` 始终只选择共享 pool 的 `points`。六个 cohort 各随机读取一张实际媒体成功，train stream /
+execution contract 均完整且 fingerprint 一致。
+
 ## 3. 推荐目录
 
 每个 task 使用一套共享 structured/media。普通任务使用 `sft/train.jsonl`；多 formulation 任务按
@@ -70,8 +140,9 @@ data/<task>/
 │   └── val.jsonl
 ├── structured/
 │   ├── train.jsonl
-│   ├── val.jsonl
-│   └── images/
+│   └── val.jsonl
+├── images/
+│   └── train/
 ├── sft/
 │   ├── train.jsonl                  # ordinary task only
 │   ├── val.jsonl                    # ordinary task only
@@ -91,8 +162,8 @@ data/<task>/
     └── schema_validation.json
 ```
 
-Grounding 使用 `data/grounding_layout/sft/train.jsonl`。多个 formulation 可以引用同一 task-local image；
-不需要复制图片。
+Grounding 使用 `data/grounding_layout/sft/train.jsonl`，background 使用
+`data/background/sft/train.jsonl`。多个 formulation 可以引用同一 task-local image；不需要复制图片。
 
 ## 4. 每份 JSONL 的完整格式
 
@@ -100,7 +171,7 @@ Grounding 使用 `data/grounding_layout/sft/train.jsonl`。多个 formulation �
 
 ```json
 {
-  "image_path": "../../../structured/images/shape_000001__context_00.png",
+  "image_path": "../../../images/train/ab/shape_000001__context_00.png",
   "sample_id": "shape_000001__context_00",
   "dataset_name": "shape_context_reconstruction",
   "system_prompt": "",
@@ -110,9 +181,10 @@ Grounding 使用 `data/grounding_layout/sft/train.jsonl`。多个 formulation �
   },
   "target_text": "{\"type\":\"shape\",\"parameters\":{...}}",
   "extra": {
-    "schema_version": "banana.sft.v5.8",
+    "prompt_pool_id": "shaft.shape_context_reconstruction.formulation_pool.v5.8",
     "source_sample_id": "shape_000001",
-    "structured_snapshot_id": "<frozen-id>"
+    "source_type": "synthetic_gt_standard_context",
+    "structured_extra": {...}
   }
 }
 ```
@@ -121,7 +193,7 @@ Grounding 使用 `data/grounding_layout/sft/train.jsonl`。多个 formulation �
 不要写进每行 `extra`。紧凑形式如下：
 
 ```json
-{"image_path":"../../../structured/images/shape_000001__context_00.png","sample_id":"shape_000001__context_00","dataset_name":"shape_context_reconstruction","system_prompt":"","user_prompt":"","prompt_args":{"proposal_bbox_2d":[115,108,733,621]},"target_text":"{\"type\":\"shape\",\"parameters\":{...}}","extra":{"schema_version":"banana.sft.v5.8","source_sample_id":"shape_000001","structured_snapshot_id":"<frozen-id>"}}
+{"image_path":"../../../images/train/ab/shape_000001__context_00.png","sample_id":"shape_000001__context_00","dataset_name":"shape_context_reconstruction","system_prompt":"","user_prompt":"","prompt_args":{"proposal_bbox_2d":[115,108,733,621]},"target_text":"{\"type\":\"shape\",\"parameters\":{...}}","extra":{"prompt_pool_id":"shaft.shape_context_reconstruction.formulation_pool.v5.8","source_sample_id":"shape_000001","source_type":"synthetic_gt_standard_context","structured_extra":{...}}}
 ```
 
 同一 split 的所有 formulation 文件逐行满足：
@@ -145,9 +217,10 @@ Grounding 使用 `data/grounding_layout/sft/train.jsonl`。多个 formulation �
 
 ## 5. PromptSource pool
 
-4 个已冻结的 task pool 位于：
+5 个已冻结的 task pool 位于：
 
 - `configs/prompts/pools/grounding_layout.v5.8.yaml`
+- `configs/prompts/pools/background.v5.8.yaml`
 - `configs/prompts/pools/shape_context_reconstruction.v5.8.yaml`
 - `configs/prompts/pools/line_context_reconstruction.v5.8.yaml`
 - `configs/prompts/pools/image_context_reconstruction.v5.8.yaml`
@@ -156,10 +229,13 @@ Grounding 使用 `data/grounding_layout/sft/train.jsonl`。多个 formulation �
 `line_context_reconstruction.v5.8.yaml`。`points` formulation 及其 detailed/concise prompts 只在这份 pool
 定义一次；points-only cohort 只是把 `formulation_sources` 配置为单个 `points`。
 
-每个任务请求都恰好有两个等义 prompt variant：
+除 background 外，每个任务请求都恰好有两个等义 prompt variant：
 
 - `detailed`：完整任务合同，延续并收紧 v5.7 的输出约束；
 - `concise`：专用模型使用的极简任务表达，target schema 与 detailed 完全相同。
+
+`background` 按当前业务要求只保留一个 `detailed` variant。它明确区分大面积不可编辑 backing 与普通局部
+image object、可编辑 vector panel 以及简单画布，避免把“页面包含图片”误判为“页面具有背景图”。
 
 所有 variant 都显式配置同一份 unified `system_prompt`。Grounding pool 使用顶层 `prompts`；shape/line
 等多目标 pool 的 `formulations` 列表是唯一配置顺序真源，不再额外维护 `formulation_order`，但运行时不会按
@@ -173,8 +249,13 @@ Grounding 使用 `data/grounding_layout/sft/train.jsonl`。多个 formulation �
 - PromptSource/source/probability 绑定：
   `configs/train/banana_sft_4b_v5_8_preparation.yaml`
 
-Grounding 的普通 `train_path/val_path` 由 catalog 绑定，pool 只在 detailed/concise 之间轮换措辞，target 始终
-是完整 objects。preparation recipe 为其它 dataset eligible formulation id 绑定未来的标准 SFT 路径。shape
+当前组合媒体 snapshot id 为 `banana-v5.8-v9-20260802-reviewed-real-v1`，同时覆盖 V9 派生 crop、active
+compact raw 的真实 line points，以及已复验恢复的 background/image-type 媒体；任一来源或 selection 改变都
+必须更新该 id。
+
+Grounding 和 background 的普通 `train_path/val_path` 由 catalog 绑定；grounding pool 在
+detailed/concise 之间随机选措辞，background 只选择 detailed，target 分别始终是完整 objects 和审核 boolean。
+preparation recipe 为其它 dataset eligible formulation id 绑定标准 SFT 路径。shape
 和 full-capable line 使用 `1:1:4`；其中 `reconstruction` 在对应 pool 内约占 66.7%。points-only cohort 的
 eligible 子集只有共享 pool 中既有的 `points`，因此确定选择它。
 
@@ -183,8 +264,8 @@ line reconstruction 还包含 points-only cohort：catalog 对 full-capable/poin
 reconstruction 50%。修改 catalog weight 或 formulation `sampling_weight` 即可改变这个分布。
 
 显式 formulation dataset 不再同时配置顶层 `train_path`；物理训练来源由对应 PromptSource 管理。Grounding
-作为普通单目标 dataset 继续由 catalog 提供顶层 source。外层 `data.schedule.mixing` 仍负责不同
-dataset/task 之间的 mixing，PromptSource 内层负责 formulation 或 prompt variant sampling。
+和 background 作为普通单目标 dataset 继续由 catalog 提供顶层 source。外层 `data.schedule.mixing` 仍负责
+不同 dataset/task 之间的 mixing，PromptSource 内层负责 formulation 或 prompt variant sampling。
 
 ## 7. 静态随机概率语义
 
@@ -229,16 +310,83 @@ dataset cohort，但二者复用同一个 `line_context_reconstruction` pool：�
 8. 生成 build/alignment/schema 报告，冻结 `media_snapshot_id`。
 9. 只有以上全部通过后，登记 production catalog/recipe 和数据规模基线。
 
+两个真实任务的可复现恢复命令要求显式提供历史 bundle、审核标注和三个历史测试 manifest：
+
+```bash
+uv run python scripts/tasks/recover_v5_8_real_tasks.py \
+  --source-bundle-root /path/to/banana_v5_3_replay_20260722 \
+  --background-annotations /path/to/background_annotations_opus48_reviewed_20260710.jsonl \
+  --test-manifests /path/to/main.test.json /path/to/inpainting.test.json /path/to/vlm.test.json \
+  --canonical-test-manifest data/raw/splits/vlm.test.json \
+  --output-root data \
+  --workers 40 \
+  --clean
+```
+
+脚本先冻结 canonical manifest 为 175 项及预期 SHA256，并要求历史 manifests 中存在完全相同的副本；再在
+同文件系统 staging 中完成 PromptSource、selection/structured 来源 identity、target、媒体解码和尺寸校验，
+全部通过后才原子替换两个 task 目录；即使指定 `--clean`，失败也不会先删除现有可用数据。
+
+V9 selection 与三个 reconstruction cohort 的可复现命令：
+
+```bash
+uv run python scripts/tasks/prepare_gt_standard_v5_7.py \
+  --dataset-root /path/to/regulated_layout_dataset_v9_20260802 \
+  --output-root data/reconstruction_v5_8_selection \
+  --workers 50 \
+  --selection-profile v5.8 \
+  --shape-target 300000 \
+  --line-target 300000 \
+  --line-points-target 15000 \
+  --shape-keep-all-threshold 60000 \
+  --shape-max-rectangle-fraction 0.20 \
+  --line-max-single-segment-fraction 0.60 \
+  --line-points-keep-all-stratum-threshold 256 \
+  --seed 57
+
+uv run python scripts/tasks/prepare_real_line_context_points.py \
+  --output data/reconstruction_v5_8_selection/line_points_real/train.jsonl \
+  --workers 50 \
+  --clean
+
+uv run python scripts/tasks/build_context_reconstruction_sft.py \
+  --synthetic-root /path/to/regulated_layout_dataset_v9_20260802 \
+  --raw-root data/raw \
+  --output-root data \
+  --shape-selection data/reconstruction_v5_8_selection/shape/train.jsonl \
+  --line-selection data/reconstruction_v5_8_selection/line/train.jsonl \
+  --line-point-real-selection data/reconstruction_v5_8_selection/line_points_real/train.jsonl \
+  --line-point-synthetic-selection data/reconstruction_v5_8_selection/line_points/train.jsonl \
+  --shape-prompt-pool configs/prompts/pools/shape_context_reconstruction.v5.8.yaml \
+  --line-prompt-pool configs/prompts/pools/line_context_reconstruction.v5.8.yaml \
+  --line-point-prompt-pool configs/prompts/pools/line_context_reconstruction.v5.8.yaml \
+  --tasks shape_context_reconstruction line_context_reconstruction line_context_points \
+  --workers 50 \
+  --chunksize 16 \
+  --seed 42 \
+  --png-compress-level 1
+```
+
+正式写盘前应给同一 builder 命令追加 `--preflight-only`。它会遍历全部 selection，解析 source truth，执行
+确定性 crop/坐标量化、全部 formulation target 投影与噪声 plan 生成，但不写图片、不发布 task 目录；当前
+297,489 条 full line 与 135,744 条 points cohort 均已通过该全量 preflight。
+
+builder 只改派生 crop，不改 V9 原图。shape/line 与 synthetic points 的每个 crop 都应用一至三层
+`synthetic_realism_v1` 尺寸不变噪声；real points crop 不加合成噪声。所有 formulation 在同一 worker pass
+由同一 crop/structured row 生成，因此逐行 identity 一致，只改变 `target_text`。
+
 ## 11. 发布清单
 
-- [ ] source snapshot 与 split manifest 已冻结并可追溯。
-- [ ] 普通任务 schema、合法 formulation 集合和每个 exact target schema 已人工确认。
-- [ ] 每个 ordinary/formulation source 都是标准 v5.7 形态 JSONL，逐行都有非空 `target_text`。
-- [ ] 同一 dataset eligibility 子集的 JSONL 行数、顺序和 identity 完全一致，只有 target 不同。
-- [ ] `prompt_args` 只服务 prompt renderer，不含 target 组合真值。
-- [ ] pool 不含 `target_template` / `target`，source 行不含多 target mapping。
-- [ ] 所有 target 通过 codec/schema，所有 prompt variants 通过参数 preflight。
-- [ ] 静态随机分布、planning/runtime 一致和 resume fingerprint 已 smoke。
-- [ ] 数据产物、报告、pool、配置、builder 与文档属于同一 v5.8 版本。
+- [x] source snapshot 与 split manifest 已冻结并可追溯。
+- [x] 所有真实来源与 canonical 175 张 `vlm.test.json` 的 source identity 重叠为 0；V9 train/val 交集为 0。
+- [x] 普通任务 schema、合法 formulation 集合和每个 exact target schema 已人工确认。
+- [x] 每个 ordinary/formulation source 都是标准 v5.7 形态 JSONL，逐行都有非空 `target_text`。
+- [x] 同一 dataset eligibility 子集的 JSONL 行数、顺序和 identity 完全一致，只有 target 不同。
+- [x] `prompt_args` 只服务 prompt renderer，不含 target 组合真值。
+- [x] pool 不含 `target_template` / `target`，source 行不含多 target mapping。
+- [x] 所有 target 通过 codec/schema，所有 prompt variants 通过参数 preflight。
+- [x] 静态随机分布、planning/runtime 一致和 resume fingerprint 已 smoke。
+- [x] 数据产物、报告、pool、配置、builder 与文档属于同一 v5.8 snapshot。
 
-在清单完成前，v5.8 保持 preparation 状态。
+当前数据 snapshot 已具备训练读取条件；正式训练尚未启动，训练 canary、吞吐基线和模型指标不属于本数据
+准备清单的完成条件。

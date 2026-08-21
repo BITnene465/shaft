@@ -47,6 +47,7 @@ data:
   catalog_path: ../data/banana_v5_8.yaml
   catalog_names:
     - grounding_layout
+    - background
     - shape_context_reconstruction
     - line_context_reconstruction
     - line_context_points
@@ -54,6 +55,9 @@ data:
   prompt_sources:
     grounding_layout:
       path: ../prompts/pools/grounding_layout.v5.8.yaml
+      apply_to: train
+    background:
+      path: ../prompts/pools/background.v5.8.yaml
       apply_to: train
     shape_context_reconstruction:
       path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
@@ -92,7 +96,7 @@ data:
   schedule:
     mixing: weighted
     shuffle: true
-  media_snapshot_id: banana-v5.8-preparation
+  media_snapshot_id: banana-v5.8-v9-20260802-reviewed-real-v1
   num_workers: 4
   pin_memory: true
   persistent_workers: true

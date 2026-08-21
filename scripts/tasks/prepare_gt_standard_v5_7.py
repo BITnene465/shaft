@@ -435,9 +435,24 @@ def _validate_line(parameters: Any, *, width: int, height: int) -> list[str]:
                 continue
             if line_type == "curved" and len(segment) != 4:
                 issues.append(f"line.points[{segment_index}].curved_requires_four")
+            valid_segment_points: list[tuple[float, float]] = []
             for point_index, point in enumerate(segment):
                 if not _point(point, width=width, height=height):
                     issues.append(f"line.points[{segment_index}][{point_index}]")
+                else:
+                    valid_segment_points.append((float(point[0]), float(point[1])))
+            if len(valid_segment_points) == len(segment):
+                if len(set(valid_segment_points)) < 2:
+                    issues.append(f"line.points[{segment_index}].degenerate")
+                if any(
+                    current == previous
+                    for previous, current in zip(
+                        valid_segment_points,
+                        valid_segment_points[1:],
+                        strict=False,
+                    )
+                ):
+                    issues.append(f"line.points[{segment_index}].consecutive_duplicate")
     if not isinstance(parameters.get("is_single"), bool):
         issues.append("line.is_single.not_bool")
     elif parameters["is_single"] != (segment_count == 1):
@@ -792,6 +807,86 @@ def _shape_quotas(
     return quotas, policy
 
 
+def _shape_quotas_v5_8(
+    shape_strata: dict[str, int],
+    *,
+    target: int,
+    keep_all_threshold: int,
+    max_rectangle_fraction: float,
+) -> tuple[dict[str, int], dict[str, Any]]:
+    """Keep rare shape types intact while capping the dominant rectangle head."""
+    by_type: dict[str, dict[str, int]] = defaultdict(dict)
+    for stratum, count in shape_strata.items():
+        by_type[stratum.split("|", 1)[0]][stratum] = count
+    type_counts = {shape_type: sum(values.values()) for shape_type, values in by_type.items()}
+    protected = {
+        shape_type for shape_type, count in type_counts.items() if count <= keep_all_threshold
+    }
+    protected_count = sum(type_counts[shape_type] for shape_type in protected)
+    head_capacities = {
+        shape_type: count
+        for shape_type, count in type_counts.items()
+        if shape_type not in protected
+    }
+    requested_effective_target = min(
+        sum(type_counts.values()),
+        max(target, protected_count + len(head_capacities)),
+    )
+    rectangle_cap = type_counts.get("rectangle", 0)
+    if "rectangle" in head_capacities:
+        rectangle_cap = min(
+            rectangle_cap,
+            math.floor(requested_effective_target * max_rectangle_fraction),
+        )
+    effective_target = min(
+        requested_effective_target,
+        protected_count
+        + sum(
+            rectangle_cap if shape_type == "rectangle" else count
+            for shape_type, count in head_capacities.items()
+        ),
+    )
+    head_caps = _allocate_caps(
+        head_capacities,
+        target=effective_target - protected_count,
+    )
+    if head_caps.get("rectangle", 0) > rectangle_cap:
+        excess = head_caps["rectangle"] - rectangle_cap
+        head_caps["rectangle"] = rectangle_cap
+        remaining_capacities = {
+            shape_type: head_capacities[shape_type] - selected
+            for shape_type, selected in head_caps.items()
+            if shape_type != "rectangle"
+        }
+        additions = _allocate_caps(remaining_capacities, target=excess)
+        for shape_type, count in additions.items():
+            head_caps[shape_type] += count
+    quotas: dict[str, int] = {}
+    for shape_type, strata in by_type.items():
+        type_target = type_counts[shape_type] if shape_type in protected else head_caps[shape_type]
+        quotas.update(_allocate_caps(strata, target=type_target))
+    selected_by_type = {
+        shape_type: sum(quotas[stratum] for stratum in strata)
+        for shape_type, strata in by_type.items()
+    }
+    selected_total = sum(selected_by_type.values())
+    return quotas, {
+        "profile": "v5.8_rare_shape_retention",
+        "requested_target": target,
+        "effective_target": selected_total,
+        "keep_all_threshold": keep_all_threshold,
+        "keep_all_shape_types": sorted(protected),
+        "rare_rows_retained": protected_count,
+        "available_by_shape_type": dict(sorted(type_counts.items())),
+        "selected_by_shape_type": dict(sorted(selected_by_type.items())),
+        "max_rectangle_fraction": max_rectangle_fraction,
+        "rectangle_capacity": rectangle_cap,
+        "selected_rectangle_fraction": (
+            selected_by_type.get("rectangle", 0) / selected_total if selected_total else 0.0
+        ),
+    }
+
+
 def _line_quotas(
     line_strata: dict[str, int],
     *,
@@ -816,6 +911,88 @@ def _line_quotas(
         "protected_rows": protected_count,
         "available_strata": len(line_strata),
     }
+
+
+def _line_quotas_v5_8(
+    line_strata: dict[str, int],
+    *,
+    target: int,
+    max_single_segment_fraction: float,
+) -> tuple[dict[str, int], dict[str, Any]]:
+    """Keep every multi-branch line and downsample only the simple one-segment head."""
+    multi = {
+        stratum: count
+        for stratum, count in line_strata.items()
+        if int(stratum.split("|", 3)[2].removeprefix("segments")) > 1
+    }
+    single = {stratum: count for stratum, count in line_strata.items() if stratum not in multi}
+    multi_count = sum(multi.values())
+    single_count = sum(single.values())
+    if multi_count and max_single_segment_fraction < 1.0:
+        fraction_cap = math.floor(
+            multi_count
+            * max_single_segment_fraction
+            / (1.0 - max_single_segment_fraction)
+        )
+    else:
+        fraction_cap = single_count
+    single_target = min(
+        single_count,
+        max(0, target - multi_count),
+        fraction_cap,
+    )
+    quotas = dict(multi)
+    quotas.update(_allocate_caps(single, target=single_target))
+    selected_total = multi_count + single_target
+    return quotas, {
+        "profile": "v5.8_multi_branch_retention",
+        "requested_target": target,
+        "effective_target": selected_total,
+        "available_strata": len(line_strata),
+        "available_multi_branch_strata": len(multi),
+        "available_multi_branch_rows": multi_count,
+        "selected_multi_branch_rows": multi_count,
+        "available_single_segment_rows": single_count,
+        "selected_single_segment_rows": single_target,
+        "max_single_segment_fraction": max_single_segment_fraction,
+        "selected_single_segment_fraction": (
+            single_target / selected_total if selected_total else 0.0
+        ),
+    }
+
+
+def _line_point_quotas_v5_8(
+    line_strata: dict[str, int],
+    *,
+    target: int,
+    keep_all_stratum_threshold: int,
+) -> tuple[dict[str, int], dict[str, Any]]:
+    """Select a rarity-first synthetic supplement from all valid multi-branch lines."""
+    multi = {
+        stratum: count
+        for stratum, count in line_strata.items()
+        if int(stratum.split("|", 3)[2].removeprefix("segments")) > 1
+    }
+    quotas, policy = _line_quotas(
+        multi,
+        target=target,
+        keep_all_stratum_threshold=keep_all_stratum_threshold,
+    )
+    available_by_segment_count: Counter[str] = Counter()
+    selected_by_segment_count: Counter[str] = Counter()
+    for stratum, count in multi.items():
+        segment_count = stratum.split("|", 3)[2].removeprefix("segments")
+        available_by_segment_count[segment_count] += count
+        selected_by_segment_count[segment_count] += quotas[stratum]
+    policy.update(
+        {
+            "profile": "v5.8_multi_branch_rarity_first",
+            "available_multi_branch_rows": sum(multi.values()),
+            "available_by_segment_count": dict(sorted(available_by_segment_count.items())),
+            "selected_by_segment_count": dict(sorted(selected_by_segment_count.items())),
+        }
+    )
+    return quotas, policy
 
 
 def _stable_score(candidate: Candidate, *, seed: int, task: str) -> int:
@@ -904,7 +1081,32 @@ def _write_preparation_readme(
     shape = selection_summary["shape"]
     line = selection_summary["line"]
     line_points = selection_summary["line_points"]
-    content = f"""# V5.7 Reconstruction Selection
+    profile = selection_summary.get("selection_profile", "v5.7")
+    if profile == "v5.8":
+        shape_policy = (
+            f"- Rectangle fraction/cap: `{shape['selected_rectangle_fraction']:.6f}` / "
+            f"`{shape['max_rectangle_fraction']:.6f}`"
+        )
+        line_policy = (
+            f"- Multi-branch rows kept in full: `{line['selected_multi_branch_rows']}`\n"
+            f"- Selected simple one-segment rows/fraction/cap: "
+            f"`{line['selected_single_segment_rows']}` / "
+            f"`{line['selected_single_segment_fraction']:.6f}` / "
+            f"`{line['max_single_segment_fraction']:.6f}`"
+        )
+        point_policy = (
+            f"- Rare full-attribute strata kept in full: "
+            f"`{line_points['protected_strata']}` strata / "
+            f"`{line_points['protected_rows']}` rows"
+        )
+    else:
+        shape_policy = ""
+        line_policy = (
+            f"- Rare strata kept in full: `{line['protected_strata']}` strata / "
+            f"`{line['protected_rows']}` rows"
+        )
+        point_policy = ""
+    content = f"""# {profile.upper()} Reconstruction Selection
 
 - Source dataset: `{selection_summary['source_dataset']}`
 - Split source: `{audit_summary['split_path']}`
@@ -921,6 +1123,7 @@ def _write_preparation_readme(
 - Keep-all threshold: `{shape['keep_all_threshold']}` instances per shape type
 - Fully retained types: `{shape['keep_all_shape_types']}`
 - Selected distribution: `{shape['selected_by_shape_type']}`
+{shape_policy}
 - Head types are sampled without replacement, then stratified by border, fill, effect, rounded
   corners, and card split count.
 
@@ -928,13 +1131,14 @@ def _write_preparation_readme(
 
 - Requested/effective rows: `{line['requested_target']}` / `{line['effective_target']}`
 - Attribute strata: `{line['available_strata']}`
-- Rare strata kept in full: `{line['protected_strata']}` strata / `{line['protected_rows']}` rows
+{line_policy}
 - Strata combine line type/style, segment count, dash, endpoints, fill, border, and corner style.
 
 ## Line Points
 
 - Requested/effective rows: `{line_points['requested_target']}` / `{line_points['effective_target']}`
 - Only multi-segment synthetic lines are selected.
+{point_policy}
 - Selected segment-count distribution: `{line_points['selected_by_segment_count']}`
 
 ## Cleaning
@@ -960,20 +1164,42 @@ def prepare_selections(
     line_points_target: int,
     shape_keep_all_threshold: int,
     line_keep_all_stratum_threshold: int,
+    selection_profile: str = "v5.7",
+    shape_max_rectangle_fraction: float = 1.0,
+    line_max_single_segment_fraction: float = 1.0,
+    line_points_keep_all_stratum_threshold: int = 32,
 ) -> dict[str, Any]:
     distributions = audit_summary["distributions"]
     shape_strata = dict(distributions.get("shape_stratum", {}))
     line_strata = dict(distributions.get("line_stratum", {}))
-    shape_quotas, shape_policy = _shape_quotas(
-        shape_strata,
-        target=shape_target,
-        keep_all_threshold=shape_keep_all_threshold,
-    )
-    line_quotas, line_policy = _line_quotas(
-        line_strata,
-        target=line_target,
-        keep_all_stratum_threshold=line_keep_all_stratum_threshold,
-    )
+    if selection_profile == "v5.8":
+        shape_quotas, shape_policy = _shape_quotas_v5_8(
+            shape_strata,
+            target=shape_target,
+            keep_all_threshold=shape_keep_all_threshold,
+            max_rectangle_fraction=shape_max_rectangle_fraction,
+        )
+        line_quotas, line_policy = _line_quotas_v5_8(
+            line_strata,
+            target=line_target,
+            max_single_segment_fraction=line_max_single_segment_fraction,
+        )
+        line_point_quotas, line_points_policy = _line_point_quotas_v5_8(
+            line_strata,
+            target=line_points_target,
+            keep_all_stratum_threshold=line_points_keep_all_stratum_threshold,
+        )
+    else:
+        shape_quotas, shape_policy = _shape_quotas(
+            shape_strata,
+            target=shape_target,
+            keep_all_threshold=shape_keep_all_threshold,
+        )
+        line_quotas, line_policy = _line_quotas(
+            line_strata,
+            target=line_target,
+            keep_all_stratum_threshold=line_keep_all_stratum_threshold,
+        )
     config = AuditConfig(dataset_root=dataset_root.resolve(), verify_images=False)
 
     def batches() -> Iterable[tuple[Candidate, ...]]:
@@ -990,9 +1216,14 @@ def prepare_selections(
     selected_lines = _select_candidates(
         batches(), quotas=line_quotas, seed=seed, label="line"
     )
-    selected_line_points, line_points_policy = _select_line_points(
-        selected_lines, target=line_points_target, seed=seed
-    )
+    if selection_profile == "v5.8":
+        selected_line_points = _select_candidates(
+            batches(), quotas=line_point_quotas, seed=seed, label="line"
+        )
+    else:
+        selected_line_points, line_points_policy = _select_line_points(
+            selected_lines, target=line_points_target, seed=seed
+        )
     _write_selection(output_root / "shape/train.jsonl", selected_shapes)
     _write_selection(output_root / "line/train.jsonl", selected_lines)
     _write_selection(output_root / "line_points/train.jsonl", selected_line_points)
@@ -1000,6 +1231,7 @@ def prepare_selections(
         _atomic_write_text(output_root / name / "val.jsonl", "")
     summary = {
         "source_dataset": str(dataset_root.resolve()),
+        "selection_profile": selection_profile,
         "seed": seed,
         "shape": shape_policy,
         "line": line_policy,
@@ -1024,7 +1256,9 @@ def prepare_selections(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Audit v5.7 gt_standard data and build stratified reconstruction selections."
+        description=(
+            "Audit gt_standard data and build versioned stratified reconstruction selections."
+        )
     )
     parser.add_argument(
         "--dataset-root",
@@ -1042,6 +1276,15 @@ def main() -> None:
     parser.add_argument("--line-points-target", type=int, default=15_000)
     parser.add_argument("--shape-keep-all-threshold", type=int, default=60_000)
     parser.add_argument("--line-keep-all-stratum-threshold", type=int, default=32)
+    parser.add_argument(
+        "--selection-profile",
+        choices=("v5.7", "v5.8"),
+        default="v5.7",
+        help="Use v5.8 rarity retention and dominant-head caps when explicitly selected.",
+    )
+    parser.add_argument("--shape-max-rectangle-fraction", type=float, default=0.20)
+    parser.add_argument("--line-max-single-segment-fraction", type=float, default=0.60)
+    parser.add_argument("--line-points-keep-all-stratum-threshold", type=int, default=256)
     parser.add_argument("--skip-image-verification", action="store_true")
     parser.add_argument("--audit-only", action="store_true")
     args = parser.parse_args()
@@ -1053,9 +1296,13 @@ def main() -> None:
         "line_points_target",
         "shape_keep_all_threshold",
         "line_keep_all_stratum_threshold",
+        "line_points_keep_all_stratum_threshold",
     ):
         if getattr(args, name) < 0:
             parser.error(f"{name.replace('_', '-')} must be non-negative")
+    for name in ("shape_max_rectangle_fraction", "line_max_single_segment_fraction"):
+        if not 0 < getattr(args, name) <= 1:
+            parser.error(f"{name.replace('_', '-')} must be in (0, 1]")
 
     dataset_root = Path(args.dataset_root).resolve()
     output_root = Path(args.output_root).resolve()
@@ -1090,6 +1337,12 @@ def main() -> None:
             line_points_target=args.line_points_target,
             shape_keep_all_threshold=args.shape_keep_all_threshold,
             line_keep_all_stratum_threshold=args.line_keep_all_stratum_threshold,
+            selection_profile=args.selection_profile,
+            shape_max_rectangle_fraction=args.shape_max_rectangle_fraction,
+            line_max_single_segment_fraction=args.line_max_single_segment_fraction,
+            line_points_keep_all_stratum_threshold=(
+                args.line_points_keep_all_stratum_threshold
+            ),
         )
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
 

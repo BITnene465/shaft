@@ -1,8 +1,9 @@
 # Banana v5.8 preparation catalog.
 #
-# Grounding keeps its ordinary materialized train/val source here. Multi-formulation task sources
-# are owned by data.prompt_sources.<dataset>.formulation_sources. This catalog remains
-# preparation-only until the builders and data audits complete.
+# Grounding and background keep their ordinary materialized train/val sources here.
+# Multi-formulation task sources are owned by
+# data.prompt_sources.<dataset>.formulation_sources. All sources referenced here are materialized
+# and audited; the paired train recipe keeps its preparation suffix until a training canary runs.
 datasets:
   grounding_layout:
     source_type: jsonl_sft
@@ -13,6 +14,16 @@ datasets:
     use_for_eval: false
     help: banana v5.8 preparation / real unified layout grounding
     tags: [banana, v5.8, preparation, grounding, layout, real, sft]
+
+  background:
+    source_type: jsonl_sft
+    train_path: ../../data/background/sft/train.jsonl
+    val_path: ../../data/background/sft/val.jsonl
+    weight: 1.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.8 preparation / reviewed full-image background classification
+    tags: [banana, v5.8, preparation, background, reconstruction, real, reviewed, sft]
 
   shape_context_reconstruction:
     source_type: jsonl_sft
