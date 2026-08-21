@@ -14,25 +14,27 @@ v5.7 的 reconstruction 行已经是标准 materialized SFT：
 {"image_path":"../images/example.png","sample_id":"example__context_00","dataset_name":"shape_context_reconstruction","system_prompt":"","user_prompt":"","prompt_args":{"proposal_bbox_2d":[115,108,733,621]},"target_text":"{\"type\":\"shape\",\"parameters\":{...}}","extra":{...}}
 ```
 
-v5.8 **不改变这份行格式**。当前配置冻结的 task formulation 和 eligibility pool 如下；列表顺序只用于
-稳定配置与审计，不代表采样阶段：
+v5.8 **不改变这份行格式**。Grounding 仍是一个普通单目标任务；只有确实存在多种监督属性集合的任务才使用
+formulation。当前配置如下，列表顺序只用于稳定配置与审计，不代表采样阶段：
 
 | dataset cohort | shared pool / eligible formulations | 监督含义 |
 | --- | --- | --- |
-| `grounding_layout` | `grounding_layout` / `labels, boxes, objects` | 类别、位置、类别与位置组合 |
+| `grounding_layout` | `grounding_layout` / 无 formulation | 始终输出完整 bbox + label objects |
 | `shape_context_reconstruction` | `shape_context_reconstruction` / `appearance, geometry, reconstruction` | 外观、几何、完整可重建属性 |
 | `line_context_reconstruction` | `line_context_reconstruction` / `appearance, points, reconstruction` | 外观、点序列、完整重建 |
 | `line_context_points` | `line_context_reconstruction` / `points` | line reconstruction 的真实/审计 points-only cohort |
 | `image_context_reconstruction` | `image_context_reconstruction` / `image_type` | 已审核的 13 类 image type |
 
-`line_context_points` 不是独立任务；它是 `line_context_reconstruction` 任务中只能监督 `points`
+`grounding_layout` 沿用普通单 `target_text` 数据与顶层 prompt rotation，不生成 labels-only 或 boxes-only
+target。`line_context_points` 不是独立任务；它是 `line_context_reconstruction` 任务中只能监督 `points`
 formulation 的物理数据 cohort。它不虚构 appearance/full，`image_context_reconstruction` 也不虚构
 geometry/full。框架不生成幂集、不推断依赖。样本 eligibility 不同时，人工拆成不同 named dataset cohort；
 若 task/prompt 语义相同则继续复用同一个 pool，只由各 dataset 的 `formulation_sources` 键选择合法子集。
 外层 dataset weight 和内层 formulation weight 共同控制任务总体概率。
 
-每个 formulation 都是一份完整的 v5.7 形态 SFT JSONL，`target_text` 已由 builder 写好。训练在线阶段只做
-随机选择，不解析 `parameters`，不通过 `prompt_args` 拼 target。
+Grounding 继续使用一份完整的 v5.7 形态 SFT JSONL。其余显式 formulation 各使用一份相同格式的 JSONL；
+所有 `target_text` 均由 builder 预写。训练在线阶段只做随机选择，不解析 `parameters`，不通过
+`prompt_args` 拼 target。
 
 ## 2. Source truth 与派生层级
 
@@ -41,15 +43,14 @@ authoritative raw / gt_standard snapshot
   -> stable split + source identity selection
   -> structured canonical sample
   -> one offline builder invocation
-       -> formulation 1: standard SFT JSONL
-       -> formulation 2: standard SFT JSONL (when declared)
-       -> formulation 3: standard SFT JSONL (when declared)
+       -> ordinary task: one standard SFT JSONL
+       -> multi-formulation task: one standard SFT JSONL per eligible formulation
   -> PromptSource online weighted selection
 ```
 
 - raw/`gt_standard` 是唯一事实真源。
 - structured 保存完整业务语义与坐标变换结果。
-- 每个 formulation target 都必须从同一 structured row 确定性重建。
+- 每个 ordinary/formulation target 都必须从 structured/source truth 确定性重建。
 - builder 同时写出当前 dataset cohort 的全部 eligible formulations，避免各脚本产生 identity、crop 或
   provenance 漂移。
 - formulation JSONL 是训练派生产物，不是新的业务真源。
@@ -59,7 +60,8 @@ authoritative raw / gt_standard snapshot
 
 ## 3. 推荐目录
 
-每个 task 使用一套共享 structured/media，以及按 formulation 分开的 SFT 文件：
+每个 task 使用一套共享 structured/media。普通任务使用 `sft/train.jsonl`；多 formulation 任务按
+formulation 分文件：
 
 ```text
 data/<task>/
@@ -71,7 +73,9 @@ data/<task>/
 │   ├── val.jsonl
 │   └── images/
 ├── sft/
-│   └── formulations/
+│   ├── train.jsonl                  # ordinary task only
+│   ├── val.jsonl                    # ordinary task only
+│   └── formulations/                # multi-formulation task only
 │       ├── <formulation-1>/
 │       │   ├── train.jsonl
 │       │   └── val.jsonl
@@ -87,7 +91,8 @@ data/<task>/
     └── schema_validation.json
 ```
 
-多个 formulation 可以引用同一 task-local image；不需要复制图片。
+Grounding 使用 `data/grounding_layout/sft/train.jsonl`。多个 formulation 可以引用同一 task-local image；
+不需要复制图片。
 
 ## 4. 每份 JSONL 的完整格式
 
@@ -151,14 +156,14 @@ data/<task>/
 `line_context_reconstruction.v5.8.yaml`。`points` formulation 及其 detailed/concise prompts 只在这份 pool
 定义一次；points-only cohort 只是把 `formulation_sources` 配置为单个 `points`。
 
-每个 formulation 恰好有两个等义 prompt variant：
+每个任务请求都恰好有两个等义 prompt variant：
 
 - `detailed`：完整任务合同，延续并收紧 v5.7 的输出约束；
 - `concise`：专用模型使用的极简任务表达，target schema 与 detailed 完全相同。
 
-所有 variant 都显式配置同一份 unified `system_prompt`。YAML 中 `formulations` 的实际列表顺序是唯一配置
-顺序真源，不再额外维护 `formulation_order`，但运行时不会按这个顺序轮换。pool 只列人工允许的组合，不使用
-`all_combinations` 或自动依赖规则。
+所有 variant 都显式配置同一份 unified `system_prompt`。Grounding pool 使用顶层 `prompts`；shape/line
+等多目标 pool 的 `formulations` 列表是唯一配置顺序真源，不再额外维护 `formulation_order`，但运行时不会按
+这个顺序轮换。pool 只列人工允许的组合，不使用 `all_combinations` 或自动依赖规则。
 
 ## 6. 训练配置
 
@@ -168,18 +173,18 @@ data/<task>/
 - PromptSource/source/probability 绑定：
   `configs/train/banana_sft_4b_v5_8_preparation.yaml`
 
-preparation recipe 为每个 dataset eligible formulation id 绑定未来的标准 SFT 路径，不配置 schedule。每次
-draw 都直接在该 dataset 的 eligibility 子集内按 pool 固定 `sampling_weight` 做 weighted categorical
-sampling：grounding、shape 和 full-capable line 均使用 `1:1:4`；其中 `objects` 或 `reconstruction` 在对应
-pool 内约占 66.7%。points-only cohort 的 eligible 子集只有共享 pool 中既有的 `points`，因此确定选择它。
+Grounding 的普通 `train_path/val_path` 由 catalog 绑定，pool 只在 detailed/concise 之间轮换措辞，target 始终
+是完整 objects。preparation recipe 为其它 dataset eligible formulation id 绑定未来的标准 SFT 路径。shape
+和 full-capable line 使用 `1:1:4`；其中 `reconstruction` 在对应 pool 内约占 66.7%。points-only cohort 的
+eligible 子集只有共享 pool 中既有的 `points`，因此确定选择它。
 
 line reconstruction 还包含 points-only cohort：catalog 对 full-capable/points-only 两个 dataset 使用 `6:2`，
 与 full-capable pool 内部的 `1:1:4` 合成后，line reconstruction 总体约为 appearance 12.5%、points 37.5%、
 reconstruction 50%。修改 catalog weight 或 formulation `sampling_weight` 即可改变这个分布。
 
-dataset 不再同时配置顶层 `train_path`；物理训练来源由对应 PromptSource 管理。外层
-`data.schedule.mixing` 仍负责不同 dataset/task 之间的 mixing，PromptSource 内层负责同一 dataset 的
-formulation sampling。
+显式 formulation dataset 不再同时配置顶层 `train_path`；物理训练来源由对应 PromptSource 管理。Grounding
+作为普通单目标 dataset 继续由 catalog 提供顶层 source。外层 `data.schedule.mixing` 仍负责不同
+dataset/task 之间的 mixing，PromptSource 内层负责 formulation 或 prompt variant sampling。
 
 ## 7. 静态随机概率语义
 
@@ -215,8 +220,8 @@ dataset cohort，但二者复用同一个 `line_context_reconstruction` pool：�
 ## 10. 构建与发布顺序
 
 1. 冻结 source snapshot、split manifest 和 structured schema。
-2. 人工冻结合法请求属性集合、每个 formulation 的 target schema 和 prompt wording。
-3. builder 从每条 structured row 一次性生成该 dataset eligibility 子集的 formulation SFT 行。
+2. 冻结普通任务 target schema，以及多目标任务的合法 formulation 集合、各 target schema 和 prompt wording。
+3. builder 为普通任务生成一份 SFT；为多目标任务一次性生成 eligibility 子集的 formulation SFT。
 4. 检查每份文件的唯一 identity、媒体存在性、target codec/schema。
 5. 检查 formulations 逐行对齐且仅 `target_text` 不同。
 6. 编译 pool，并对全部行执行 `prompt_args` exact schema preflight。
@@ -227,8 +232,8 @@ dataset cohort，但二者复用同一个 `line_context_reconstruction` pool：�
 ## 11. 发布清单
 
 - [ ] source snapshot 与 split manifest 已冻结并可追溯。
-- [ ] 合法 formulation 集合和每个 exact target schema 已人工确认。
-- [ ] 每个 formulation 是标准 v5.7 形态 JSONL，逐行都有非空 `target_text`。
+- [ ] 普通任务 schema、合法 formulation 集合和每个 exact target schema 已人工确认。
+- [ ] 每个 ordinary/formulation source 都是标准 v5.7 形态 JSONL，逐行都有非空 `target_text`。
 - [ ] 同一 dataset eligibility 子集的 JSONL 行数、顺序和 identity 完全一致，只有 target 不同。
 - [ ] `prompt_args` 只服务 prompt renderer，不含 target 组合真值。
 - [ ] pool 不含 `target_template` / `target`，source 行不含多 target mapping。

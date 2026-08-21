@@ -30,21 +30,21 @@ V5_7_CONFIGS = (
 )
 
 V5_8_POOL_FORMULATIONS = {
-    "grounding_layout": ("labels", "boxes", "objects"),
+    "grounding_layout": ("default",),
     "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
     "line_context_reconstruction": ("appearance", "points", "reconstruction"),
     "line_context_points": ("appearance", "points", "reconstruction"),
     "image_context_reconstruction": ("image_type",),
 }
 V5_8_ELIGIBLE_FORMULATIONS = {
-    "grounding_layout": ("labels", "boxes", "objects"),
+    "grounding_layout": (),
     "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
     "line_context_reconstruction": ("appearance", "points", "reconstruction"),
     "line_context_points": ("points",),
     "image_context_reconstruction": ("image_type",),
 }
 V5_8_FORMULATION_WEIGHTS = {
-    "grounding_layout": (1.0, 1.0, 4.0),
+    "grounding_layout": (1.0,),
     "shape_context_reconstruction": (1.0, 1.0, 4.0),
     "line_context_reconstruction": (1.0, 1.0, 4.0),
     "line_context_points": (1.0, 1.0, 4.0),
@@ -89,7 +89,15 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
         V5_8_POOL_FORMULATIONS
     )
     assert tuple(config.data.catalog_names) == tuple(V5_8_POOL_FORMULATIONS)
-    assert all(not dataset.train_paths for dataset in config.data.datasets)
+    datasets = {dataset.dataset_name: dataset for dataset in config.data.datasets}
+    assert datasets["grounding_layout"].train_paths == [
+        str(Path("data/grounding_layout/sft/train.jsonl").resolve())
+    ]
+    assert all(
+        not dataset.train_paths
+        for name, dataset in datasets.items()
+        if name != "grounding_layout"
+    )
     assert all(not dataset.use_for_eval for dataset in config.data.datasets)
     assert config.eval.enabled is False
     assert config.data.media_snapshot_id == "banana-v5.8-preparation"
@@ -110,7 +118,7 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
         formulation_ids = tuple(item.formulation_id for item in pool.formulations)
 
         assert pool.version == "v5.8"
-        assert pool.explicit_formulations is True
+        assert pool.explicit_formulations is (dataset_name != "grounding_layout")
         assert formulation_ids == expected_formulations
         assert tuple(source.formulation_sources) == V5_8_ELIGIBLE_FORMULATIONS[dataset_name]
         assert tuple(

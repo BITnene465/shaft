@@ -55,13 +55,6 @@ data:
     grounding_layout:
       path: ../prompts/pools/grounding_layout.v5.8.yaml
       apply_to: train
-      formulation_sources:
-        labels:
-          train_path: ../../data/grounding_layout/sft/formulations/labels/train.jsonl
-        boxes:
-          train_path: ../../data/grounding_layout/sft/formulations/boxes/train.jsonl
-        objects:
-          train_path: ../../data/grounding_layout/sft/formulations/objects/train.jsonl
     shape_context_reconstruction:
       path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
       apply_to: train

@@ -3658,3 +3658,44 @@
 - 不同 eligibility class 继续拆成 named dataset cohort，便于外层 mixing；每个 cohort 只通过
   `formulation_sources` 键选择共享 pool 子集，不增加 row-level allowlist。
 - 文档和测试必须同时区分 pool 的完整 formulation 集合与 dataset 的 eligible formulation 子集。
+
+## 2026-08-21：Grounding 被过度拆成 labels/boxes/objects formulations
+
+### 现象
+
+- v5.8 初版把 `grounding_layout` 拆成 `labels`、`boxes`、`objects` 三个 formulations，并要求分别物化三份
+  target JSONL。
+- 实际 grounding 任务始终需要完整的 `bbox_2d + label` objects；详细/简略只是等义 prompt wording，不是
+  不同监督属性集合。
+
+### 根因
+
+- 把 shape/line 中确实存在的子属性请求模式泛化到所有任务，没有先判断 grounding 是否存在独立、稳定且有
+  使用价值的 partial target 合同。
+- 混淆了 formulation 与 prompt variant：前者必须改变请求属性集合和离线 target，后者只能改变措辞。
+
+### 影响范围
+
+- 会让 grounding builder、存储和对齐校验无意义地扩成三份数据，并把训练概率从 dataset mixing 进一步拆到
+  formulation sampling。
+- 影响 v5.8 grounding pool、catalog、preparation recipe、配置测试和数据准备文档；grounding 的 source truth、
+  完整 objects target schema、图片与 split 均不改变。这不是模型能力或 eval/codec/metric 误判。
+
+### 修复方式
+
+- `grounding_layout.v5.8.yaml` 恢复顶层 `prompts`，只保留 `detailed/concise` 两个等义 variants；两者始终请求
+  `[{"bbox_2d":[...],"label":"..."}]` 完整 objects。
+- catalog 恢复普通 `data/grounding_layout/sft/train.jsonl` 与 `val.jsonl` source；training recipe 删除
+  grounding 的 `formulation_sources`。
+- shape/line 多 formulation 与 line points-only eligibility 设计保持不变。
+
+### 回归测试
+
+- v5.8 config test 验证 grounding pool 编译为非显式 `default` formulation、没有
+  `formulation_sources`、使用普通 materialized dataset source，并继续提供 detailed/concise variants。
+- focused config/PromptSource/DataCenter 回归 82 项通过；changed-file ruff 与 `git diff --check` 通过。
+
+### 后续防线
+
+- 只有请求属性集合和离线 target 都发生变化时才新增 formulation；纯 wording 变化只能作为 prompt variant。
+- 数据准备前逐任务确认是否真的需要 partial target，不能仅因框架支持 formulation 就为所有任务机械拆分。
