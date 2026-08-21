@@ -46,7 +46,8 @@ uv pip install -e ".[serve]"
 
 如果 CUDA toolkit 不在系统默认搜索路径，复制 `.shaft.env.example` 为 `.shaft.env` 并填写
 `CUDA_HOME`。该本地文件不会提交；`scripts/train.py` 与 pytest 会在导入训练栈前读取它，且不会覆盖 shell
-中已显式设置的同名变量。
+中已显式设置的同名变量。使用 Triton/FLA 的多卡训练还应把 `SHAFT_TRITON_CACHE_ROOT` 指向节点本地盘；训练
+入口会在其下按 torchrun run id 和 local rank 隔离 `TRITON_CACHE_DIR`，避免共享存储上的 JIT metadata 竞争。
 
 ## 统一入口
 

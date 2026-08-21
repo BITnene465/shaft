@@ -123,6 +123,36 @@ def test_torchrun_record_cache_warmup_shards_sources_across_local_ranks(
     assert "distributed record cache warmup probe passed" in completed.stdout
 
 
+def test_torchrun_training_entry_isolates_triton_cache_by_local_rank(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--rdzv-backend=c10d",
+            "--rdzv-endpoint=127.0.0.1:0",
+            "--rdzv-id=triton-cache-smoke",
+            "--nnodes=1",
+            "--nproc-per-node=2",
+            "tests/support/distributed_triton_cache_probe.py",
+            str(repo_root),
+            str(tmp_path),
+        ],
+        cwd=repo_root,
+        env=_torchrun_env(repo_root),
+        text=True,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+
+    _assert_torchrun_succeeded(completed)
+    assert "distributed Triton cache isolation probe passed" in completed.stdout
+
+
 def _reserve_loopback_port() -> int:
     for _ in range(128):
         port = 20_000 + secrets.randbelow(40_000)

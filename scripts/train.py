@@ -5,10 +5,14 @@ import os
 import warnings
 from pathlib import Path
 
-from shaft.cli.environment import load_project_environment
+from shaft.cli.environment import (
+    configure_rank_local_triton_cache,
+    load_project_environment,
+)
 
 
 load_project_environment(Path(__file__).resolve().parents[1] / ".shaft.env")
+configure_rank_local_triton_cache()
 
 
 def _configure_early_warning_filters() -> None:

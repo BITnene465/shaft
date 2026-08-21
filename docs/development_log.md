@@ -3958,3 +3958,45 @@
 
 - 非系统路径的 toolkit 统一登记在本地 `.shaft.env`，不再把个人绝对路径写入源码、公共配置或提交记录。
 - 新增项目环境项时继续保持无 shell 求值、显式环境优先；需要跨机器共享的只提交 example，不提交实际值。
+
+## 2026-08-22：Qwen3.5 首步 FLA Triton JIT 在共享缓存上丢失 metadata
+
+### 现象
+
+- Banana v5.8 Qwen3.5-4B 八卡训练完成 data、model 和 optimizer 初始化后，在 step 0 的首次 forward 失败。
+- rank 0/1 均在 FLA `chunk_gated_delta_rule` 的 Triton autotune/compile 路径抛出
+  `FileNotFoundError: [Errno 2] No such file or directory`，随后 torchrun 终止其余 ranks。
+
+### 根因
+
+- `TRITON_CACHE_DIR` 未设置，Triton 3.6.0 默认把 JIT cache 写入位于 CLOUDSTOR_FS 的
+  `~/.triton/cache`。
+- 多个 rank 首次编译时并发发布/替换 kernel metadata；读取方已经打开 metadata 后，在 `f.read()` 阶段遇到
+  共享存储上的文件替换竞争并返回 ENOENT。
+- 这是 Triton JIT cache 的运行时存储问题，不是模型能力、数据样本、CUDA_HOME、hostname、eval、codec 或
+  metric 问题。
+
+### 影响范围
+
+- 影响首次触发 FLA/Triton kernel 编译的多进程训练；data cache、模型权重和训练输出合同不受影响。
+- 已生成的部分 Triton cache 可能让原命令偶然越过同一 shape，但新 kernel/shape 仍可能再次触发。
+
+### 修复方式
+
+- 项目本地 `.shaft.env` 将 `SHAFT_TRITON_CACHE_ROOT` 指向 worker 节点本地 `/tmp`，不再使用共享 home cache。
+- 训练入口在导入训练栈前按 `TORCHELASTIC_RUN_ID/LOCAL_RANK` 派生 rank 独立的 `TRITON_CACHE_DIR`；调用方
+  显式 `TRITON_CACHE_DIR` 保持最高优先级。
+- 不删除旧 `~/.triton/cache`；新训练通过新路径自然隔离历史残留和共享存储竞争。
+
+### 回归测试
+
+- CLI 单测覆盖 run id 安全化、local-rank 目录隔离、目录提前创建和显式 override 优先。
+- 从未设置 `TRITON_CACHE_DIR` 的两进程 torchrun 环境在两张 A800 上并发编译、执行同一 Triton kernel；两个
+  local rank 分别发布完整 metadata/PTX/cubin 到节点本地目录，数值结果与目录隔离检查均通过。
+
+### 后续防线
+
+- GPU JIT cache 不得默认落在 NFS/CLOUDSTOR_FS；多 rank 首次编译必须使用节点本地目录，必要时进一步按 rank
+  隔离。
+- 遇到 step 0 的裸 ENOENT 必须保留完整 traceback，先区分 input path 缺失与 compiler cache metadata 竞争，
+  不能只依赖进度摘要中的异常字符串。

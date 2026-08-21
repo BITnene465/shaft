@@ -320,6 +320,11 @@ model:
   uv sync --extra dev --extra train --extra distributed --extra qwen-next --extra gpu
   ```
 
+  使用 Triton/FLA 的多进程 GPU 训练不得把首次 JIT cache 放在 NFS/CLOUDSTOR_FS。可在项目本地
+  `.shaft.env` 中把 `SHAFT_TRITON_CACHE_ROOT` 配置为节点本地绝对路径；`scripts/train.py` 会在导入训练栈前
+  派生 `<root>/<TORCHELASTIC_RUN_ID>/rank-<LOCAL_RANK>` 并设置 `TRITON_CACHE_DIR`。调用方显式提供的
+  `TRITON_CACHE_DIR` 优先，框架不会覆盖。
+
   Qwen3.5/3.6 MoE 的证据状态必须按下表解释：
 
   | 组合 | 状态 | 当前证据 |

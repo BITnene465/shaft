@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PATH_COMPONENT = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 def load_project_environment(path: str | Path) -> tuple[str, ...]:
@@ -43,3 +44,33 @@ def load_project_environment(path: str | Path) -> tuple[str, ...]:
             os.environ[name] = value
             loaded.append(name)
     return tuple(loaded)
+
+
+def configure_rank_local_triton_cache() -> str | None:
+    """Resolve an optional node-local Triton cache directory for this torchrun rank."""
+
+    explicit_cache_dir = str(os.environ.get("TRITON_CACHE_DIR", "")).strip()
+    if explicit_cache_dir:
+        return explicit_cache_dir
+
+    configured_root = str(os.environ.get("SHAFT_TRITON_CACHE_ROOT", "")).strip()
+    if not configured_root:
+        return None
+    cache_root = Path(configured_root).expanduser()
+    if not cache_root.is_absolute():
+        raise ValueError("SHAFT_TRITON_CACHE_ROOT must be an absolute node-local path.")
+
+    run_id = str(os.environ.get("TORCHELASTIC_RUN_ID", "standalone")).strip()
+    safe_run_id = _PATH_COMPONENT.sub("-", run_id).strip("-.") or "standalone"
+    safe_run_id = safe_run_id[:128]
+    try:
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    except ValueError as exc:
+        raise ValueError("LOCAL_RANK must be an integer for Triton cache isolation.") from exc
+    if local_rank < 0:
+        raise ValueError("LOCAL_RANK must be >= 0 for Triton cache isolation.")
+
+    cache_dir = cache_root / safe_run_id / f"rank-{local_rank}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["TRITON_CACHE_DIR"] = str(cache_dir)
+    return str(cache_dir)

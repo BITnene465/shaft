@@ -6,7 +6,10 @@ from unittest.mock import patch
 import pytest
 
 from shaft.cli.common import apply_common_overrides, run_from_args
-from shaft.cli.environment import load_project_environment
+from shaft.cli.environment import (
+    configure_rank_local_triton_cache,
+    load_project_environment,
+)
 from shaft.config import DatasetSourceConfig, RuntimeConfig
 from tests.support.cli import build_common_train_args
 
@@ -38,6 +41,36 @@ def test_load_project_environment_rejects_shell_expressions(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="Invalid environment assignment"):
         load_project_environment(environment_path)
+
+
+def test_configure_rank_local_triton_cache_isolates_torchrun_ranks(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cache_root = tmp_path / "triton"
+    monkeypatch.delenv("TRITON_CACHE_DIR", raising=False)
+    monkeypatch.setenv("SHAFT_TRITON_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("TORCHELASTIC_RUN_ID", "banana/v5.8 qwen35")
+    monkeypatch.setenv("LOCAL_RANK", "3")
+
+    cache_dir = configure_rank_local_triton_cache()
+
+    expected = cache_root / "banana-v5.8-qwen35" / "rank-3"
+    assert cache_dir == str(expected)
+    assert os.environ["TRITON_CACHE_DIR"] == str(expected)
+    assert expected.is_dir()
+
+
+def test_configure_rank_local_triton_cache_preserves_explicit_override(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    explicit = tmp_path / "explicit"
+    monkeypatch.setenv("TRITON_CACHE_DIR", str(explicit))
+    monkeypatch.setenv("SHAFT_TRITON_CACHE_ROOT", str(tmp_path / "ignored"))
+
+    assert configure_rank_local_triton_cache() == str(explicit)
+    assert not (tmp_path / "ignored").exists()
 
 
 def _valid_runtime_config() -> RuntimeConfig:

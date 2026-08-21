@@ -42,6 +42,9 @@ python scripts/train.py --config configs/train/sft_4b.yaml
 - 真正的命令定义在 `src/shaft/cli`
 - 入口会在导入训练栈前读取仓库根目录的可选 `.shaft.env`；可从 `.shaft.env.example` 复制，用于设置本机
   `CUDA_HOME` 等变量。文件中的值不会覆盖启动 shell 已显式设置的同名变量。
+- 配置 `SHAFT_TRITON_CACHE_ROOT` 时必须使用节点本地绝对路径；入口会派生
+  `<root>/<torchrun-run-id>/rank-<local-rank>` 并在 Triton 导入前写入 `TRITON_CACHE_DIR`。显式设置
+  `TRITON_CACHE_DIR` 可覆盖该派生规则。
 
 ### `scripts/infer.py`
 
