@@ -194,9 +194,7 @@ class ShaftLogicalSegmentPlan:
         require_exact_keys(
             context_payload,
             role=f"{role}.context",
-            expected=frozenset(
-                {"draw_id", "plan_cycle", "transform_seed", "source_draw_id"}
-            ),
+            expected=frozenset({"draw_id", "plan_cycle", "transform_seed"}),
         )
         cost_payload = json_mapping(payload, "cost", role=role)
         require_exact_keys(
@@ -226,11 +224,6 @@ class ShaftLogicalSegmentPlan:
                     transform_seed=json_int(
                         context_payload,
                         "transform_seed",
-                        role=f"{role}.context",
-                    ),
-                    source_draw_id=json_int(
-                        context_payload,
-                        "source_draw_id",
                         role=f"{role}.context",
                     ),
                 ),

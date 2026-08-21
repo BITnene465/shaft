@@ -11,7 +11,7 @@ arguments:
     type: bbox_2d_0_999
 
 formulations:
-  - id: appearance
+  - id: type
     sampling_weight: 1.0
     prompts:
       - id: detailed
@@ -24,19 +24,20 @@ formulations:
           entire current input image. A provided proposal bbox identifies the intended target
           only; it is not ground-truth geometry and does not define a separate coordinate frame.
         user_prompt_template: |
-          Recover only the appearance of the visible outer shape near approximate proposal bbox
-          {{ proposal_bbox_2d | json }}. Ignore inner and neighboring objects.
+          Classify the visible outer shape near approximate proposal bbox
+          {{ proposal_bbox_2d | json }}. Ignore inner and neighboring objects and identify the
+          intended outer target rather than the proposal rectangle.
 
-          Return one {"type":"shape","parameters":{...}} object. Always include shape_type.
-          For shape_type other, output no additional parameters. Every other shape includes
-          border, fill, and effect. Uniform border/fill values include their required style or
-          color fields. A card keeps its ordered fill regions and each split's border fields but
-          omits corners and split_corners. Do not output any other geometry.
+          Return exactly:
+          {"type":"shape","parameters":{"shape_type":"rectangle|oval|triangle|trapezoid|parallelogram|diamond|step|regular_pentagon|regular_hexagon|arrow_pentagon|other_polygon|callout|card|other"}}
+
+          Output only shape_type. Use other only when none of the standard editable shape types
+          matches.
       - id: concise
         sampling_weight: 1.0
         system_prompt: *banana_v5_8_system
         user_prompt_template: >-
-          Recover only the appearance of the target shape near
+          Classify only the type of the target shape near
           {{ proposal_bbox_2d | json }}.
 
   - id: geometry

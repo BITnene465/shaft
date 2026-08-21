@@ -3,7 +3,7 @@
 # This file freezes the PromptSource pool/source contract before any v5.8 SFT data is built.
 # Referenced formulation JSONL files are future materialized outputs; this recipe must not be used
 # as a production training config until every source exists and the v5.8 data audits pass.
-# Formulations use static weighted categorical sampling; there is no curriculum schedule.
+# Formulations use static weighted categorical sampling; PromptSource has no curriculum schema.
 experiment:
   name: banana-v5.8-preparation-qwen3vl-sft-4b
   output_dir: outputs/qwen3vl-sft/4b/banana-v5.8-preparation
@@ -58,16 +58,14 @@ data:
       formulation_sources:
         labels:
           train_path: ../../data/grounding_layout/sft/formulations/labels/train.jsonl
-        boxes:
-          train_path: ../../data/grounding_layout/sft/formulations/boxes/train.jsonl
         objects:
           train_path: ../../data/grounding_layout/sft/formulations/objects/train.jsonl
     shape_context_reconstruction:
       path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
       apply_to: train
       formulation_sources:
-        appearance:
-          train_path: ../../data/shape_context_reconstruction/sft/formulations/appearance/train.jsonl
+        type:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/type/train.jsonl
         geometry:
           train_path: ../../data/shape_context_reconstruction/sft/formulations/geometry/train.jsonl
         reconstruction:
@@ -76,8 +74,8 @@ data:
       path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
       apply_to: train
       formulation_sources:
-        appearance:
-          train_path: ../../data/line_context_reconstruction/sft/formulations/appearance/train.jsonl
+        topology:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/topology/train.jsonl
         points:
           train_path: ../../data/line_context_reconstruction/sft/formulations/points/train.jsonl
         reconstruction:

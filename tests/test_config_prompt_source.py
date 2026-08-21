@@ -28,11 +28,6 @@ data:
       path: prompts/pool.yaml
       apply_to: train
       seed: 123
-      schedule:
-        interpolation: linear
-        points:
-          - source_draw: 0
-            weights: {default: 1.0}
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -44,9 +39,6 @@ data:
     assert source.path == str((prompt_dir / "pool.yaml").resolve())
     assert source.apply_to == "train"
     assert source.seed == 123
-    assert source.schedule.interpolation == "linear"
-    assert source.schedule.points[0].source_draw == 0
-    assert source.schedule.points[0].weights == {"default": 1.0}
 
 
 def test_materialized_formulation_source_paths_are_resolved(tmp_path: Path) -> None:
@@ -194,74 +186,22 @@ data:
         load_config(write_config_yaml(tmp_path, payload))
 
 
-@pytest.mark.parametrize(
-    ("points", "match"),
-    [
-        (
-            "- source_draw: 1\n            weights: {a: 1}",
-            "first source_draw must be 0",
-        ),
-        (
-            "- source_draw: 0\n            weights: {a: 1}\n"
-            "          - source_draw: 0\n            weights: {a: 1}",
-            "strictly increasing",
-        ),
-        (
-            "- source_draw: 0\n            weights: {a: -1}",
-            "finite and >= 0",
-        ),
-        (
-            "- source_draw: 0\n            weights: {a: 1}\n"
-            "          - source_draw: 1.5\n            weights: {a: 1}",
-            "source_draw must be an integer",
-        ),
-    ],
-)
-def test_prompt_source_schedule_rejects_invalid_points(
-    tmp_path: Path,
-    points: str,
-    match: str,
-) -> None:
-    payload = f"""
-data:
-  prompt_sources:
-    ds1:
-      path: prompt.yaml
-      schedule:
-        interpolation: step
-        points:
-          {points}
-  datasets:
-    - dataset_name: ds1
-      train_path: train.jsonl
-      val_path: val.jsonl
-"""
-
-    with pytest.raises((TypeError, ValueError), match=match):
-        load_config(write_config_yaml(tmp_path, payload))
-
-
-def test_prompt_source_schedule_rejects_duplicate_normalized_formulation_ids(
-    tmp_path: Path,
-) -> None:
+def test_removed_prompt_source_schedule_is_rejected(tmp_path: Path) -> None:
     payload = """
 data:
   prompt_sources:
     ds1:
       path: prompt.yaml
       schedule:
-        points:
-          - source_draw: 0
-            weights:
-              a: 1
-              " a": 1
+        interpolation: step
+        points: []
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
       val_path: val.jsonl
 """
 
-    with pytest.raises(ValueError, match="duplicate normalized formulation id 'a'"):
+    with pytest.raises(ValueError, match="Unknown config keys.*schedule"):
         load_config(write_config_yaml(tmp_path, payload))
 
 

@@ -35,29 +35,6 @@ formulations:
         system_prompt: *banana_v5_8_system
         user_prompt: Classify all visible non-text layout objects in standard order.
 
-  - id: boxes
-    sampling_weight: 1.0
-    prompts:
-      - id: detailed
-        sampling_weight: 1.0
-        system_prompt: *banana_v5_8_system
-        user_prompt: |
-          Locate every visible non-text shape, icon, image, and line object.
-
-          Return exactly:
-          [{"bbox_2d":[x1,y1,x2,y2]}]
-
-          Preserve the standard visual row-major object order. Each box covers the complete
-          visible object, including visible borders and arrowheads. Exclude the page background
-          and text-only regions. Do not return a shape or image border or an internal card divider
-          as a separate line. One visibly connected bent, forked, or branched line structure uses
-          one box; incidental crossings and disconnected lines remain separate. Return [] when no
-          target exists.
-      - id: concise
-        sampling_weight: 1.0
-        system_prompt: *banana_v5_8_system
-        user_prompt: Locate all visible non-text layout objects with standard bounding boxes.
-
   - id: objects
     sampling_weight: 4.0
     prompts:

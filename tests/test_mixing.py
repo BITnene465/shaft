@@ -91,36 +91,6 @@ def test_concat_plan_covers_every_row_without_materialized_indices() -> None:
     assert not hasattr(plan, "indices")
 
 
-@pytest.mark.parametrize(
-    ("strategy", "shuffle"),
-    [
-        ("concat", False),
-        ("concat", True),
-        ("weighted", False),
-        ("weighted", True),
-    ],
-)
-def test_sample_plan_reports_exact_dataset_local_source_draw_id(
-    strategy: str,
-    shuffle: bool,
-) -> None:
-    plan = ShaftSamplePlan(
-        {"a": 3, "b": 2},
-        {"a": 1.0, "b": 2.0},
-        strategy=strategy,
-        num_samples=17,
-        shuffle=shuffle,
-        seed=31,
-    )
-    seen = Counter()
-
-    for cycle in range(3):
-        for position in range(len(plan)):
-            ref = plan.ref_at(position, plan_cycle=cycle)
-            assert ref.context.source_draw_id == seen[ref.dataset_name]
-            seen[ref.dataset_name] += 1
-
-
 def test_weighted_schedule_matches_ticket_quotas_without_materializing_horizon() -> None:
     schedule = ShaftSampleSchedule(
         {"a": 10, "b": 10},
@@ -613,7 +583,7 @@ def test_weighted_plan_extension_preserves_existing_stream_prefix() -> None:
     ]
 
 
-def test_source_draw_context_versions_every_schedule_fingerprint() -> None:
+def test_static_sample_context_invalidates_legacy_mixing_fingerprints() -> None:
     weighted = ShaftSampleSchedule(
         {"a": 3, "b": 5},
         {"a": 1.0, "b": 3.0},
@@ -668,12 +638,6 @@ def test_source_draw_context_versions_every_schedule_fingerprint() -> None:
     )
     assert weighted_plan.fingerprint != (
         "27e055d1d6393680fb7d56bfb43a185613e0c8b4dcf74214a0cad933dd59af8e"
-    )
-    assert weighted.fingerprint == (
-        "e22e952fb0bad942b9cbb49de8d00494004950c045c44249f665bcf9e9f8d9b0"
-    )
-    assert weighted_plan.fingerprint == (
-        "9b4689302725c2aa68a86ac90f4c56d5b8cf6d1d207c2f8a6ba01fb00815913a"
     )
     probe_positions = [0, 1, 2, 7, 31, 127, 4095, 4096, 4097, 12295]
     assert [

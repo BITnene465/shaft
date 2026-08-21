@@ -233,10 +233,12 @@ def test_prompt_source_formulation_sft_smoke(tmp_path: Path) -> None:
 metadata: {id: smoke.prompt-source, version: v1}
 formulations:
   - id: a
+    sampling_weight: 0
     prompts:
       - id: direct
         user_prompt: Reconstruct A.
   - id: ab
+    sampling_weight: 1
     prompts:
       - id: direct
         user_prompt: Reconstruct A and B.
@@ -251,12 +253,6 @@ formulations:
             "formulation_sources": {
                 "a": {"train_path": str(a_path)},
                 "ab": {"train_path": str(ab_path)},
-            },
-            "schedule": {
-                "interpolation": "step",
-                "points": [
-                    {"source_draw": 0, "weights": {"a": 0.0, "ab": 1.0}}
-                ],
             },
         }
     }

@@ -375,61 +375,6 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             )
         if prompt_source.seed is not None:
             prompt_source.seed = int(prompt_source.seed)
-        prompt_schedule = prompt_source.schedule
-        prompt_schedule.interpolation = str(prompt_schedule.interpolation).strip().lower()
-        if prompt_schedule.interpolation not in {"step", "linear"}:
-            raise ValueError(
-                f"data.prompt_sources.{normalized_name}.schedule.interpolation must be "
-                "'step' or 'linear'."
-            )
-        previous_draw: int | None = None
-        for point_index, point in enumerate(prompt_schedule.points):
-            if isinstance(point.source_draw, bool) or not isinstance(point.source_draw, int):
-                raise TypeError(
-                    f"data.prompt_sources.{normalized_name}.schedule.points[{point_index}]."
-                    "source_draw must be an integer."
-                )
-            if point.source_draw < 0:
-                raise ValueError(
-                    f"data.prompt_sources.{normalized_name}.schedule.points[{point_index}]."
-                    "source_draw must be >= 0."
-                )
-            if point_index == 0 and point.source_draw != 0:
-                raise ValueError(
-                    f"data.prompt_sources.{normalized_name}.schedule first source_draw must be 0."
-                )
-            if previous_draw is not None and point.source_draw <= previous_draw:
-                raise ValueError(
-                    f"data.prompt_sources.{normalized_name}.schedule source_draw values must be "
-                    "strictly increasing."
-                )
-            previous_draw = point.source_draw
-            normalized_weights: dict[str, float] = {}
-            for formulation_id, raw_weight in dict(point.weights).items():
-                normalized_id = str(formulation_id).strip()
-                if not normalized_id:
-                    raise ValueError(
-                        f"data.prompt_sources.{normalized_name}.schedule contains an empty "
-                        "formulation id."
-                    )
-                if normalized_id in normalized_weights:
-                    raise ValueError(
-                        f"data.prompt_sources.{normalized_name}.schedule contains duplicate "
-                        f"normalized formulation id {normalized_id!r}."
-                    )
-                weight = float(raw_weight)
-                if not math.isfinite(weight) or weight < 0:
-                    raise ValueError(
-                        f"data.prompt_sources.{normalized_name}.schedule weight for "
-                        f"{normalized_id!r} must be finite and >= 0."
-                    )
-                normalized_weights[normalized_id] = weight
-            if not normalized_weights or not any(normalized_weights.values()):
-                raise ValueError(
-                    f"data.prompt_sources.{normalized_name}.schedule point at "
-                    f"source_draw={point.source_draw} needs at least one positive weight."
-                )
-            point.weights = normalized_weights
         normalized_formulation_sources = {}
         for formulation_id, formulation_source in dict(
             prompt_source.formulation_sources

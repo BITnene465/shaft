@@ -30,14 +30,14 @@ V5_7_CONFIGS = (
 )
 
 V5_8_FORMULATIONS = {
-    "grounding_layout": ("labels", "boxes", "objects"),
-    "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
-    "line_context_reconstruction": ("appearance", "points", "reconstruction"),
+    "grounding_layout": ("labels", "objects"),
+    "shape_context_reconstruction": ("type", "geometry", "reconstruction"),
+    "line_context_reconstruction": ("topology", "points", "reconstruction"),
     "line_context_points": ("points",),
     "image_context_reconstruction": ("image_type",),
 }
 V5_8_FORMULATION_WEIGHTS = {
-    "grounding_layout": (1.0, 1.0, 4.0),
+    "grounding_layout": (1.0, 4.0),
     "shape_context_reconstruction": (1.0, 1.0, 4.0),
     "line_context_reconstruction": (1.0, 1.0, 4.0),
     "line_context_points": (1.0,),
@@ -105,7 +105,6 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
         assert tuple(
             formulation.sampling_weight for formulation in pool.formulations
         ) == V5_8_FORMULATION_WEIGHTS[dataset_name]
-        assert not source.schedule.points
         for formulation in pool.formulations:
             assert tuple(prompt.variant_id for prompt in formulation.prompt_variants) == (
                 "detailed",

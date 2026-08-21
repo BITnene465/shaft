@@ -67,7 +67,6 @@ from .record_store import (
 from .prompt_source import (
     ShaftPromptSource,
     ShaftPromptSourcePool,
-    ShaftPromptSourceSchedule,
     ShaftTaskFormulation,
     build_prompt_source_resolver,
     load_prompt_source_pool,
@@ -169,7 +168,6 @@ __all__ = [
     "ShaftPreparedRecords",
     "ShaftPromptSource",
     "ShaftPromptSourcePool",
-    "ShaftPromptSourceSchedule",
     "ShaftTaskFormulation",
     "build_prompt_source_resolver",
     "load_prompt_source_pool",

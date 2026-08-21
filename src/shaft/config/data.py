@@ -7,18 +7,6 @@ SHAFT_BATCH_RESOURCE_NAMES = frozenset({"vision_patches"})
 
 
 @dataclass
-class PromptSourceSchedulePointConfig:
-    source_draw: int
-    weights: dict[str, float] = field(default_factory=dict)
-
-
-@dataclass
-class PromptSourceScheduleConfig:
-    interpolation: str = "step"
-    points: list[PromptSourceSchedulePointConfig] = field(default_factory=list)
-
-
-@dataclass
 class PromptSourceFormulationSourceConfig:
     """Materialized SFT rows bound to one PromptSource task formulation."""
 
@@ -33,7 +21,6 @@ class PromptSourceConfig:
     path: str
     apply_to: str = "train"
     seed: int | None = None
-    schedule: PromptSourceScheduleConfig = field(default_factory=PromptSourceScheduleConfig)
     formulation_sources: dict[str, PromptSourceFormulationSourceConfig] = field(
         default_factory=dict
     )

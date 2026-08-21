@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from bisect import bisect_right
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 import hashlib
@@ -14,7 +13,6 @@ import yaml
 from shaft.config import (
     PromptSourceConfig,
     PromptSourceFormulationSourceConfig,
-    PromptSourceScheduleConfig,
 )
 from shaft.prompting import (
     ShaftPromptSchema,
@@ -29,10 +27,9 @@ from .sources import build_data_source
 from .transforms import planning_safe_online_transform
 
 
-PROMPT_SOURCE_VERSION = "shaft-prompt-source-v2"
+PROMPT_SOURCE_VERSION = "shaft-prompt-source-v3-static-formulations"
 PROMPT_SOURCE_POOL_VERSION = "shaft-prompt-source-pool-v2"
-PROMPT_SOURCE_SCHEDULE_VERSION = "shaft-prompt-source-schedule-v1"
-PROMPT_SOURCE_SELECTION_VERSION = "shaft-prompt-source-selection-v2"
+PROMPT_SOURCE_SELECTION_VERSION = "shaft-prompt-source-selection-v3-static-weights"
 FORMULATION_RECORD_STORE_VERSION = "shaft-formulation-record-store-v1"
 _PROMPT_SOURCE_TARGETS_KEY = "_shaft_prompt_source_targets"
 
@@ -233,124 +230,12 @@ class ShaftFormulationRecordStore(Sequence[SFTRecord]):
         )
 
 
-class ShaftPromptSourceSchedule:
-    """Resolve formulation weights from an absolute dataset-local draw index."""
-
-    def __init__(
-        self,
-        *,
-        formulation_ids: tuple[str, ...],
-        static_weights: tuple[float, ...],
-        config: PromptSourceScheduleConfig,
-    ) -> None:
-        self.formulation_ids = tuple(str(value) for value in formulation_ids)
-        self.static_weights = tuple(
-            _finite_nonnegative_weight(value, source="formulation sampling_weight")
-            for value in static_weights
-        )
-        if len(self.formulation_ids) != len(self.static_weights):
-            raise ValueError("PromptSource formulation ids and weights must have equal length.")
-        if not self.formulation_ids or len(set(self.formulation_ids)) != len(
-            self.formulation_ids
-        ):
-            raise ValueError("PromptSource formulation ids must be non-empty and unique.")
-        if not any(self.static_weights):
-            raise ValueError("PromptSource needs at least one positive formulation weight.")
-        self.interpolation = str(config.interpolation).strip().lower()
-        if self.interpolation not in {"step", "linear"}:
-            raise ValueError("PromptSource schedule interpolation must be 'step' or 'linear'.")
-
-        expected_ids = set(self.formulation_ids)
-        draws: list[int] = []
-        weights: list[tuple[float, ...]] = []
-        for index, point in enumerate(config.points):
-            source_draw = _nonnegative_integer(
-                point.source_draw,
-                source=f"PromptSource schedule points[{index}].source_draw",
-            )
-            if index == 0 and source_draw != 0:
-                raise ValueError("PromptSource schedule first source_draw must be 0.")
-            if draws and source_draw <= draws[-1]:
-                raise ValueError(
-                    "PromptSource schedule source_draw values must be strictly increasing."
-                )
-            actual_ids = set(point.weights)
-            if actual_ids != expected_ids:
-                missing = sorted(expected_ids - actual_ids)
-                extra = sorted(actual_ids - expected_ids)
-                raise ValueError(
-                    "PromptSource schedule point must define every formulation exactly once: "
-                    f"missing={missing}, extra={extra}."
-                )
-            resolved = tuple(
-                _finite_nonnegative_weight(
-                    point.weights[formulation_id],
-                    source=(
-                        f"PromptSource schedule weight at source_draw={source_draw} for "
-                        f"{formulation_id!r}"
-                    ),
-                )
-                for formulation_id in self.formulation_ids
-            )
-            if not any(resolved):
-                raise ValueError(
-                    f"PromptSource schedule point at source_draw={source_draw} needs a "
-                    "positive weight."
-                )
-            draws.append(source_draw)
-            weights.append(resolved)
-        self._draws = tuple(draws)
-        self._weights = tuple(weights)
-        self.fingerprint = _sha256_text(
-            canonical_json(
-                {
-                    "version": PROMPT_SOURCE_SCHEDULE_VERSION,
-                    "formulation_ids": list(self.formulation_ids),
-                    "static_weights": list(self.static_weights),
-                    "interpolation": self.interpolation,
-                    "points": [
-                        {"source_draw": draw, "weights": list(point_weights)}
-                        for draw, point_weights in zip(
-                            self._draws,
-                            self._weights,
-                            strict=True,
-                        )
-                    ],
-                }
-            )
-        )
-
-    def weights_at(self, source_draw_id: int) -> tuple[float, ...]:
-        source_draw_id = _nonnegative_integer(
-            source_draw_id,
-            source="PromptSource source_draw_id",
-        )
-        if not self._draws:
-            return self.static_weights
-        left = bisect_right(self._draws, source_draw_id) - 1
-        if left < 0:  # construction requires the first point at zero
-            raise RuntimeError("PromptSource schedule has no point for this draw.")
-        if self.interpolation == "step" or left == len(self._draws) - 1:
-            return self._weights[left]
-        left_draw = self._draws[left]
-        right_draw = self._draws[left + 1]
-        ratio = (source_draw_id - left_draw) / (right_draw - left_draw)
-        return tuple(
-            left_weight + ratio * (right_weight - left_weight)
-            for left_weight, right_weight in zip(
-                self._weights[left],
-                self._weights[left + 1],
-                strict=True,
-            )
-        )
-
 @dataclass(frozen=True, slots=True)
 class _DatasetPromptSource:
     dataset_name: str
     apply_to: str
     seed: int
     pool: ShaftPromptSourcePool
-    schedule: ShaftPromptSourceSchedule
     formulation_sources: Mapping[str, PromptSourceFormulationSourceConfig]
 
     def active_for(self, split: str) -> bool:
@@ -502,7 +387,6 @@ class ShaftPromptSource:
                     "apply_to": source.apply_to,
                     "seed": source.seed,
                     "pool_sha256": source.pool.fingerprint,
-                    "schedule_sha256": source.schedule.fingerprint,
                 }
                 for dataset_name, source in sorted(self._sources.items())
             },
@@ -522,9 +406,6 @@ class ShaftPromptSource:
                     "active": active,
                     "source_sha256": (
                         source.pool.fingerprint if active and source is not None else "materialized"
-                    ),
-                    "schedule_sha256": (
-                        source.schedule.fingerprint if active and source is not None else ""
                     ),
                 }
             )
@@ -793,17 +674,15 @@ class ShaftPromptSource:
             context.get("draw_id", 0),
             source="PromptSource draw_id",
         )
-        source_draw_id = _nonnegative_integer(
-            context.get("source_draw_id", 0),
-            source="PromptSource source_draw_id",
+        formulation_weights = tuple(
+            formulation.sampling_weight for formulation in source.pool.formulations
         )
-        formulation_weights = source.schedule.weights_at(source_draw_id)
         formulation = _weighted_choice(
             source.pool.formulations,
             formulation_weights,
             key=(
                 f"{PROMPT_SOURCE_SELECTION_VERSION}\n{source.seed}\n{dataset_name}\n"
-                f"{sample_id}\n{draw_id}\n{source_draw_id}\nformulation"
+                f"{sample_id}\n{draw_id}\nformulation"
             ),
         )
         prompt = _weighted_choice(
@@ -811,15 +690,13 @@ class ShaftPromptSource:
             tuple(variant.sampling_weight for variant in formulation.prompt_variants),
             key=(
                 f"{PROMPT_SOURCE_SELECTION_VERSION}\n{source.seed}\n{dataset_name}\n"
-                f"{sample_id}\n{draw_id}\n{source_draw_id}\n"
-                f"{formulation.formulation_id}\nprompt_variant"
+                f"{sample_id}\n{draw_id}\n{formulation.formulation_id}\nprompt_variant"
             ),
         )
         render_context = (
             f"dataset={dataset_name!r}, sample={sample_id!r}, draw_id={draw_id}, "
-            f"source_draw_id={source_draw_id}, pool={source.pool.pool_id!r}, "
-            f"version={source.pool.version!r}, formulation={formulation.formulation_id!r}, "
-            f"variant={prompt.variant_id!r}"
+            f"pool={source.pool.pool_id!r}, version={source.pool.version!r}, "
+            f"formulation={formulation.formulation_id!r}, variant={prompt.variant_id!r}"
         )
         user_prompt, prompt_audit = prompt.render_with_audit(
             prompt_args,
@@ -854,7 +731,6 @@ class ShaftPromptSource:
             "formulation_id": formulation.formulation_id,
             "variant_id": str(prompt.variant_id or ""),
             "draw_id": draw_id,
-            "source_draw_id": source_draw_id,
             "formulation_weight": formulation_weights[
                 source.pool.formulations.index(formulation)
             ],
@@ -909,21 +785,11 @@ def build_prompt_source_resolver(
     sources: dict[str, _DatasetPromptSource] = {}
     for dataset_name, config in sorted(configs.items()):
         pool = load_prompt_source_pool(config.path)
-        schedule = ShaftPromptSourceSchedule(
-            formulation_ids=tuple(
-                formulation.formulation_id for formulation in pool.formulations
-            ),
-            static_weights=tuple(
-                formulation.sampling_weight for formulation in pool.formulations
-            ),
-            config=config.schedule,
-        )
         sources[str(dataset_name)] = _DatasetPromptSource(
             dataset_name=str(dataset_name),
             apply_to=str(config.apply_to).strip().lower(),
             seed=int(default_seed) if config.seed is None else int(config.seed),
             pool=pool,
-            schedule=schedule,
             formulation_sources=MappingProxyType(dict(config.formulation_sources)),
         )
     return ShaftPromptSource(sources)

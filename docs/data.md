@@ -22,7 +22,7 @@ raw / authoritative source truth
 - raw 或外部权威标注是事实真源；structured 和 SFT 都是可重建派生产物。
 - 业务字段、属性依赖、合法组合和 `target_text` 构造只存在于离线 builder，不进入训练框架。
 - `ShaftDataCenter` 不理解 formulation id、组合依赖或 target 结构；它只调用 PromptSource 的记录准备接口。
-- PromptSource 独立拥有 pool/source 合同、对齐校验、随机选择、curriculum、fingerprint 和审计。
+- PromptSource 独立拥有 pool/source 合同、对齐校验、静态加权随机选择、fingerprint 和审计。
 - trainer、collator 和 template 最终仍只消费普通的 `system_prompt/user_prompt/target_text`。
 
 ## 2. 标准 SFT JSONL
@@ -60,14 +60,14 @@ message。source JSONL 也禁止嵌入 `formulation_targets` 之类的多答案�
 
 ## 3. Task formulation 的离线数据合同
 
-同一任务若支持 `A`、`B`、`AB` 或任意其它人工组合，应为每个 formulation 生成一份独立的标准 SFT
+同一任务若支持 `A`、`A+B`、`A+B+C` 或任意其它人工组合，应为每个 formulation 生成一份独立的标准 SFT
 JSONL。每份文件仍是一行一个 `target_text`，格式与 v5.7 完全相同：
 
 ```text
 sft/formulations/
 ├── a/train.jsonl
-├── b/train.jsonl
-└── ab/train.jsonl
+├── ab/train.jsonl
+└── abc/train.jsonl
 ```
 
 同一 split 的 formulation 文件必须逐行严格对齐：
@@ -85,10 +85,10 @@ sft/formulations/
 {"image_path":"../images/0001.png","sample_id":"0001","prompt_args":{"proposal_bbox_2d":[10,20,300,400]},"target_text":"{\"A\":{\"x\":1}}"}
 ```
 
-`ab/train.jsonl`：
+`abc/train.jsonl`：
 
 ```json
-{"image_path":"../images/0001.png","sample_id":"0001","prompt_args":{"proposal_bbox_2d":[10,20,300,400]},"target_text":"{\"A\":{\"x\":1},\"B\":[2,3]}"}
+{"image_path":"../images/0001.png","sample_id":"0001","prompt_args":{"proposal_bbox_2d":[10,20,300,400]},"target_text":"{\"A\":{\"x\":1},\"B\":[2,3],\"C\":true}"}
 ```
 
 这里没有在线属性解析、target template 或组合逻辑。PromptSource 只在对齐的离线答案中选择一个。
@@ -115,19 +115,10 @@ data:
       formulation_sources:
         a:
           train_path: ../data/reconstruction/sft/formulations/a/train.jsonl
-        b:
-          train_path: ../data/reconstruction/sft/formulations/b/train.jsonl
         ab:
           train_path: ../data/reconstruction/sft/formulations/ab/train.jsonl
-      schedule:
-        interpolation: linear  # step | linear
-        points:
-          - source_draw: 0
-            weights: {a: 1.0, b: 1.0, ab: 0.0}
-          - source_draw: 50000
-            weights: {a: 0.5, b: 0.5, ab: 1.0}
-          - source_draw: 150000
-            weights: {a: 0.1, b: 0.1, ab: 1.0}
+        abc:
+          train_path: ../data/reconstruction/sft/formulations/abc/train.jsonl
 ```
 
 约束：
@@ -163,17 +154,17 @@ formulations:
       - id: inspect
         user_prompt_template: Inspect {{ proposal_bbox_2d | json }} and output A.
 
-  - id: b
-    sampling_weight: 1.0
-    prompts:
-      - id: direct
-        user_prompt_template: Reconstruct B near {{ proposal_bbox_2d | json }}.
-
   - id: ab
-    sampling_weight: 0.0
+    sampling_weight: 2.0
     prompts:
       - id: direct
         user_prompt_template: Reconstruct A and B near {{ proposal_bbox_2d | json }}.
+
+  - id: abc
+    sampling_weight: 4.0
+    prompts:
+      - id: direct
+        user_prompt_template: Reconstruct A, B, and C near {{ proposal_bbox_2d | json }}.
 ```
 
 - `formulations` 与顶层 `prompts` 只能二选一。
@@ -187,12 +178,12 @@ formulations:
 现有只含顶层 `prompts` 的版本化 pool 会编译成 `default` formulation，因此旧 prompt rotation 是
 PromptSource 的单 formulation 子集，不存在第二套运行时。
 
-## 6. 随机选择与渐进式 curriculum
+## 6. 静态权重随机选择
 
 每个 logical draw 先按当前权重随机选择 formulation，再在其内部随机选择 prompt variant：
 
 ```text
-dataset-local source_draw_id
+logical draw identity
   -> formulation weighted categorical sample
   -> prompt variant weighted categorical sample
   -> selected offline target_text + rendered prompt
@@ -202,9 +193,9 @@ dataset-local source_draw_id
 `seed + dataset + sample/draw identity` 的 hash 生成，因此同一输入合同可在 planning/runtime、worker、DP
 rank 和 exact resume 之间重放。
 
-schedule 首点必须为 0，之后严格递增；每个点完整列出所有 formulation。`step` 保持左值，`linear` 在相邻
-点之间插值。curriculum 的横轴是 dataset-local `source_draw_id`，不是 epoch、optimizer step 或 wall-clock，
-所以其它 dataset 的 mixing 变化不会移动本 dataset 的阶段边界。
+权重唯一真源是 pool 内各 formulation 的静态 `sampling_weight`。例如 `A / A+B / A+B+C` 使用 `1:2:4`
+时，长期概率约为 `1/7、2/7、4/7`。PromptSource 不根据 epoch、optimizer step、draw 次数或 wall-clock
+修改权重；所谓“渐进”只描述输出字段的嵌套关系，不描述训练时间轴。
 
 ## 7. 校验、fingerprint 与审计
 
@@ -216,9 +207,9 @@ PromptSource 在训练前完成：
 4. 所有 prompt variants 对 `prompt_args` 通过 exact schema preflight；
 5. 每个 formulation 的 `target_text` 非空。
 
-运行时 `extra.prompt_source` 记录 pool/formulation/variant、`draw_id/source_draw_id`、实际权重，以及 prompt
+运行时 `extra.prompt_source` 记录 pool/formulation/variant、`draw_id`、静态权重，以及 prompt
 program、arguments、user prompt 和选中 target 的 SHA256。execution fingerprint 同时绑定逻辑样本流、所有
-formulation source snapshots、media snapshot、pool、schedule、seed 和选择算法；合同改变后旧 checkpoint 只能
+formulation source snapshots、media snapshot、pool、static weights、seed 和选择算法；合同改变后旧 checkpoint 只能
 作为新的初始化点，不能冒充 exact resume。
 
 ## 8. 发布检查
@@ -230,7 +221,7 @@ formulation source snapshots、media snapshot、pool、schedule、seed 和选择
 3. 同一 pool 的 formulation JSONL 逐行对齐且只有 `target_text` 不同；
 4. 所有 target 通过任务 codec 和 exact output schema；
 5. `prompt_args` 只含 prompt renderer 参数，并通过 pool exact schema；
-6. pool/source/schedule/curriculum 配置与训练 recipe 一致；
+6. pool/source/static weights 配置与训练 recipe 一致；
 7. 媒体或 JSONL 快照变化时更新 `media_snapshot_id`；
 8. strict loader、focused data/config tests 和最短训练 smoke 通过。
 

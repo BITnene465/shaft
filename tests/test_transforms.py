@@ -5,15 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from shaft.config import (
-    PromptSourceConfig,
-    PromptSourceScheduleConfig,
-    PromptSourceSchedulePointConfig,
-)
+from shaft.config import PromptSourceConfig
 from shaft.data import SFTRecord, build_offline_pipeline, build_online_pipeline
 from shaft.data.prompt_source import (
     ShaftFormulationRecordStore,
-    ShaftPromptSourceSchedule,
     build_prompt_source_resolver,
 )
 from shaft.data.transforms import planning_online_transform_fingerprint
@@ -40,7 +35,7 @@ formulations:
       - id: direct
         user_prompt: Reconstruct B.
   - id: ab
-    sampling_weight: 0
+    sampling_weight: 4
     prompts:
       - id: direct
         user_prompt: Reconstruct A and B.
@@ -50,32 +45,12 @@ formulations:
     )
 
 
-def _scheduled_config(path: Path) -> PromptSourceConfig:
-    return PromptSourceConfig(
-        path=str(path),
-        seed=7,
-        schedule=PromptSourceScheduleConfig(
-            interpolation="step",
-            points=[
-                PromptSourceSchedulePointConfig(
-                    source_draw=0,
-                    weights={"a": 1.0, "b": 0.0, "ab": 0.0},
-                ),
-                PromptSourceSchedulePointConfig(
-                    source_draw=10,
-                    weights={"a": 0.0, "b": 1.0, "ab": 0.0},
-                ),
-                PromptSourceSchedulePointConfig(
-                    source_draw=20,
-                    weights={"a": 0.0, "b": 0.0, "ab": 1.0},
-                ),
-            ],
-        ),
-    )
+def _static_config(path: Path) -> PromptSourceConfig:
+    return PromptSourceConfig(path=str(path), seed=7)
 
 
 def _sample(
-    source_draw_id: int,
+    draw_id: int,
     *,
     targets: dict[str, str] | None = None,
 ) -> dict[str, object]:
@@ -108,8 +83,7 @@ def _sample(
         "messages": None,
         "_split": "train",
         "_sample_context": {
-            "draw_id": source_draw_id * 3,
-            "source_draw_id": source_draw_id,
+            "draw_id": draw_id,
             "transform_seed": 99,
         },
         "extra": {},
@@ -161,11 +135,14 @@ def test_inline_formulation_store_fingerprint_binds_materialized_targets() -> No
 def test_prompt_source_selects_materialized_a_b_and_ab(tmp_path: Path) -> None:
     pool = tmp_path / "pool.yaml"
     _write_formulation_pool(pool)
-    resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
-
-    a = resolver(_sample(0))
-    b = resolver(_sample(10))
-    ab = resolver(_sample(20))
+    resolver = build_prompt_source_resolver({"ds": _static_config(pool)}, default_seed=3)
+    selected = {
+        resolved["extra"]["prompt_source"]["formulation_id"]: resolved
+        for draw_id in range(200)
+        for resolved in (resolver(_sample(draw_id)),)
+    }
+    assert set(selected) == {"a", "b", "ab"}
+    a, b, ab = (selected[formulation_id] for formulation_id in ("a", "b", "ab"))
 
     assert a["user_prompt"] in {"Reconstruct A.", "Output attribute A."}
     assert a["target_text"] == '{"value":1}'
@@ -179,24 +156,24 @@ def test_prompt_source_selects_materialized_a_b_and_ab(tmp_path: Path) -> None:
     ] == ["a", "b", "ab"]
 
     invalid_context = _sample(0)
-    invalid_context["_sample_context"]["source_draw_id"] = 1.5  # type: ignore[index]
-    with pytest.raises(ValueError, match="source_draw_id must be an integer"):
+    invalid_context["_sample_context"]["draw_id"] = 1.5  # type: ignore[index]
+    with pytest.raises(ValueError, match="draw_id must be an integer"):
         resolver(invalid_context)
 
 
 def test_prompt_source_records_one_structured_audit_object(tmp_path: Path) -> None:
     pool = tmp_path / "pool.yaml"
     _write_formulation_pool(pool)
-    resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
+    resolver = build_prompt_source_resolver({"ds": _static_config(pool)}, default_seed=3)
 
     resolved = resolver(_sample(20))
     audit = resolved["extra"]["prompt_source"]
 
     assert audit["pool_id"] == "pool.reconstruction"
     assert audit["pool_version"] == "v1"
-    assert audit["formulation_id"] == "ab"
-    assert audit["draw_id"] == 60
-    assert audit["source_draw_id"] == 20
+    assert audit["formulation_id"] in {"a", "b", "ab"}
+    assert audit["draw_id"] == 20
+    assert "source_draw_id" not in audit
     assert len(audit["prompt_program_sha256"]) == 64
     assert len(audit["arguments_sha256"]) == 64
     assert len(audit["user_prompt_sha256"]) == 64
@@ -204,32 +181,7 @@ def test_prompt_source_records_one_structured_audit_object(tmp_path: Path) -> No
     assert not any(str(key).startswith("runtime_prompt_") for key in resolved["extra"])
 
 
-def test_prompt_source_schedule_supports_step_and_linear_interpolation() -> None:
-    points = [
-        PromptSourceSchedulePointConfig(source_draw=0, weights={"a": 1, "b": 0}),
-        PromptSourceSchedulePointConfig(source_draw=10, weights={"a": 0, "b": 2}),
-    ]
-
-    step = ShaftPromptSourceSchedule(
-        formulation_ids=("a", "b"),
-        static_weights=(1.0, 1.0),
-        config=PromptSourceScheduleConfig(interpolation="step", points=points),
-    )
-    linear = ShaftPromptSourceSchedule(
-        formulation_ids=("a", "b"),
-        static_weights=(1.0, 1.0),
-        config=PromptSourceScheduleConfig(interpolation="linear", points=points),
-    )
-
-    assert step.weights_at(9) == (1.0, 0.0)
-    assert step.weights_at(10) == (0.0, 2.0)
-    assert linear.weights_at(5) == (0.5, 1.0)
-    assert linear.weights_at(100) == (0.0, 2.0)
-    with pytest.raises(ValueError, match="integer >= 0"):
-        linear.weights_at(1.5)  # type: ignore[arg-type]
-
-
-def test_prompt_variant_sampling_does_not_change_formulation_distribution(
+def test_prompt_variant_sampling_preserves_static_formulation_distribution(
     tmp_path: Path,
 ) -> None:
     pool = tmp_path / "pool.yaml"
@@ -238,13 +190,13 @@ def test_prompt_variant_sampling_does_not_change_formulation_distribution(
     resolver = build_prompt_source_resolver({"ds": config}, default_seed=3)
 
     counts = Counter(
-        resolver(_sample(source_draw))["extra"]["prompt_source"]["formulation_id"]
-        for source_draw in range(2000)
+        resolver(_sample(draw_id))["extra"]["prompt_source"]["formulation_id"]
+        for draw_id in range(3000)
     )
 
-    assert counts["a"] / 2000 == pytest.approx(0.5, abs=0.04)
-    assert counts["b"] / 2000 == pytest.approx(0.5, abs=0.04)
-    assert counts["ab"] == 0
+    assert counts["a"] / 3000 == pytest.approx(1 / 6, abs=0.03)
+    assert counts["b"] / 3000 == pytest.approx(1 / 6, abs=0.03)
+    assert counts["ab"] / 3000 == pytest.approx(4 / 6, abs=0.03)
 
 
 def test_prompt_source_randomly_samples_arbitrary_configured_formulations(
@@ -282,10 +234,10 @@ formulations:
         "geometry_text_links": '{"subset":"geometry_text_links"}',
     }
 
-    def resolve(source_draw_id: int) -> dict[str, object]:
-        return resolver(_sample(source_draw_id, targets=targets))
+    def resolve(draw_id: int) -> dict[str, object]:
+        return resolver(_sample(draw_id, targets=targets))
 
-    resolved = [resolve(source_draw_id) for source_draw_id in range(4000)]
+    resolved = [resolve(draw_id) for draw_id in range(4000)]
     formulation_ids = [
         item["extra"]["prompt_source"]["formulation_id"] for item in resolved
     ]
@@ -296,8 +248,8 @@ formulations:
     assert counts["geometry_style"] / 4000 == pytest.approx(0.3, abs=0.03)
     assert counts["geometry_text_links"] / 4000 == pytest.approx(0.4, abs=0.03)
     assert formulation_ids == [
-        resolve(source_draw_id)["extra"]["prompt_source"]["formulation_id"]
-        for source_draw_id in range(4000)
+        resolve(draw_id)["extra"]["prompt_source"]["formulation_id"]
+        for draw_id in range(4000)
     ]
     for item, formulation_id in zip(resolved, formulation_ids, strict=True):
         assert item["target_text"] == targets[formulation_id]
@@ -332,7 +284,7 @@ prompts:
         "user_prompt": "",
         "messages": None,
         "_split": "train",
-        "_sample_context": {"draw_id": 0, "source_draw_id": 0},
+        "_sample_context": {"draw_id": 0},
         "extra": {},
     }
 
@@ -362,7 +314,7 @@ def test_materialized_mode_is_identity_and_rejects_ignored_args() -> None:
 def test_pool_mode_rejects_materialized_messages(tmp_path: Path) -> None:
     pool = tmp_path / "pool.yaml"
     _write_formulation_pool(pool)
-    resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
+    resolver = build_prompt_source_resolver({"ds": _static_config(pool)}, default_seed=3)
     sample = _sample(0)
     sample["messages"] = [{"role": "user", "content": []}]
 
@@ -373,7 +325,7 @@ def test_pool_mode_rejects_materialized_messages(tmp_path: Path) -> None:
 def test_pool_mode_rejects_materialized_system_prompt(tmp_path: Path) -> None:
     pool = tmp_path / "pool.yaml"
     _write_formulation_pool(pool)
-    resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
+    resolver = build_prompt_source_resolver({"ds": _static_config(pool)}, default_seed=3)
     sample = _sample(0)
     sample["system_prompt"] = "ignored"
 
@@ -428,7 +380,7 @@ formulations:
         )
 
 
-def test_prompt_source_fingerprint_binds_schema_and_schedule(tmp_path: Path) -> None:
+def test_prompt_source_fingerprint_binds_prompt_schema(tmp_path: Path) -> None:
     paths = []
     for name, argument_type in (("string", "string"), ("enum", "enum")):
         path = tmp_path / f"{name}.yaml"

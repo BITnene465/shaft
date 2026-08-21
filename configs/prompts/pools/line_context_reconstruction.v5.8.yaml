@@ -11,7 +11,7 @@ arguments:
     type: bbox_2d_0_999
 
 formulations:
-  - id: appearance
+  - id: topology
     sampling_weight: 1.0
     prompts:
       - id: detailed
@@ -24,20 +24,20 @@ formulations:
           entire current input image. A provided proposal bbox identifies the intended target
           only; it is not ground-truth geometry and does not define a separate coordinate frame.
         user_prompt_template: |
-          Recover only the appearance of the complete visible line or arrow near approximate
+          Determine only the path topology of the complete visible line or arrow near approximate
           proposal bbox {{ proposal_bbox_2d | json }}. Ignore nearby objects and independent lines.
 
-          Return one {"type":"line","parameters":{...}} object containing exactly line_style,
-          dash_style, begin_arrow, end_arrow, fill, and border. line_style is path or shape;
-          dash_style is solid or dash; arrow markers are none, line, stealth, triangle, pointy,
-          tee, or circle. Marker line is valid only for path and pointy only for shape. Preserve
-          nested fill and border objects. Do not output line_type, is_single, points, corner_style,
-          bbox, or audit fields.
+          Return exactly:
+          {"type":"line","parameters":{"is_single":true|false}}
+
+          Use true for exactly one ordered path segment, including a polyline with several bends.
+          Use false only for one connected branched target represented by multiple path segments.
+          Output no points or appearance fields.
       - id: concise
         sampling_weight: 1.0
         system_prompt: *banana_v5_8_system
         user_prompt_template: >-
-          Recover only the appearance of the target line near
+          Classify only the topology of the target line near
           {{ proposal_bbox_2d | json }}.
 
   - id: points

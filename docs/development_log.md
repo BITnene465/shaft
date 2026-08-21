@@ -3558,3 +3558,53 @@
 - DataCenter、sampler、collator 和 trainer 不解析 formulation id 或 target 结构；PromptSource 新能力必须先
   通过独立 API 暴露，再由 DataCenter 做单一调用。
 - 文档和测试示例出现 A/B/AB 时必须说明它只是任意人工集合的最小示例，且生产选择是随机而非固定轮换。
+
+## 2026-08-21：把嵌套 formulation 误实现为训练时间 curriculum
+
+### 现象
+
+- 业务所说的“渐进”实际表示监督字段逐层增加，例如 `A`、`A+B`、`A+B+C`；三者在整个训练期间只需按固定
+  概率随机采样。
+- 框架却额外实现了按 dataset-local draw 推进的 step/linear schedule，并在 config、sample context、mixing、
+  fingerprint 和审计中维护阶段状态。
+- v5.8 preparation recipe 一度配置 `source_draw=0/50000/100000`，错误地把嵌套输出关系变成时间 curriculum。
+
+### 根因
+
+- 需求讨论中没有严格区分“target schema 的包含关系”和“采样概率随训练进度变化”两种完全不同的语义。
+- 为证明多 formulation 可控，验收夹具使用了阶段性单正权重序列；该测试手段反向固化成了公共配置能力。
+- `source_draw_id`、插值器和 schedule fingerprint 在能力取消后没有及时按单一真源原则清理。
+
+### 影响范围
+
+- 影响 PromptSource 配置面、静态随机选择、sample/batch plan schema、exact-resume fingerprint 和相关文档。
+- 多余阶段逻辑增加配置与恢复复杂度，也会让数据准备者误以为必须决定 curriculum 边界。
+- 本问题属于 data/PromptSource 需求建模偏差，不是模型能力问题，也不是 eval、codec、metric 或 data label
+  标准误判。
+
+### 修复方式
+
+- 删除 `PromptSourceScheduleConfig`、`PromptSourceSchedulePointConfig`、`ShaftPromptSourceSchedule` 及全部
+  step/linear 插值和 schedule fingerprint；旧 `data.prompt_sources.*.schedule` 作为未知字段严格拒绝。
+- formulation 概率唯一由 pool 内静态 `sampling_weight` 决定；每个 logical draw 先随机选择 formulation，再
+  在其内部按静态权重随机选择 prompt variant。
+- 删除只为 curriculum 引入的公开 `source_draw_id`：`ShaftSampleContext`、batch plan 序列化和
+  `extra.prompt_source` 只保留 global `draw_id`，mixing 内部 occurrence 仅用于 row permutation。
+- 更新 PromptSource selection/sample-context 版本与 execution fingerprint，使旧 source-draw checkpoint
+  fail closed；当前文档统一使用“嵌套 formulation”描述 `A / A+B / A+B+C`。
+
+### 回归测试
+
+- config 回归确认静态 PromptSource 正常加载，旧 schedule 配置被严格 schema 拒绝。
+- sampling 回归覆盖嵌套 formulation 的 `1:1:4` 分布、任意四 formulation 的 `1:2:3:4` 分布、确定性重放、
+  prompt variant 独立随机域和离线 target 原子匹配。
+- data/planning/batching 回归覆盖 formulation source 对齐、planning/runtime 一致、无 `source_draw_id` 的 sample
+  context 序列化以及四种 mixing 路径。
+
+### 后续防线
+
+- “渐进”必须先明确是 target 字段包含关系还是训练时间 curriculum；没有明确时间轴需求时一律建模为静态
+  formulation 权重。
+- formulation 的包含关系由业务 builder 和离线 target schema 维护，框架不推断依赖、不在线组装 target。
+- PromptSource 概率只允许在 pool 的 `sampling_weight` 中维护；不得重新增加 callback、draw milestone 或
+  另一套权重覆盖入口。

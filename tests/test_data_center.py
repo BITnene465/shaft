@@ -13,8 +13,6 @@ from shaft.config import (
     DatasetSourceConfig,
     PromptSourceConfig,
     PromptSourceFormulationSourceConfig,
-    PromptSourceScheduleConfig,
-    PromptSourceSchedulePointConfig,
     RuntimeConfig,
 )
 from shaft.data import (
@@ -367,14 +365,12 @@ def test_data_center_prompt_source_applies_only_to_train(tmp_path: Path) -> None
     assert train_sample["extra"]["prompt_source"]["variant_id"] in {"a", "b"}
     assert train_sample["extra"]["prompt_source"]["pool_version"] == "test-version"
     assert train_sample["extra"]["prompt_source"]["draw_id"] == 0
-    assert train_sample["extra"]["prompt_source"]["source_draw_id"] == 0
 
     assert dataset_bundle.train_sampler is not None
     dataset_bundle.train_sampler.set_epoch(3)
     refreshed_ref = next(iter(dataset_bundle.train_sampler))
     refreshed_sample = dataset_bundle.train_dataset[refreshed_ref]
     assert refreshed_sample["extra"]["prompt_source"]["draw_id"] == 3
-    assert refreshed_sample["extra"]["prompt_source"]["source_draw_id"] == 3
 
     val_sample = dataset_bundle.eval_dataset[0]
     assert val_sample["user_prompt"] == "canonical user"
@@ -480,10 +476,12 @@ arguments:
   proposal_bbox_2d: {type: bbox_2d_0_999}
 formulations:
   - id: a
+    sampling_weight: 0
     prompts:
       - id: main
         user_prompt_template: 'Reconstruct A near {{ proposal_bbox_2d | json }}.'
   - id: ab
+    sampling_weight: 1
     prompts:
       - id: main
         user_prompt_template: 'Reconstruct A and B near {{ proposal_bbox_2d | json }}.'
@@ -501,14 +499,6 @@ formulations:
                 "a": PromptSourceFormulationSourceConfig(train_path=str(a_path)),
                 "ab": PromptSourceFormulationSourceConfig(train_path=str(ab_path)),
             },
-            schedule=PromptSourceScheduleConfig(
-                points=[
-                    PromptSourceSchedulePointConfig(
-                        source_draw=0,
-                        weights={"a": 0.0, "ab": 1.0},
-                    )
-                ]
-            ),
         )
     }
     config.data.datasets = [

@@ -219,7 +219,7 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   │   ├── mixing
   │   └── shuffle
   ├── prompt_sources
-  │   └── offline formulation sources / prompt variant / selection / curriculum
+  │   └── offline formulation sources / static weighted selection / prompt variant
   └── batching
       ├── grouping
       ├── cardinality
@@ -700,13 +700,13 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
   - `concat` 表示覆盖式计划；`weighted + shuffle=true` 表示固定配额的可复现 stratified source stream，
     每个 source 内部独立置换并在耗尽前无放回。
   - plan 按位置计算 sample ref，不物化或复制全量 Python tuple index。
-- `ShaftSampleRef` 显式携带全局 `draw_id` 与 dataset-local `source_draw_id`。后者驱动 formulation curriculum；
-  dataset 不保存 sampler，也不读取跨进程可变 epoch 状态。
+- `ShaftSampleRef` 的 context 只携带 `draw_id / plan_cycle / transform_seed`；dataset 不保存 sampler，也不读取
+  跨进程可变 epoch 状态。PromptSource 直接用 logical draw identity 做静态加权随机选择。
 - GRPO 的 grouped repeat 由 epoch-aware `ShaftGroupedSampleSampler` 输出 sample refs，避免 TRL 本地
   generator 在多 epoch resume 时回到 epoch 0 排列。
 - step duration 在 fixed batch 下按标准 global batch 公式生成有限 sample budget；bounded 模式只生成
   map-style Dataset 的最大 draw 上界，runtime 从 duration-independent schedule 惰性消费。epoch 只作为
-  HF 有限时长兼容单位，不控制 PromptSource 或 transform 刷新。
+  HF 有限时长兼容单位，不控制 PromptSource 权重或 transform 刷新。
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 

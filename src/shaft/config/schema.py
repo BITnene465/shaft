@@ -8,8 +8,6 @@ from .data import (
     PromptSourceFormulationSourceConfig,
     DatasetSourceConfig,
     PromptSourceConfig,
-    PromptSourceScheduleConfig,
-    PromptSourceSchedulePointConfig,
 )
 from .model import FinetuneConfig, ModelConfig
 from .generation_backend import GRPOVLLMConfig, OPDVLLMConfig, VLLMGenerationBackendConfig
@@ -61,8 +59,6 @@ __all__ = [
     "PPOConfig",
     "PluginsConfig",
     "PromptSourceConfig",
-    "PromptSourceScheduleConfig",
-    "PromptSourceSchedulePointConfig",
     "ProgressConfig",
     "RLHFConfig",
     "RuntimeConfig",
