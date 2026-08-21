@@ -12,10 +12,10 @@ from shaft.config import DataConfig
 from shaft.prompting import canonical_json
 
 from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule
-from .prompt_source import build_prompt_source_resolver
+from .prompt_source import ShaftPromptSource, build_prompt_source_resolver
 from .record_store import ShaftConcatRecordStore
 from .sampler import ShaftSampleSampler
-from .meta import build_dataset_metas
+from .meta import ShaftDatasetMeta, build_dataset_metas
 from .sources import build_data_source
 from .transforms import (
     build_offline_pipeline,
@@ -169,42 +169,25 @@ class ShaftDataCenter:
         for dataset_meta in build_dataset_metas(self.data_config):
             if not dataset_meta.enabled:
                 continue
-            source_impl = build_data_source(
-                dataset_meta,
-                cache_dir=self.data_config.record_cache_dir,
-                record_validator=lambda record, split, dataset_name=dataset_meta.dataset_name: (
-                    prompt_source.validate_record(
-                        record,
-                        dataset_name=dataset_name,
-                        split=split,
-                    )
-                ),
-                validation_fingerprint=(
-                    hashlib.sha256(
-                        repr(
-                            (
-                                prompt_source.record_validation_fingerprint(
-                                    dataset_meta.dataset_name,
-                                    split="train",
-                                ),
-                                prompt_source.record_validation_fingerprint(
-                                    dataset_meta.dataset_name,
-                                    split="val",
-                                ),
-                            )
-                        ).encode("utf-8")
-                    ).hexdigest()
-                ),
-            )
             offline_pipeline = build_offline_pipeline(dataset_meta.offline_transforms)
             if float(dataset_meta.weight) > 0:
                 weights[dataset_meta.dataset_name] = float(dataset_meta.weight)
-                records_by_dataset_train[dataset_meta.dataset_name] = offline_pipeline(
-                    source_impl.load_split("train")
+                records_by_dataset_train[dataset_meta.dataset_name] = (
+                    self._load_dataset_split(
+                        dataset_meta,
+                        split="train",
+                        prompt_source=prompt_source,
+                        offline_pipeline=offline_pipeline,
+                    )
                 )
             if dataset_meta.use_for_eval:
-                records_by_dataset_val[dataset_meta.dataset_name] = offline_pipeline(
-                    source_impl.load_split("val")
+                records_by_dataset_val[dataset_meta.dataset_name] = (
+                    self._load_dataset_split(
+                        dataset_meta,
+                        split="val",
+                        prompt_source=prompt_source,
+                        offline_pipeline=offline_pipeline,
+                    )
                 )
             dataset_online_pipelines[dataset_meta.dataset_name] = build_online_pipeline(
                 dataset_meta.online_transforms
@@ -275,6 +258,38 @@ class ShaftDataCenter:
             image_cache_size=self.data_config.image_cache_size,
             suppress_train_decompression_bomb_warning=(planned_grouping),
         )
+
+    def _load_dataset_split(
+        self,
+        dataset_meta: ShaftDatasetMeta,
+        *,
+        split: str,
+        prompt_source: ShaftPromptSource,
+        offline_pipeline: Callable[[Sequence[Any]], Sequence[Any]],
+    ) -> Sequence[Any]:
+        prompt_source_records = prompt_source.prepare_records(
+            dataset_meta,
+            split=split,
+            cache_dir=self.data_config.record_cache_dir,
+            offline_pipeline=offline_pipeline,
+        )
+        if prompt_source_records is not None:
+            return prompt_source_records
+        validation_fingerprint = prompt_source.record_validation_fingerprint(
+            dataset_meta.dataset_name,
+            split=split,
+        )
+        source_impl = build_data_source(
+            dataset_meta,
+            cache_dir=self.data_config.record_cache_dir,
+            record_validator=lambda record, current_split: prompt_source.validate_record(
+                record,
+                dataset_name=dataset_meta.dataset_name,
+                split=current_split,
+            ),
+            validation_fingerprint=validation_fingerprint,
+        )
+        return offline_pipeline(source_impl.load_split(split))
 
     def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:
         return self.prepare_records().build_dataset_bundle(dataset_cls)

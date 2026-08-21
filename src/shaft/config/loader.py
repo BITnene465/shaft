@@ -37,6 +37,12 @@ def to_resolved_payload(config: RuntimeConfig) -> dict[str, Any]:
     elif batching["grouping"] == "length":
         batching.pop("max_tokens_per_microbatch", None)
 
+    for prompt_source in data.get("prompt_sources", {}).values():
+        for formulation_source in prompt_source.get("formulation_sources", {}).values():
+            if formulation_source["train_paths"]:
+                formulation_source.pop("train_path", None)
+            if formulation_source["val_paths"]:
+                formulation_source.pop("val_path", None)
     for dataset in data["datasets"]:
         if dataset["train_paths"]:
             dataset.pop("train_path", None)

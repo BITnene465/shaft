@@ -56,6 +56,36 @@ def _resolve_prompt_source_paths(data_payload: dict[str, Any], *, base_dir: Path
             )
         if path is not None:
             source["path"] = _resolve_path_value(path, base_dir=base_dir)
+        formulation_sources = source.get("formulation_sources")
+        if formulation_sources is None:
+            continue
+        if not isinstance(formulation_sources, dict):
+            raise TypeError(
+                f"Config key `data.prompt_sources.{dataset_name}.formulation_sources` "
+                "must be a mapping."
+            )
+        resolved_sources: dict[str, dict[str, Any]] = {}
+        for formulation_id, formulation_source in formulation_sources.items():
+            normalized_id = str(formulation_id).strip()
+            if not normalized_id:
+                raise ValueError(
+                    f"data.prompt_sources.{dataset_name}.formulation_sources contains "
+                    "an empty formulation id."
+                )
+            if normalized_id in resolved_sources:
+                raise ValueError(
+                    f"Duplicate normalized formulation source id {normalized_id!r}."
+                )
+            if not isinstance(formulation_source, dict):
+                raise TypeError(
+                    f"Config key data.prompt_sources.{dataset_name}.formulation_sources."
+                    f"{normalized_id} must be a mapping."
+                )
+            resolved_sources[normalized_id] = _resolve_dataset_paths(
+                formulation_source,
+                base_dir=base_dir,
+            )
+        source["formulation_sources"] = resolved_sources
 
 
 def _load_yaml_mapping(path: Path) -> dict[str, Any]:

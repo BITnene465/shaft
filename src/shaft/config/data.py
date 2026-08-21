@@ -19,11 +19,24 @@ class PromptSourceScheduleConfig:
 
 
 @dataclass
+class PromptSourceFormulationSourceConfig:
+    """Materialized SFT rows bound to one PromptSource task formulation."""
+
+    train_path: str | None = None
+    val_path: str | None = None
+    train_paths: list[str] = field(default_factory=list)
+    val_paths: list[str] = field(default_factory=list)
+
+
+@dataclass
 class PromptSourceConfig:
     path: str
     apply_to: str = "train"
     seed: int | None = None
     schedule: PromptSourceScheduleConfig = field(default_factory=PromptSourceScheduleConfig)
+    formulation_sources: dict[str, PromptSourceFormulationSourceConfig] = field(
+        default_factory=dict
+    )
 
 
 @dataclass

@@ -12,6 +12,7 @@ from shaft.config import (
 )
 from shaft.data import SFTRecord, build_offline_pipeline, build_online_pipeline
 from shaft.data.prompt_source import (
+    ShaftFormulationRecordStore,
     ShaftPromptSourceSchedule,
     build_prompt_source_resolver,
 )
@@ -24,13 +25,9 @@ def _write_formulation_pool(path: Path) -> None:
 metadata:
   id: pool.reconstruction
   version: v1
-arguments:
-  a: {type: json}
-  b: {type: json}
 formulations:
   - id: a
     sampling_weight: 1
-    target_template: '{{ a | json }}'
     prompts:
       - id: direct
         system_prompt: JSON only.
@@ -39,13 +36,11 @@ formulations:
         user_prompt: Output attribute A.
   - id: b
     sampling_weight: 1
-    target_template: '{{ b | json }}'
     prompts:
       - id: direct
         user_prompt: Reconstruct B.
   - id: ab
     sampling_weight: 0
-    target_template: '{"A":{{ a | json }},"B":{{ b | json }}}'
     prompts:
       - id: direct
         user_prompt: Reconstruct A and B.
@@ -79,12 +74,35 @@ def _scheduled_config(path: Path) -> PromptSourceConfig:
     )
 
 
-def _sample(source_draw_id: int) -> dict[str, object]:
-    return {
+def _sample(
+    source_draw_id: int,
+    *,
+    targets: dict[str, str] | None = None,
+) -> dict[str, object]:
+    resolved_targets = targets or {
+        "a": '{"value":1}',
+        "b": "[2,3]",
+        "ab": '{"A":{"value":1},"B":[2,3]}',
+    }
+    store = ShaftFormulationRecordStore(
+        {
+            formulation_id: [
+                SFTRecord(
+                    image_path="/tmp/same-row.png",
+                    dataset_name="ds",
+                    sample_id="same-row",
+                    target_text=target_text,
+                )
+            ]
+            for formulation_id, target_text in resolved_targets.items()
+        }
+    )
+    record = store[0]
+    sample = {
         "dataset_name": "ds",
         "sample_id": "same-row",
         "target_text": "",
-        "prompt_args": {"a": {"value": 1}, "b": [2, 3]},
+        "prompt_args": {},
         "system_prompt": "",
         "user_prompt": "",
         "messages": None,
@@ -96,6 +114,8 @@ def _sample(source_draw_id: int) -> dict[str, object]:
         },
         "extra": {},
     }
+    sample.update(record.runtime_sample_fields())
+    return sample
 
 
 def test_offline_dedup() -> None:
@@ -116,7 +136,29 @@ def test_online_identity() -> None:
     assert out["x"] == 1
 
 
-def test_prompt_source_atomically_projects_a_b_and_ab(tmp_path: Path) -> None:
+def test_inline_formulation_store_fingerprint_binds_materialized_targets() -> None:
+    common = {
+        "image_path": "/tmp/a.png",
+        "dataset_name": "ds",
+        "sample_id": "same",
+    }
+    first = ShaftFormulationRecordStore(
+        {
+            "a": [SFTRecord(target_text="A", **common)],
+            "full": [SFTRecord(target_text="FULL-1", **common)],
+        }
+    )
+    second = ShaftFormulationRecordStore(
+        {
+            "a": [SFTRecord(target_text="A", **common)],
+            "full": [SFTRecord(target_text="FULL-2", **common)],
+        }
+    )
+
+    assert first.fingerprint != second.fingerprint
+
+
+def test_prompt_source_selects_materialized_a_b_and_ab(tmp_path: Path) -> None:
     pool = tmp_path / "pool.yaml"
     _write_formulation_pool(pool)
     resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
@@ -156,7 +198,6 @@ def test_prompt_source_records_one_structured_audit_object(tmp_path: Path) -> No
     assert audit["draw_id"] == 60
     assert audit["source_draw_id"] == 20
     assert len(audit["prompt_program_sha256"]) == 64
-    assert len(audit["target_program_sha256"]) == 64
     assert len(audit["arguments_sha256"]) == 64
     assert len(audit["user_prompt_sha256"]) == 64
     assert len(audit["target_text_sha256"]) == 64
@@ -213,27 +254,18 @@ def test_prompt_source_randomly_samples_arbitrary_configured_formulations(
     pool.write_text(
         """
 metadata: {id: pool.arbitrary-subsets, version: v1}
-arguments:
-  target_geometry: {type: json}
-  target_style: {type: json}
-  target_geometry_style: {type: json}
-  target_geometry_text_links: {type: json}
 formulations:
   - id: geometry
     sampling_weight: 1
-    target_template: '{{ target_geometry | json }}'
     prompts: [{id: main, user_prompt: geometry}]
   - id: style
     sampling_weight: 2
-    target_template: '{{ target_style | json }}'
     prompts: [{id: main, user_prompt: style}]
   - id: geometry_style
     sampling_weight: 3
-    target_template: '{{ target_geometry_style | json }}'
     prompts: [{id: main, user_prompt: geometry-style}]
   - id: geometry_text_links
     sampling_weight: 4
-    target_template: '{{ target_geometry_text_links | json }}'
     prompts: [{id: main, user_prompt: geometry-text-links}]
 """.strip()
         + "\n",
@@ -251,12 +283,7 @@ formulations:
     }
 
     def resolve(source_draw_id: int) -> dict[str, object]:
-        sample = _sample(source_draw_id)
-        sample["prompt_args"] = {
-            f"target_{formulation_id}": {"subset": formulation_id}
-            for formulation_id in targets
-        }
-        return resolver(sample)
+        return resolver(_sample(source_draw_id, targets=targets))
 
     resolved = [resolve(source_draw_id) for source_draw_id in range(4000)]
     formulation_ids = [
@@ -296,9 +323,18 @@ prompts:
         {"ds": PromptSourceConfig(path=str(pool), seed=9)},
         default_seed=3,
     )
-    sample = _sample(0)
-    sample["target_text"] = "materialized"
-    sample["prompt_args"] = {}
+    sample = {
+        "dataset_name": "ds",
+        "sample_id": "same-row",
+        "target_text": "materialized",
+        "prompt_args": {},
+        "system_prompt": "",
+        "user_prompt": "",
+        "messages": None,
+        "_split": "train",
+        "_sample_context": {"draw_id": 0, "source_draw_id": 0},
+        "extra": {},
+    }
 
     resolved = resolver(sample)
 
@@ -334,6 +370,17 @@ def test_pool_mode_rejects_materialized_messages(tmp_path: Path) -> None:
         resolver(sample)
 
 
+def test_pool_mode_rejects_materialized_system_prompt(tmp_path: Path) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    resolver = build_prompt_source_resolver({"ds": _scheduled_config(pool)}, default_seed=3)
+    sample = _sample(0)
+    sample["system_prompt"] = "ignored"
+
+    with pytest.raises(ValueError, match="pool mode.*system_prompt"):
+        resolver(sample)
+
+
 def test_prompt_source_rejects_unknown_prompt_variant_keys(tmp_path: Path) -> None:
     pool = tmp_path / "pool.yaml"
     pool.write_text(
@@ -349,6 +396,32 @@ prompts:
     )
 
     with pytest.raises(ValueError, match="Unknown prompt variant keys.*typo_weight"):
+        build_prompt_source_resolver(
+            {"ds": PromptSourceConfig(path=str(pool))},
+            default_seed=3,
+        )
+
+
+@pytest.mark.parametrize("legacy_key", ["target", "target_template"])
+def test_prompt_source_rejects_online_target_assembly(
+    tmp_path: Path,
+    legacy_key: str,
+) -> None:
+    pool = tmp_path / "pool.yaml"
+    value = "materialized" if legacy_key == "target" else "'{{ value }}'"
+    pool.write_text(
+        f"""
+metadata: {{id: pool.invalid-target, version: v1}}
+formulations:
+  - id: a
+    {legacy_key}: {value}
+    prompts: [{{id: main, user_prompt: answer}}]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=f"Unknown PromptSource formulation keys.*{legacy_key}"):
         build_prompt_source_resolver(
             {"ds": PromptSourceConfig(path=str(pool))},
             default_seed=3,

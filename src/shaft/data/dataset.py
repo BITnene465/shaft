@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -94,6 +94,11 @@ class SFTRecord(_OrderedImageRecord):
         self.user_prompt = str(user_prompt)
         self.prompt_args = dict(prompt_args or {})
         self.extra = dict(extra or {})
+
+    def runtime_sample_fields(self) -> Mapping[str, Any]:
+        """Return opaque runtime-only fields for record-store extensions."""
+
+        return {}
 
 
 @dataclass(init=False)
@@ -311,7 +316,7 @@ class SFTDataset(ShaftVisionDatasetBase):
         image_row: Any = None
         if images is not None:
             image_row = images[0] if len(images) == 1 else images
-        return {
+        sample = {
             "dataset_name": record.dataset_name,
             "sample_id": record.sample_id or Path(record.image_paths[0]).stem,
             "image_paths": record.image_paths,
@@ -326,6 +331,15 @@ class SFTDataset(ShaftVisionDatasetBase):
             "extra": dict(record.extra),
             **self._runtime_context(sample_ref),
         }
+        runtime_fields = dict(record.runtime_sample_fields())
+        collisions = sorted(set(sample).intersection(runtime_fields))
+        if collisions:
+            raise ValueError(
+                "SFT record runtime fields cannot replace standard sample fields: "
+                f"{collisions}."
+            )
+        sample.update(runtime_fields)
+        return sample
 
     def get_planning_item(self, index: int | ShaftSampleRef) -> dict[str, Any]:
         """Resolve deterministic text transforms without decoding the image payload."""

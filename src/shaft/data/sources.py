@@ -143,6 +143,12 @@ def _build_sft_record_from_raw(
     line_no: int,
     dataset_name: str,
 ) -> SFTRecord:
+    if "formulation_targets" in raw:
+        raise ValueError(
+            "SFT JSONL must keep one materialized target_text per row; configure aligned "
+            "data.prompt_sources[*].formulation_sources instead of embedding "
+            "formulation_targets."
+        )
     image_paths = _resolve_image_paths(raw, jsonl_path, line_no)
     messages = _normalize_messages(raw)
     raw_prompt_args = raw.get("prompt_args")
@@ -155,10 +161,10 @@ def _build_sft_record_from_raw(
         if extracted_target is not None:
             target_text = extracted_target
             messages = prompt_messages
-    if target_text is None and not prompt_args:
+    if target_text is None:
         raise ValueError(
-            "Missing target text. Expected target_text, a trailing assistant message, or "
-            "PromptSource prompt_args for rendered-target projection."
+            "Missing target text. Expected target_text or a trailing assistant message. "
+            "prompt_args can render prompts but cannot generate targets."
         )
     _validate_message_image_count(
         messages,

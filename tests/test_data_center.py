@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from shaft.config import (
     DatasetSourceConfig,
     PromptSourceConfig,
+    PromptSourceFormulationSourceConfig,
     PromptSourceScheduleConfig,
     PromptSourceSchedulePointConfig,
     RuntimeConfig,
@@ -445,17 +446,29 @@ prompts:
     )
 
 
-def test_formulation_target_is_identical_for_planning_and_actual_reads(
+def test_materialized_formulation_target_is_identical_for_planning_and_actual_reads(
     tmp_path: Path,
 ) -> None:
     image = _write_image(tmp_path / "img.png")
-    train_path = _write_jsonl(
-        tmp_path / "train.jsonl",
+    a_path = _write_jsonl(
+        tmp_path / "a.jsonl",
         [
             {
                 "image_path": str(image),
                 "sample_id": "sample-1",
-                "prompt_args": {"a": {"x": 1}, "b": [2, 3]},
+                "prompt_args": {"proposal_bbox_2d": [10, 20, 300, 400]},
+                "target_text": '{"a":{"x":1}}',
+            }
+        ],
+    )
+    ab_path = _write_jsonl(
+        tmp_path / "ab.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "sample_id": "sample-1",
+                "prompt_args": {"proposal_bbox_2d": [10, 20, 300, 400]},
+                "target_text": '{"A":{"x":1},"B":[2,3]}',
             }
         ],
     )
@@ -464,19 +477,16 @@ def test_formulation_target_is_identical_for_planning_and_actual_reads(
         """
 metadata: {id: prompt.formulation, version: v1}
 arguments:
-  a: {type: json}
-  b: {type: json}
+  proposal_bbox_2d: {type: bbox_2d_0_999}
 formulations:
   - id: a
-    target_template: '{{ a | json }}'
     prompts:
       - id: main
-        user_prompt: Reconstruct A.
+        user_prompt_template: 'Reconstruct A near {{ proposal_bbox_2d | json }}.'
   - id: ab
-    target_template: '{"A":{{ a | json }},"B":{{ b | json }}}'
     prompts:
       - id: main
-        user_prompt: Reconstruct A and B.
+        user_prompt_template: 'Reconstruct A and B near {{ proposal_bbox_2d | json }}.'
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -487,6 +497,10 @@ formulations:
     config.data.prompt_sources = {
         "ds": PromptSourceConfig(
             path=str(prompt_pool),
+            formulation_sources={
+                "a": PromptSourceFormulationSourceConfig(train_path=str(a_path)),
+                "ab": PromptSourceFormulationSourceConfig(train_path=str(ab_path)),
+            },
             schedule=PromptSourceScheduleConfig(
                 points=[
                     PromptSourceSchedulePointConfig(
@@ -500,7 +514,6 @@ formulations:
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="ds",
-            train_path=str(train_path),
             use_for_eval=False,
         )
     ]
@@ -511,9 +524,106 @@ formulations:
     planned = bundle.train_dataset.get_planning_item(sample_ref)
     actual = bundle.train_dataset[sample_ref]
 
-    assert planned["user_prompt"] == actual["user_prompt"] == "Reconstruct A and B."
+    assert planned["user_prompt"] == actual["user_prompt"] == (
+        "Reconstruct A and B near [10,20,300,400]."
+    )
     assert planned["target_text"] == actual["target_text"] == '{"A":{"x":1},"B":[2,3]}'
     assert planned["extra"]["prompt_source"] == actual["extra"]["prompt_source"]
+
+
+def test_materialized_formulation_sources_reject_misaligned_rows(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    first = _write_jsonl(
+        tmp_path / "first.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "sample_id": "same",
+                "target_text": "first",
+            }
+        ],
+    )
+    second = _write_jsonl(
+        tmp_path / "second.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "sample_id": "different",
+                "target_text": "second",
+            }
+        ],
+    )
+    pool = tmp_path / "pool.yaml"
+    pool.write_text(
+        """
+metadata: {id: prompt.materialized, version: v1}
+formulations:
+  - id: first
+    prompts: [{id: main, user_prompt: first}]
+  - id: second
+    prompts: [{id: main, user_prompt: second}]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.prompt_sources = {
+        "ds": PromptSourceConfig(
+            path=str(pool),
+            formulation_sources={
+                "first": PromptSourceFormulationSourceConfig(train_path=str(first)),
+                "second": PromptSourceFormulationSourceConfig(train_path=str(second)),
+            },
+        )
+    }
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            use_for_eval=False,
+        )
+    ]
+
+    with pytest.raises(ValueError, match="align exactly.*mismatched=\\['sample_id'\\]"):
+        ShaftDataCenter(config.data).prepare_records()
+
+
+def test_formulation_source_ids_must_match_prompt_pool(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    first = _write_jsonl(
+        tmp_path / "first.jsonl",
+        [{"image_path": str(image), "sample_id": "same", "target_text": "first"}],
+    )
+    pool = tmp_path / "pool.yaml"
+    pool.write_text(
+        """
+metadata: {id: prompt.materialized, version: v1}
+formulations:
+  - id: first
+    prompts: [{id: main, user_prompt: first}]
+  - id: second
+    prompts: [{id: main, user_prompt: second}]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.prompt_sources = {
+        "ds": PromptSourceConfig(
+            path=str(pool),
+            formulation_sources={
+                "first": PromptSourceFormulationSourceConfig(train_path=str(first)),
+            },
+        )
+    }
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            use_for_eval=False,
+        )
+    ]
+
+    with pytest.raises(ValueError, match="must match.*missing=\\['second'\\]"):
+        ShaftDataCenter(config.data).prepare_records()
 
 
 @pytest.mark.parametrize("grouping", ["none", "length"])

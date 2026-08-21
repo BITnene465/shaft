@@ -430,6 +430,51 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
                     f"source_draw={point.source_draw} needs at least one positive weight."
                 )
             point.weights = normalized_weights
+        normalized_formulation_sources = {}
+        for formulation_id, formulation_source in dict(
+            prompt_source.formulation_sources
+        ).items():
+            normalized_id = str(formulation_id).strip()
+            if not normalized_id:
+                raise ValueError(
+                    f"data.prompt_sources.{normalized_name}.formulation_sources contains "
+                    "an empty formulation id."
+                )
+            if normalized_id in normalized_formulation_sources:
+                raise ValueError(
+                    f"data.prompt_sources.{normalized_name}.formulation_sources contains "
+                    f"duplicate normalized id {normalized_id!r}."
+                )
+            formulation_source.train_paths = _normalize_string_list(
+                formulation_source.train_paths
+            )
+            formulation_source.val_paths = _normalize_string_list(
+                formulation_source.val_paths
+            )
+            if formulation_source.train_path:
+                formulation_source.train_paths = _normalize_string_list(
+                    [str(formulation_source.train_path), *formulation_source.train_paths]
+                )
+            if formulation_source.val_path:
+                formulation_source.val_paths = _normalize_string_list(
+                    [str(formulation_source.val_path), *formulation_source.val_paths]
+                )
+            formulation_source.train_path = None
+            formulation_source.val_path = None
+            if not formulation_source.train_paths:
+                raise ValueError(
+                    f"data.prompt_sources.{normalized_name}.formulation_sources."
+                    f"{normalized_id}.train_paths cannot be empty."
+                )
+            normalized_formulation_sources[normalized_id] = formulation_source
+        prompt_source.formulation_sources = normalized_formulation_sources
+        if prompt_source.apply_to != "all" and any(
+            source.val_paths for source in prompt_source.formulation_sources.values()
+        ):
+            raise ValueError(
+                f"data.prompt_sources.{normalized_name}.formulation_sources val_paths require "
+                "apply_to='all'."
+            )
         normalized_prompt_sources[normalized_name] = prompt_source
     config.data.prompt_sources = normalized_prompt_sources
 
@@ -520,10 +565,38 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             )
         dataset.train_path = None
         dataset.val_path = None
-        if not dataset.train_paths:
+        prompt_source = config.data.prompt_sources.get(dataset.dataset_name)
+        formulation_sources = (
+            {} if prompt_source is None else prompt_source.formulation_sources
+        )
+        if formulation_sources and dataset.source_type != "jsonl_sft":
+            raise ValueError(
+                f"data.prompt_sources.{dataset.dataset_name}.formulation_sources requires "
+                "source_type='jsonl_sft'."
+            )
+        if formulation_sources and dataset.train_paths:
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] cannot combine top-level train_paths "
+                "with PromptSource formulation_sources."
+            )
+        if not dataset.train_paths and not formulation_sources:
             raise ValueError(f"data.datasets[{dataset.dataset_name}].train_paths cannot be empty.")
+        formulation_eval_active = bool(
+            formulation_sources
+            and prompt_source is not None
+            and prompt_source.apply_to == "all"
+        )
+        if formulation_eval_active and dataset.val_paths:
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] cannot combine top-level val_paths with "
+                "PromptSource formulation_sources when apply_to='all'."
+            )
+        has_formulation_val = formulation_eval_active and all(
+            source.val_paths for source in formulation_sources.values()
+        )
         if (
             not dataset.val_paths
+            and not has_formulation_val
             and bool(config.eval.enabled)
             and dataset.enabled
             and dataset.use_for_eval

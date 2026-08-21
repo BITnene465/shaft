@@ -150,6 +150,7 @@ def test_sft_jsonl_and_dataset_preserve_ordered_multi_image_rows(tmp_path: Path)
         _ = record.image_path
 
     sample = SFTDataset(records)[0]
+    assert "formulation_targets" not in sample
     assert sample["image_paths"] == record.image_paths
     assert [image.getpixel((0, 0)) for image in sample["image"]] == [
         (255, 0, 0),
@@ -356,6 +357,45 @@ def test_missing_target_raises(tmp_path: Path) -> None:
     jsonl.write_text(json.dumps(sample, ensure_ascii=False) + "\n", encoding="utf-8")
     with pytest.raises(ValueError):
         load_jsonl_sft_records(jsonl, dataset_name="x")
+
+
+def test_prompt_args_cannot_replace_materialized_target(tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    jsonl = tmp_path / "prompt-only.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "image_path": str(image),
+                "prompt_args": {"proposal_bbox_2d": [1, 2, 3, 4]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="prompt_args can render prompts but cannot generate"):
+        load_jsonl_sft_records(jsonl, dataset_name="x", cache_dir=tmp_path / "cache")
+
+
+def test_source_jsonl_cannot_embed_formulation_target_mapping(tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    jsonl = tmp_path / "embedded-formulations.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "image_path": str(image),
+                "target_text": "A",
+                "formulation_targets": {"a": "A", "ab": "AB"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="one materialized target_text per row"):
+        load_jsonl_sft_records(jsonl, dataset_name="x", cache_dir=tmp_path / "cache")
 
 
 def test_jsonl_loader_reports_aggregated_errors(tmp_path: Path) -> None:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from bisect import bisect_right
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
 import hashlib
 import math
 from pathlib import Path
@@ -11,23 +11,30 @@ from typing import Any, Sequence
 
 import yaml
 
-from shaft.config import PromptSourceConfig, PromptSourceScheduleConfig
+from shaft.config import (
+    PromptSourceConfig,
+    PromptSourceFormulationSourceConfig,
+    PromptSourceScheduleConfig,
+)
 from shaft.prompting import (
-    ShaftPromptProgram,
     ShaftPromptSchema,
     ShaftPromptTemplate,
     canonical_json,
-    compile_prompt,
     compile_prompt_variants,
 )
 
+from .dataset import SFTRecord
+from .meta import ShaftDatasetMeta
+from .sources import build_data_source
 from .transforms import planning_safe_online_transform
 
 
-PROMPT_SOURCE_VERSION = "shaft-prompt-source-v1"
-PROMPT_SOURCE_POOL_VERSION = "shaft-prompt-source-pool-v1"
+PROMPT_SOURCE_VERSION = "shaft-prompt-source-v2"
+PROMPT_SOURCE_POOL_VERSION = "shaft-prompt-source-pool-v2"
 PROMPT_SOURCE_SCHEDULE_VERSION = "shaft-prompt-source-schedule-v1"
-PROMPT_SOURCE_SELECTION_VERSION = "shaft-prompt-source-selection-v1"
+PROMPT_SOURCE_SELECTION_VERSION = "shaft-prompt-source-selection-v2"
+FORMULATION_RECORD_STORE_VERSION = "shaft-formulation-record-store-v1"
+_PROMPT_SOURCE_TARGETS_KEY = "_shaft_prompt_source_targets"
 
 
 def _sha256_text(value: str) -> str:
@@ -57,11 +64,6 @@ class ShaftTaskFormulation:
     formulation_id: str
     sampling_weight: float
     prompt_variants: tuple[ShaftPromptTemplate, ...]
-    target_program: ShaftPromptProgram | None
-
-    @property
-    def target_mode(self) -> str:
-        return "rendered" if self.target_program is not None else "materialized"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +73,164 @@ class ShaftPromptSourcePool:
     source_path: str
     schema: ShaftPromptSchema
     formulations: tuple[ShaftTaskFormulation, ...]
+    explicit_formulations: bool
     fingerprint: str
+
+
+class _ShaftPromptSourceRecord(SFTRecord):
+    """PromptSource-private bridge from aligned stores to online selection."""
+
+    def __init__(
+        self,
+        *,
+        canonical: SFTRecord,
+        targets: Mapping[str, str],
+    ) -> None:
+        super().__init__(
+            image_paths=canonical.image_paths,
+            target_text="",
+            dataset_name=canonical.dataset_name,
+            sample_id=canonical.sample_id,
+            messages=canonical.messages,
+            system_prompt=canonical.system_prompt,
+            user_prompt=canonical.user_prompt,
+            prompt_args=canonical.prompt_args,
+            extra=canonical.extra,
+        )
+        self._targets = MappingProxyType(
+            {
+                str(formulation_id): str(target_text)
+                for formulation_id, target_text in targets.items()
+            }
+        )
+
+    def runtime_sample_fields(self) -> Mapping[str, Any]:
+        return {_PROMPT_SOURCE_TARGETS_KEY: dict(self._targets)}
+
+
+class ShaftFormulationRecordStore(Sequence[SFTRecord]):
+    """Align materialized v5.7-format SFT rows by formulation and row identity."""
+
+    _IDENTITY_FIELDS = (
+        "image_paths",
+        "dataset_name",
+        "sample_id",
+        "messages",
+        "system_prompt",
+        "user_prompt",
+        "prompt_args",
+        "extra",
+    )
+
+    def __init__(self, stores: Mapping[str, Sequence[SFTRecord]]) -> None:
+        normalized: dict[str, Sequence[SFTRecord]] = {}
+        for raw_formulation_id, store in stores.items():
+            formulation_id = str(raw_formulation_id).strip()
+            if not formulation_id:
+                raise ValueError("Formulation record stores need non-empty formulation ids.")
+            if formulation_id in normalized:
+                raise ValueError(
+                    f"Duplicate normalized formulation record store id {formulation_id!r}."
+                )
+            normalized[formulation_id] = store
+        if not normalized:
+            raise ValueError("Formulation record stores need non-empty formulation ids.")
+        self.formulation_ids = tuple(sorted(normalized))
+        self.stores = MappingProxyType(
+            {formulation_id: normalized[formulation_id] for formulation_id in self.formulation_ids}
+        )
+        lengths = {formulation_id: len(store) for formulation_id, store in self.stores.items()}
+        if len(set(lengths.values())) != 1:
+            raise ValueError(
+                "Materialized formulation sources must have identical row counts: "
+                f"{lengths}."
+            )
+        self._length = next(iter(lengths.values()))
+        if self._length <= 0:
+            raise ValueError("Materialized formulation sources cannot be empty.")
+        self._validate_alignment()
+        self.fingerprint = _sha256_text(
+            canonical_json(
+                {
+                    "version": FORMULATION_RECORD_STORE_VERSION,
+                    "stores": {
+                        formulation_id: self._store_fingerprint(store)
+                        for formulation_id, store in self.stores.items()
+                    },
+                }
+            )
+        )
+
+    @classmethod
+    def _store_fingerprint(cls, store: Sequence[SFTRecord]) -> str:
+        explicit = str(getattr(store, "fingerprint", "")).strip()
+        if explicit:
+            return explicit
+        digest = hashlib.sha256(b"shaft-inline-formulation-store-v1\0")
+        for record in store:
+            payload = {
+                field_name: getattr(record, field_name)
+                for field_name in cls._IDENTITY_FIELDS
+            }
+            payload["image_paths"] = list(record.image_paths)
+            payload["target_text"] = record.target_text
+            encoded = canonical_json(payload).encode("utf-8")
+            digest.update(len(encoded).to_bytes(8, "big"))
+            digest.update(encoded)
+        return digest.hexdigest()
+
+    def _validate_alignment(self) -> None:
+        canonical_id = self.formulation_ids[0]
+        canonical_store = self.stores[canonical_id]
+        for row_index in range(self._length):
+            canonical = canonical_store[row_index]
+            if not str(canonical.target_text).strip():
+                raise ValueError(
+                    f"Materialized formulation {canonical_id!r} has empty target_text "
+                    f"at row {row_index}."
+                )
+            if getattr(canonical, "formulation_targets", None):
+                raise ValueError("Nested formulation_targets are not supported.")
+            for formulation_id in self.formulation_ids[1:]:
+                candidate = self.stores[formulation_id][row_index]
+                if not str(candidate.target_text).strip():
+                    raise ValueError(
+                        f"Materialized formulation {formulation_id!r} has empty target_text "
+                        f"at row {row_index}."
+                    )
+                if getattr(candidate, "formulation_targets", None):
+                    raise ValueError("Nested formulation_targets are not supported.")
+                mismatched = [
+                    field_name
+                    for field_name in self._IDENTITY_FIELDS
+                    if getattr(candidate, field_name) != getattr(canonical, field_name)
+                ]
+                if mismatched:
+                    raise ValueError(
+                        "Materialized formulation sources must align exactly by row; "
+                        f"row={row_index}, canonical={canonical_id!r}, "
+                        f"candidate={formulation_id!r}, mismatched={mismatched}."
+                    )
+
+    def __len__(self) -> int:
+        return self._length
+
+    def __getitem__(self, index: int | slice) -> SFTRecord | list[SFTRecord]:
+        if isinstance(index, slice):
+            return [self[position] for position in range(*index.indices(len(self)))]
+        position = int(index)
+        if position < 0:
+            position += len(self)
+        if position < 0 or position >= len(self):
+            raise IndexError(position)
+        canonical = self.stores[self.formulation_ids[0]][position]
+        return _ShaftPromptSourceRecord(
+            canonical=canonical,
+            targets={
+                formulation_id: self.stores[formulation_id][position].target_text
+                for formulation_id in self.formulation_ids
+            },
+        )
 
 
 class ShaftPromptSourceSchedule:
@@ -185,18 +344,6 @@ class ShaftPromptSourceSchedule:
             )
         )
 
-    @property
-    def reachable_formulation_ids(self) -> frozenset[str]:
-        candidate_weights: Sequence[tuple[float, ...]] = (
-            self._weights if self._weights else (self.static_weights,)
-        )
-        return frozenset(
-            formulation_id
-            for index, formulation_id in enumerate(self.formulation_ids)
-            if any(weights[index] > 0 for weights in candidate_weights)
-        )
-
-
 @dataclass(frozen=True, slots=True)
 class _DatasetPromptSource:
     dataset_name: str
@@ -204,6 +351,7 @@ class _DatasetPromptSource:
     seed: int
     pool: ShaftPromptSourcePool
     schedule: ShaftPromptSourceSchedule
+    formulation_sources: Mapping[str, PromptSourceFormulationSourceConfig]
 
     def active_for(self, split: str) -> bool:
         return self.apply_to == "all" or split == "train"
@@ -251,7 +399,6 @@ def load_prompt_source_pool(path: str | Path) -> ShaftPromptSourcePool:
                 formulation_id="default",
                 sampling_weight=1.0,
                 prompt_variants=prompt_variants,
-                target_program=None,
             ),
         )
     else:
@@ -267,7 +414,7 @@ def load_prompt_source_pool(path: str | Path) -> ShaftPromptSourcePool:
             if not isinstance(raw, dict):
                 raise ValueError(f"PromptSource formulation must be a mapping: {source}")
             unknown_formulation_keys = sorted(
-                set(raw) - {"id", "sampling_weight", "target", "target_template", "prompts"}
+                set(raw) - {"id", "sampling_weight", "prompts"}
             )
             if unknown_formulation_keys:
                 raise ValueError(
@@ -285,32 +432,6 @@ def load_prompt_source_pool(path: str | Path) -> ShaftPromptSourcePool:
                 raw.get("sampling_weight", 1.0),
                 source=f"{source}.sampling_weight",
             )
-            has_target_template = raw.get("target_template") is not None
-            has_materialized_target = raw.get("target") is not None
-            if has_target_template == has_materialized_target:
-                raise ValueError(
-                    f"PromptSource formulation {formulation_id!r} must define exactly one of "
-                    f"target_template or target: materialized ({pool_path})."
-                )
-            if has_materialized_target:
-                if str(raw["target"]).strip().lower() != "materialized":
-                    raise ValueError(
-                        f"PromptSource formulation {formulation_id!r} target must be "
-                        f"'materialized' ({pool_path})."
-                    )
-                target_program = None
-            else:
-                target_template = raw["target_template"]
-                if not isinstance(target_template, str):
-                    raise ValueError(
-                        f"PromptSource formulation {formulation_id!r} target_template must be "
-                        f"a string ({pool_path})."
-                    )
-                target_program = compile_prompt(
-                    target_template.strip(),
-                    arguments=schema,
-                    source=f"{pool_path}#{formulation_id}:target",
-                )
             prompt_variants = tuple(
                 compile_prompt_variants(
                     raw.get("prompts"),
@@ -326,7 +447,6 @@ def load_prompt_source_pool(path: str | Path) -> ShaftPromptSourcePool:
                     formulation_id=formulation_id,
                     sampling_weight=sampling_weight,
                     prompt_variants=prompt_variants,
-                    target_program=target_program,
                 )
             )
         if not any(formulation.sampling_weight > 0 for formulation in compiled):
@@ -339,16 +459,12 @@ def load_prompt_source_pool(path: str | Path) -> ShaftPromptSourcePool:
         "version": PROMPT_SOURCE_POOL_VERSION,
         "pool_id": pool_id,
         "pool_version": version,
+        "explicit_formulations": has_formulations,
         "schema_sha256": schema.fingerprint,
         "formulations": [
             {
                 "id": formulation.formulation_id,
                 "sampling_weight": formulation.sampling_weight,
-                "target_program_sha256": (
-                    formulation.target_program.program_sha256
-                    if formulation.target_program is not None
-                    else "materialized"
-                ),
                 "prompts": [
                     {
                         "id": prompt.variant_id,
@@ -368,12 +484,13 @@ def load_prompt_source_pool(path: str | Path) -> ShaftPromptSourcePool:
         source_path=str(pool_path),
         schema=schema,
         formulations=formulations,
+        explicit_formulations=has_formulations,
         fingerprint=_sha256_text(canonical_json(fingerprint_payload)),
     )
 
 
 class ShaftPromptSource:
-    """Resolve materialized rows or one deterministic coupled prompt/target projection."""
+    """Select one materialized task formulation and one prompt variant."""
 
     def __init__(self, sources: Mapping[str, _DatasetPromptSource]) -> None:
         self._sources = MappingProxyType(dict(sources))
@@ -413,6 +530,136 @@ class ShaftPromptSource:
             )
         )
 
+    def prepare_records(
+        self,
+        dataset_meta: ShaftDatasetMeta,
+        *,
+        split: str,
+        cache_dir: str | None,
+        offline_pipeline: Callable[[Sequence[Any]], Sequence[Any]],
+    ) -> Sequence[Any] | None:
+        """Load an aligned formulation store, or defer to the ordinary data source."""
+
+        source = self._sources.get(str(dataset_meta.dataset_name))
+        if source is None or not source.active_for(str(split)):
+            return None
+        if not source.pool.explicit_formulations:
+            if source.formulation_sources:
+                raise ValueError(
+                    f"PromptSource dataset={dataset_meta.dataset_name!r} defines "
+                    "formulation_sources, but its pool uses top-level prompts."
+                )
+            return None
+        expected_ids = {
+            formulation.formulation_id for formulation in source.pool.formulations
+        }
+        actual_ids = set(source.formulation_sources)
+        if actual_ids != expected_ids:
+            raise ValueError(
+                "PromptSource formulation_sources must match the pool exactly for "
+                f"dataset={dataset_meta.dataset_name!r}: "
+                f"missing={sorted(expected_ids - actual_ids)}, "
+                f"extra={sorted(actual_ids - expected_ids)}."
+            )
+        stores: dict[str, Sequence[SFTRecord]] = {}
+        for formulation in source.pool.formulations:
+            formulation_source = source.formulation_sources[formulation.formulation_id]
+            if split == "train":
+                paths = tuple(formulation_source.train_paths) or (
+                    ()
+                    if not formulation_source.train_path
+                    else (str(formulation_source.train_path),)
+                )
+            else:
+                paths = tuple(formulation_source.val_paths) or (
+                    ()
+                    if not formulation_source.val_path
+                    else (str(formulation_source.val_path),)
+                )
+            if not paths:
+                raise ValueError(
+                    f"PromptSource formulation {formulation.formulation_id!r} has no "
+                    f"materialized {split} source for dataset {dataset_meta.dataset_name!r}."
+                )
+            formulation_meta = replace(
+                dataset_meta,
+                train_paths=(tuple(paths) if split == "train" else ()),
+                val_paths=(tuple(paths) if split == "val" else ()),
+            )
+            validation_fingerprint = _sha256_text(
+                canonical_json(
+                    {
+                        "record_validation_sha256": self.record_validation_fingerprint(
+                            dataset_meta.dataset_name,
+                            split=split,
+                        ),
+                        "formulation_id": formulation.formulation_id,
+                    }
+                )
+            )
+            source_impl = build_data_source(
+                formulation_meta,
+                cache_dir=cache_dir,
+                record_validator=(
+                    lambda record, current_split, current_id=formulation.formulation_id: (
+                        self.validate_formulation_record(
+                            record,
+                            dataset_name=dataset_meta.dataset_name,
+                            split=current_split,
+                            formulation_id=current_id,
+                        )
+                    )
+                ),
+                validation_fingerprint=validation_fingerprint,
+            )
+            stores[formulation.formulation_id] = offline_pipeline(
+                source_impl.load_split(split)
+            )
+        return ShaftFormulationRecordStore(stores)
+
+    def validate_formulation_record(
+        self,
+        record: Any,
+        *,
+        dataset_name: str,
+        split: str,
+        formulation_id: str,
+    ) -> None:
+        source = self._sources.get(str(dataset_name))
+        if source is None or not source.active_for(str(split)):
+            raise ValueError(
+                f"Dataset {dataset_name!r} has materialized formulation sources but no active "
+                "PromptSource formulation pool."
+            )
+        if not source.pool.explicit_formulations:
+            raise ValueError(
+                f"Dataset {dataset_name!r} uses formulation_sources but its PromptSource pool "
+                "defines only top-level prompts."
+            )
+        formulations = {
+            formulation.formulation_id: formulation
+            for formulation in source.pool.formulations
+        }
+        formulation = formulations.get(str(formulation_id))
+        if formulation is None:
+            raise ValueError(
+                f"Unknown materialized formulation {formulation_id!r} for dataset "
+                f"{dataset_name!r}; expected {sorted(formulations)}."
+            )
+        context = self._record_context(record, dataset_name=source.dataset_name)
+        self._validate_pool_envelope(record, context=context)
+        if getattr(record, "formulation_targets", None):
+            raise ValueError(f"Formulation source rows cannot nest formulation targets ({context}).")
+        if not str(getattr(record, "target_text", "") or "").strip():
+            raise ValueError(
+                f"PromptSource formulation {formulation.formulation_id!r} requires a "
+                f"materialized target_text ({context})."
+            )
+        prompt_args = getattr(record, "prompt_args", {})
+        for prompt in formulation.prompt_variants:
+            if prompt.sampling_weight > 0:
+                prompt.render(prompt_args, context=context)
+
     def validate_record(self, record: Any, *, dataset_name: str, split: str) -> None:
         source = self._sources.get(str(dataset_name))
         if source is None or not source.active_for(str(split)):
@@ -445,32 +692,50 @@ class ShaftPromptSource:
         source: _DatasetPromptSource,
     ) -> None:
         context = self._record_context(record, dataset_name=source.dataset_name)
-        if getattr(record, "messages", None):
-            raise ValueError(f"PromptSource pool mode forbids materialized messages ({context}).")
-        if str(getattr(record, "user_prompt", "") or "").strip():
-            raise ValueError(f"PromptSource pool mode forbids materialized user_prompt ({context}).")
+        self._validate_pool_envelope(record, context=context)
         prompt_args = getattr(record, "prompt_args", {})
-        target_text = str(getattr(record, "target_text", "") or "")
-        reachable = source.schedule.reachable_formulation_ids
+        if source.pool.explicit_formulations:
+            target_text = str(getattr(record, "target_text", "") or "")
+            if target_text.strip():
+                raise ValueError(
+                    f"Aligned formulation records must not expose an unselected target_text "
+                    f"({context})."
+                )
+            formulation_targets = dict(getattr(record, "_targets", {}) or {})
+            expected_ids = {
+                formulation.formulation_id for formulation in source.pool.formulations
+            }
+            actual_ids = set(formulation_targets)
+            if actual_ids != expected_ids:
+                raise ValueError(
+                    "Materialized formulation targets must match the PromptSource pool exactly: "
+                    f"missing={sorted(expected_ids - actual_ids)}, "
+                    f"extra={sorted(actual_ids - expected_ids)} ({context})."
+                )
+            if any(not str(value).strip() for value in formulation_targets.values()):
+                raise ValueError(f"Materialized formulation targets cannot be empty ({context}).")
+        else:
+            if getattr(record, "_targets", None):
+                raise ValueError(
+                    f"Top-level prompt pools do not accept formulation targets ({context})."
+                )
+            if not str(getattr(record, "target_text", "") or "").strip():
+                raise ValueError(f"Materialized SFT sample is missing target_text ({context}).")
         for formulation in source.pool.formulations:
-            if formulation.formulation_id not in reachable:
-                continue
-            expects_materialized = formulation.target_program is None
-            if expects_materialized and not target_text.strip():
-                raise ValueError(
-                    f"PromptSource formulation {formulation.formulation_id!r} requires "
-                    f"materialized target_text ({context})."
-                )
-            if not expects_materialized and target_text.strip():
-                raise ValueError(
-                    f"PromptSource formulation {formulation.formulation_id!r} renders target_text; "
-                    f"the canonical row must omit it ({context})."
-                )
             for prompt in formulation.prompt_variants:
                 if prompt.sampling_weight > 0:
                     prompt.render(prompt_args, context=context)
-            if formulation.target_program is not None:
-                formulation.target_program.render(prompt_args, context=context)
+
+    @staticmethod
+    def _validate_pool_envelope(record: Any, *, context: str) -> None:
+        if getattr(record, "messages", None):
+            raise ValueError(f"PromptSource pool mode forbids materialized messages ({context}).")
+        if str(getattr(record, "system_prompt", "") or "").strip():
+            raise ValueError(
+                f"PromptSource pool mode forbids materialized system_prompt ({context})."
+            )
+        if str(getattr(record, "user_prompt", "") or "").strip():
+            raise ValueError(f"PromptSource pool mode forbids materialized user_prompt ({context}).")
 
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
         dataset_name = str(sample.get("dataset_name", "")).strip()
@@ -505,6 +770,11 @@ class ShaftPromptSource:
         if sample.get("messages"):
             raise ValueError(
                 f"PromptSource pool mode forbids materialized messages "
+                f"(dataset={dataset_name!r}, sample={sample_id!r})."
+            )
+        if str(sample.get("system_prompt", "") or "").strip():
+            raise ValueError(
+                f"PromptSource pool mode forbids materialized system_prompt "
                 f"(dataset={dataset_name!r}, sample={sample_id!r})."
             )
         if str(sample.get("user_prompt", "")).strip():
@@ -555,28 +825,25 @@ class ShaftPromptSource:
             prompt_args,
             context=render_context,
         )
-        materialized_target = str(sample.get("target_text", "") or "")
-        if formulation.target_program is None:
-            if not materialized_target.strip():
+        if source.pool.explicit_formulations:
+            formulation_targets = sample.get(_PROMPT_SOURCE_TARGETS_KEY) or {}
+            if not isinstance(formulation_targets, dict):
                 raise ValueError(
-                    f"PromptSource formulation {formulation.formulation_id!r} requires "
-                    f"materialized target_text ({render_context})."
+                    f"PromptSource runtime targets must be a mapping ({render_context})."
                 )
-            target_text = materialized_target
-            target_program_sha256 = ""
+            target_text = str(formulation_targets.get(formulation.formulation_id, "") or "")
+            if not target_text.strip():
+                raise ValueError(
+                    f"Missing materialized target_text for formulation "
+                    f"{formulation.formulation_id!r} ({render_context})."
+                )
         else:
-            if materialized_target.strip():
-                raise ValueError(
-                    f"PromptSource formulation {formulation.formulation_id!r} renders "
-                    f"target_text; the canonical row must omit it ({render_context})."
-                )
-            target_text, target_audit = formulation.target_program.render_with_audit(
-                prompt_args,
-                context=render_context,
-            )
-            target_program_sha256 = target_audit["program_sha256"]
+            target_text = str(sample.get("target_text", "") or "")
+            if not target_text.strip():
+                raise ValueError(f"Materialized target_text is missing ({render_context}).")
 
         updated = dict(sample)
+        updated.pop(_PROMPT_SOURCE_TARGETS_KEY, None)
         updated["system_prompt"] = prompt.system_prompt
         updated["user_prompt"] = user_prompt
         updated["target_text"] = target_text
@@ -593,7 +860,6 @@ class ShaftPromptSource:
             ],
             "variant_weight": prompt.sampling_weight,
             "prompt_program_sha256": prompt_audit["program_sha256"],
-            "target_program_sha256": target_program_sha256,
             "arguments_sha256": prompt_audit["args_sha256"],
             "user_prompt_sha256": _sha256_text(user_prompt),
             "target_text_sha256": _sha256_text(target_text),
@@ -658,5 +924,6 @@ def build_prompt_source_resolver(
             seed=int(default_seed) if config.seed is None else int(config.seed),
             pool=pool,
             schedule=schedule,
+            formulation_sources=MappingProxyType(dict(config.formulation_sources)),
         )
     return ShaftPromptSource(sources)

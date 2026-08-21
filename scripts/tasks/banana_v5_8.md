@@ -1,278 +1,270 @@
 # Banana v5.8 数据准备合同
 
-状态：**准备规范已确定；数据尚未物化，暂不登记 production catalog。**
+本文定义 Banana v5.8 的数据准备方式。当前状态是 **preparation**：在业务 formulation 集合、每个 target
+schema、builder、物化数据和 smoke 都完成前，不登记 production catalog 或正式训练 recipe。
 
-本文定义 Banana v5.8 应如何准备 source truth、structured、SFT、PromptSource pool 和发布 bundle。它是
-具体数据生产任务说明，不是 Shaft 公共接口文档；公共字段与运行时规则见
-[`docs/data.md`](../../docs/data.md)。
+框架公共合同见 [`docs/data.md`](../../docs/data.md)；v5.7 已发布数据见
+[`banana_v5_7.md`](banana_v5_7.md)。
 
-## 1. v5.8 的核心变化
+## 1. v5.8 相对 v5.7 的变化
 
-v5.7 的 reconstruction SFT 行保存一个 materialized `target_text`，运行时只轮换等价 prompt wording。
-v5.8 若要让同一 canonical sample 学习多个人工定义的属性子集，应使用 PromptSource 的
-**task formulation sampling**。A、B、AB 只是最小说明，正式集合可以是任意数量和任意命名：
+v5.7 的 reconstruction 行已经是标准 materialized SFT：
 
-```text
-一条 source/structured 真值
-  -> 一条 canonical SFT row（携带全部可达 formulation 的可重算参数）
-  -> 人工声明的 formulations（例如 A / B / AB / AC / BCD / ...）
-  -> 对应 prompt + 对应 target 原子产生
+```json
+{"image_path":"../images/example.png","sample_id":"example__context_00","dataset_name":"shape_context_reconstruction","system_prompt":"","user_prompt":"","prompt_args":{"proposal_bbox_2d":[115,108,733,621]},"target_text":"{\"type\":\"shape\",\"parameters\":{...}}","extra":{...}}
 ```
 
-不要按 formulation 把同一图片预展开为多条 train row。预展开会复制 row identity、放大数据体积，并让
-curriculum、resume 和 formulation 比例依赖离线展开方式。也不要只轮换 prompt 而复用同一个全量 target；
-这会制造问题与监督不一致。
+v5.8 **不改变这份行格式**。变化只在于同一 canonical sample 可以离线生成多个 task formulation，例如：
 
-框架不会自动生成属性幂集，也不会推断“哪些属性必须同时出现”。pool 作者人工枚举合法组合、各自 target 和
-权重，运行时只负责从当前正权重集合中在线随机选择。
+- `geometry`：完整输出 geometry 子集；
+- `style`：完整输出 style 子集；
+- `geometry_style`：完整输出人工定义的 geometry + style 组合；
+- `full`：完整输出该任务允许的全属性 schema。
 
-属性 A/B 在正式 pool 中必须换成业务语义名，例如 `geometry`、`style`、`points` 或 `appearance`。本文的
-`attribute_a/attribute_b` 只是结构占位符，不是最终业务 schema。
+这些名字只是示例。正式组合由业务人工确定，框架不生成幂集、不推断依赖，也不要求严格的 A/B/AB 三种。
 
-## 2. 真源与目录
+每个 formulation 都是一份完整的 v5.7 形态 SFT JSONL，`target_text` 已由 builder 写好。训练在线阶段只做
+随机选择，不解析 `parameters`，不通过 `prompt_args` 拼 target。
 
-### 2.1 真源
+## 2. Source truth 与派生层级
 
-- 人工数据继续以 `data/raw` 的 maintained contract 为真源；compact `size + layout[]` 不在原地改造成
-  normalized schema。
-- synthetic reconstruction 继续从明确版本的 `gt_standard` 读取属性与几何；selection 只保存
-  source/instance identity。
-- structured row 保存任务完整语义，每个已声明 formulation 都必须能从它或上游真源确定性重建。
-- SFT row 是 PromptSource 输入，不是第二套 target 真源。
+```text
+authoritative raw / gt_standard snapshot
+  -> stable split + source identity selection
+  -> structured canonical sample
+  -> one offline builder invocation
+       -> formulation geometry:       standard SFT JSONL
+       -> formulation style:          standard SFT JSONL
+       -> formulation geometry_style: standard SFT JSONL
+       -> formulation full:           standard SFT JSONL
+  -> PromptSource online weighted selection
+```
 
-若 v5.8 改用新的 synthetic snapshot，必须给 snapshot 独立版本/id，并重新生成 selection；不能沿用旧
-selection 后只改 target 字段。
+- raw/`gt_standard` 是唯一事实真源。
+- structured 保存完整业务语义与坐标变换结果。
+- 每个 formulation target 都必须从同一 structured row 确定性重建。
+- builder 同时写出全部已声明 formulations，避免各脚本产生 identity、crop 或 provenance 漂移。
+- formulation JSONL 是训练派生产物，不是新的业务真源。
 
-### 2.2 建议目录
+如果 v5.8 使用新的 synthetic/raw snapshot，必须冻结新的 snapshot id、split manifest 和 selection；不得只
+改目录名后沿用 v5.7 的审计结论。
+
+## 3. 推荐目录
+
+每个 task 使用一套共享 structured/media，以及按 formulation 分开的 SFT 文件：
 
 ```text
 data/<task>/
-├── selection/train.jsonl       # identity only
-├── structured/train.jsonl      # complete task semantics
-├── structured/val.jsonl
-├── sft/train.jsonl             # canonical PromptSource rows
-├── sft/val.jsonl               # policy 见第 5 节
-├── images/                     # task-local derived media
-├── README.md
-└── build_summary.json
-
-configs/prompts/pools/<task>.v5.8.yaml
-configs/data/banana_v5_8.yaml                 # 数据物化并验收后再创建
-configs/train/banana_*_v5_8.yaml              # catalog 发布后再创建
+├── selection/
+│   ├── train.jsonl
+│   └── val.jsonl
+├── structured/
+│   ├── train.jsonl
+│   ├── val.jsonl
+│   └── images/
+├── sft/
+│   └── formulations/
+│       ├── geometry/
+│       │   ├── train.jsonl
+│       │   └── val.jsonl
+│       ├── style/
+│       │   ├── train.jsonl
+│       │   └── val.jsonl
+│       ├── geometry_style/
+│       │   ├── train.jsonl
+│       │   └── val.jsonl
+│       └── full/
+│           ├── train.jsonl
+│           └── val.jsonl
+└── reports/
+    ├── build_summary.json
+    ├── formulation_alignment.json
+    └── schema_validation.json
 ```
 
-所有 rebuild 先写 staging/新目录，或使用 builder 已支持且目标明确的 `--clean`。不要覆盖 raw 图片，也不要
-让正式 `src/shaft` 或训练配置依赖 `subTasks/`。
+多个 formulation 可以引用同一 task-local image；不需要复制图片。
 
-## 3. Canonical structured row
+## 4. 每份 JSONL 的完整格式
 
-structured schema 可以按任务保留现有字段，但必须含有稳定 identity、媒体、完整任务真值和 provenance。
-示例：
+每行与 v5.7 相同，必须含一个非空 `target_text`：
 
 ```json
 {
+  "image_path": "../../../structured/images/shape_000001__context_00.png",
   "sample_id": "shape_000001__context_00",
-  "image_path": "../images/ab/shape_000001__context_00.png",
-  "image_width": 1024,
-  "image_height": 768,
-  "instances": [
-    {
-      "label": "shape",
-      "bbox": [120, 90, 720, 600],
-      "parameters": {
-        "attribute_a": {"value": 1},
-        "attribute_b": {"value": 2}
-      }
-    }
-  ],
+  "dataset_name": "shape_context_reconstruction",
+  "system_prompt": "",
+  "user_prompt": "",
+  "prompt_args": {
+    "proposal_bbox_2d": [115, 108, 733, 621]
+  },
+  "target_text": "{\"type\":\"shape\",\"parameters\":{...}}",
   "extra": {
-    "source_json": "...",
-    "source_instance_index": 3,
-    "split": "train",
-    "coordinate_space": "qwen_0_999_context_crop",
-    "builder_version": "banana_v5_8"
+    "schema_version": "banana.sft.v5.8",
+    "source_sample_id": "shape_000001",
+    "structured_snapshot_id": "<frozen-id>"
   }
 }
 ```
 
-实际 `parameters` 应继续遵守 shape/line/image 各自业务 schema；不要为了适配本示例给真源制造泛化的
-`attribute_a/attribute_b`。builder 在 structured -> SFT 边界完成明确的字段投影。
-
-## 4. Canonical SFT row
-
-### 4.1 v5.8 多 formulation rendered-target 格式
-
-推荐每个 canonical sample 只写一行：
+当前框架要求 formulation stores 的 `extra` 也完全一致，因此 formulation id 放在目录、manifest 和配置中，
+不要写进每行 `extra`。紧凑形式如下：
 
 ```json
-{"image_path":"../images/ab/shape_000001__context_00.png","sample_id":"shape_000001__context_00","dataset_name":"shape_context_reconstruction","prompt_args":{"proposal_bbox_2d":[115,108,733,621],"attribute_a":{"value":1},"attribute_b":{"value":2}},"extra":{"schema_version":"banana.sft.v5.8","source_sample_id":"shape_000001"}}
+{"image_path":"../../../structured/images/shape_000001__context_00.png","sample_id":"shape_000001__context_00","dataset_name":"shape_context_reconstruction","system_prompt":"","user_prompt":"","prompt_args":{"proposal_bbox_2d":[115,108,733,621]},"target_text":"{\"type\":\"shape\",\"parameters\":{...}}","extra":{"schema_version":"banana.sft.v5.8","source_sample_id":"shape_000001","structured_snapshot_id":"<frozen-id>"}}
 ```
 
-硬性规则：
+同一 split 的所有 formulation 文件逐行满足：
 
-- `image_path` 相对于当前 `sft/*.jsonl` 解析；多图改用有序 `images`。
-- `sample_id` 在 dataset 内唯一且稳定；不同 formulations 不追加不同 id，因为它们不是多条 source row。
-- `dataset_name` 与将来的 catalog key 一致。
-- `prompt_args` 是 JSON object，必须与 pool 的 `arguments` exact match，不能缺字段或多字段。
-- `system_prompt`、`user_prompt`、`messages` 和 `target_text` 省略。写成空字符串虽可规范化，但新数据应直接
-  省略，减少双重真源和歧义。
-- `prompt_args` 中的 atomic 属性或每个 `target_<formulation>` 必须由 structured/source truth 确定性计算；
-  禁止把人工编辑过的最终答案只放在 SFT 行中。
-- `extra` 只放 provenance、schema/build/media 信息；PromptSource 的运行时选择审计由框架写入
-  `extra.prompt_source`。
+1. 行数相同、顺序相同；
+2. `sample_id` 相同且唯一；
+3. 图片路径、dataset name、prompt fields、`prompt_args`、`extra` 完全相同；
+4. 只有 `target_text` 不同；
+5. target 外层继续遵循 v5.7 的任务结构，例如 reconstruction 仍是
+   `{"type":"shape|line|image", "parameters": {...}}`，而不是另造框架格式；
+6. 每个 formulation 的 `parameters` exact schema 在业务侧单独冻结和校验。
 
-### 4.2 只轮换 wording 的数据
+禁止：
 
-如果某个 v5.8 task 没有多 formulation 监督拆分，只需要旧式等义 prompt rotation，则继续提供 materialized
-`target_text`：
+- 一行省略 target、只保存 atomic attributes 到 `prompt_args`；
+- 在行内写 `formulation_targets`、`target_a`、`target_ab` 等多答案映射；
+- 在 PromptSource pool 中写 `target_template` 或 `target: materialized`；
+- 训练运行时从 full target 截字段、合并 JSON 或推断组合依赖。
 
-```json
-{"image_path":"../images/0002.png","sample_id":"0002","prompt_args":{"proposal_bbox_2d":[10,20,300,400]},"target_text":"{\"type\":\"shape\",\"parameters\":{...}}"}
-```
+`prompt_args` 继续只保存 prompt renderer 所需信息，例如 proposal bbox。它不是 target 参数容器。
 
-对应 pool 使用顶层 `prompts` 简写，或一个显式 `target: materialized` formulation。不要把 rendered-target
-和 materialized-target formulation 混在同一个 pool。
+## 5. PromptSource pool
 
-## 5. PromptSource pool 与 curriculum
-
-下面的 A/B/AB 只是最小模板。正式 pool 可以人工列出任意合法组合；框架不会根据 arguments 自动生成组合：
+Pool 人工列出允许的 formulation 与其 prompt variants：
 
 ```yaml
 metadata:
   id: shaft.<task>.formulations.v5.8
   version: v5.8
-  task: <task>
 
 arguments:
   proposal_bbox_2d: {type: bbox_2d_0_999}
-  attribute_a: {type: json}
-  attribute_b: {type: json}
-
-formulations:
-  - id: a
-    sampling_weight: 1.0
-    target_template: '{{ attribute_a | json }}'
-    prompts:
-      - id: main
-        system_prompt: Return compact JSON only.
-        user_prompt_template: >-
-          Reconstruct attribute A for the target near {{ proposal_bbox_2d | json }}.
-
-  - id: b
-    sampling_weight: 1.0
-    target_template: '{{ attribute_b | json }}'
-    prompts:
-      - id: main
-        system_prompt: Return compact JSON only.
-        user_prompt_template: >-
-          Reconstruct attribute B for the target near {{ proposal_bbox_2d | json }}.
-
-  - id: ab
-    sampling_weight: 0.0
-    target_template: '{"A":{{ attribute_a | json }},"B":{{ attribute_b | json }}}'
-    prompts:
-      - id: main
-        system_prompt: Return compact JSON only.
-        user_prompt_template: >-
-          Reconstruct attributes A and B for the target near {{ proposal_bbox_2d | json }}.
-```
-
-训练 YAML 再定义实验 curriculum，不把 schedule 写死在数据行中：
-
-```yaml
-data:
-  prompt_sources:
-    <task>:
-      path: ../prompts/pools/<task>.v5.8.yaml
-      apply_to: train
-      schedule:
-        interpolation: linear
-        points:
-          - source_draw: 0
-            weights: {a: 1.0, b: 1.0, ab: 0.0}
-          - source_draw: 50000
-            weights: {a: 0.5, b: 0.5, ab: 1.0}
-          - source_draw: 150000
-            weights: {a: 0.1, b: 0.1, ab: 1.0}
-```
-
-这些数字只是结构示例。正式边界要根据该 dataset 在 weighted stream 中预计获得的 dataset-local draw 数和
-实验目标确定；它们不是全局 optimizer step。
-
-在线选择是 weighted categorical random，而不是 `A,A,B,B,AB,AB` 或其它固定轮换。相同 logical draw 在
-resume/多 worker/多 rank 下会重放同一选择，但短序列可以连续抽到同一个 formulation，也不保证严格满足
-比例。若不需要 curriculum，直接用 pool 中每个 formulation 的 `sampling_weight` 即可。
-
-### 5.1 复杂依赖的推荐表达
-
-对于简单组合，SFT row 保存 atomic attributes，`target_template` 手工组装。对于深层嵌套或存在人工业务依赖
-的组合，builder 可以从同一 structured truth 为每个**已声明**组合生成一个完整 JSON 参数：
-
-```yaml
-arguments:
-  target_geometry: {type: json}
-  target_style: {type: json}
-  target_geometry_style: {type: json}
-  target_geometry_text_links: {type: json}
 
 formulations:
   - id: geometry
     sampling_weight: 1.0
-    target_template: '{{ target_geometry | json }}'
-    prompts: [{id: main, user_prompt: Reconstruct geometry only.}]
+    prompts:
+      - id: direct
+        system_prompt: Return compact JSON only.
+        user_prompt_template: Reconstruct geometry near {{ proposal_bbox_2d | json }}.
+
   - id: style
     sampling_weight: 1.0
-    target_template: '{{ target_style | json }}'
-    prompts: [{id: main, user_prompt: Reconstruct style only.}]
+    prompts:
+      - id: direct
+        user_prompt_template: Reconstruct style near {{ proposal_bbox_2d | json }}.
+
   - id: geometry_style
     sampling_weight: 2.0
-    target_template: '{{ target_geometry_style | json }}'
-    prompts: [{id: main, user_prompt: Reconstruct geometry and style.}]
-  - id: geometry_text_links
-    sampling_weight: 1.0
-    target_template: '{{ target_geometry_text_links | json }}'
-    prompts: [{id: main, user_prompt: Reconstruct geometry, text, and links.}]
+    prompts:
+      - id: direct
+        user_prompt_template: Reconstruct geometry and style near {{ proposal_bbox_2d | json }}.
+
+  - id: full
+    sampling_weight: 0.0
+    prompts:
+      - id: direct
+        user_prompt_template: Fully reconstruct the target near {{ proposal_bbox_2d | json }}.
 ```
 
-这些 `target_*` 是可重建的 SFT 派生参数，不是 selection/raw 的第二真源。一个 pool 的所有 row 必须支持它的
-全部可达 formulations；若不同样本的可用组合不同，按 eligibility class 拆为多个 named datasets/pools，再
-在线 mixing。当前不在 row 中加入动态 allowlist，也不让训练运行时猜测依赖。
+合法集合可以更复杂，例如 `geometry_text_links`，也可以完全没有某些二元组合。pool 文件本身就是人工组合
+清单，不使用 `all_combinations` 或自动依赖规则。
 
-## 6. Eval policy
+## 6. 训练配置
 
-二选一并在 catalog/task README 中写清：
+每个 formulation id 绑定自己的标准 SFT 路径：
 
-1. `apply_to: train`：训练 JSONL 使用 `prompt_args`；val/test 准备完全 materialized 的固定 prompt + target，
-   且不携带 `prompt_args`。若要分别报告各个 formulation，每个 formulation 生成独立、稳定 id 的 eval row。
-2. `apply_to: all`：train/val 都使用 canonical `prompt_args`，eval 固定在 `source_draw_id=0` 的确定性投影。
-   该方式适合只需要一个固定总体 view 的 eval，不适合要求三项独立指标的场景。
+```yaml
+data:
+  datasets:
+    - dataset_name: <task>
+      weight: 1.0
+      use_for_eval: false
 
-任何 validation/test 都不得使用 train-only crop/view augmentation。空 validation 仍然合法，但必须同时设置
-`use_for_eval: false` 和 `eval.enabled: false`，不能把空文件误当成待补数据。
+  prompt_sources:
+    <task>:
+      path: ../prompts/pools/<task>.v5.8.yaml
+      apply_to: train
+      seed: 17
+      formulation_sources:
+        geometry:
+          train_path: ../../data/<task>/sft/formulations/geometry/train.jsonl
+        style:
+          train_path: ../../data/<task>/sft/formulations/style/train.jsonl
+        geometry_style:
+          train_path: ../../data/<task>/sft/formulations/geometry_style/train.jsonl
+        full:
+          train_path: ../../data/<task>/sft/formulations/full/train.jsonl
+      schedule:
+        interpolation: step
+        points:
+          - source_draw: 0
+            weights: {geometry: 1.0, style: 1.0, geometry_style: 0.0, full: 0.0}
+          - source_draw: 100000
+            weights: {geometry: 0.5, style: 0.5, geometry_style: 1.0, full: 0.5}
+```
 
-## 7. 发布顺序
+dataset 不再同时配置顶层 `train_path`；物理训练来源由对应 PromptSource 管理。外层
+`data.schedule.mixing` 仍负责不同 dataset/task 之间的 mixing，PromptSource 内层负责同一 dataset 的
+formulation sampling。
 
-1. 冻结 v5.8 source snapshot、split manifest 和业务 output schema。
-2. 从 source truth 重建 identity-only selection、structured、task-local media 和 canonical SFT。
-3. 编译每个 v5.8 pool，并对所有 SFT 行执行 exact `prompt_args` preflight。
-4. 对每个人工声明的 formulation 重算 target，使用共享 codec 或 task validator 检查可解析性和 exact schema。
-5. 核验 train/val/test 互斥、structured/SFT/media 一一对应、唯一 id/path、图片尺寸和坐标空间。
-6. 记录 builder 版本、seed、输入 snapshot、行数、排除项、augmentation 分布和 schema version。
-7. 数据真正物化后才创建 `configs/data/banana_v5_8.yaml`，设置新的 `media_snapshot_id`、权重和 eval flags。
-8. 创建 v5.8 训练 YAML，确保每个启用 dataset 恰好映射到一个 pool，并用 strict loader 加载全部 recipe。
-9. 运行 focused config/data tests、抽样分布检查和最短 CPU/GPU SFT smoke 后再声明 bundle ready。
+## 7. 随机与渐进式语义
 
-## 8. 交付前最小检查表
+生产选择是 weighted categorical sampling，不是固定轮换。即使权重相等，序列也可能是
+`geometry, geometry, full, style, ...`，不会承诺 `A,A,B,B,AB,AB`。
 
-- [ ] 人工允许的 formulation 集合、业务字段名、依赖和各自 exact output schema 已冻结。
-- [ ] 每个 canonical sample 的全部可达 formulation 都能从同一 structured/source truth 重算。
-- [ ] train row 没有 materialized prompt/messages/target 与 PromptSource 参数并存。
-- [ ] pool `arguments` 与每行 `prompt_args` exact match，所有可达 variant/formulation 都通过 preflight。
-- [ ] 所有 configured target 都能被对应 codec/validator 解析，键、枚举、坐标系和空值语义一致。
-- [ ] split 两两互斥；validation/test 干净且无 train-only view。
-- [ ] structured、SFT、media 数量与 identity 一一对应，没有未引用媒体或缺图。
-- [ ] catalog、pool、训练 YAML 的 dataset 名、版本、权重、eval flag 和 snapshot id 一致。
-- [ ] task README/build summary 记录实际数字；本文中的占位符和示例数字没有被当成发布基线。
+- 静态训练：只使用 pool 的 `sampling_weight`。
+- 渐进训练：使用 schedule 按 dataset-local `source_draw_id` 改变权重。
+- `step` 在阶段边界直接切换；`linear` 在相邻点之间平滑插值。
+- 相同 seed、数据 snapshot 和 logical draw 可重放同一选择；改变 pool/source/schedule 后不允许冒充 exact
+  resume。
 
-在以上检查完成前，v5.8 的状态应保持“preparation”，不能因为 pool 或 builder 文件存在就登记为 production
-source。
+## 8. 复杂子集与 eligibility
+
+框架不自动处理业务依赖。v5.8 builder 配置需要人工声明：
+
+- formulation id；
+- 从 structured row 构建 target 的确定性函数；
+- exact output schema/codec；
+- 静态权重和 curriculum 权重；
+- 所有样本是否都具备该 formulation。
+
+如果某组样本只能支持 `geometry/style`，另一组支持 `geometry/style/full`，应拆成两个 named dataset 和两个
+pool。不要在一个 pool 内对单行动态禁用 formulation，也不要用 `null` 监督。
+
+## 9. Eval 策略
+
+推荐正式 eval 为每个 formulation 准备稳定、单独命名的 materialized dataset，以便独立报告指标。若确实要
+让同一 eval dataset 走 PromptSource，可使用 `apply_to: all`，并为每个 source 配置逐行对齐的 `val_path`；
+此时一次 eval 只得到 deterministic draw 对应的 formulation 样本，不等同于逐 formulation 全覆盖。
+
+## 10. 构建与发布顺序
+
+1. 冻结 source snapshot、split manifest 和 structured schema。
+2. 人工冻结 formulation 集合、依赖、target schema 和 prompt wording。
+3. builder 从每条 structured row 一次性生成全部 formulation SFT 行。
+4. 检查每份文件的唯一 identity、媒体存在性、target codec/schema。
+5. 检查 formulations 逐行对齐且仅 `target_text` 不同。
+6. 编译 pool，并对全部行执行 `prompt_args` exact schema preflight。
+7. 用 Shaft strict config loader 加载配置，运行 focused data tests 和最短 SFT smoke。
+8. 生成 build/alignment/schema 报告，冻结 `media_snapshot_id`。
+9. 只有以上全部通过后，登记 production catalog/recipe 和数据规模基线。
+
+## 11. 发布清单
+
+- [ ] source snapshot 与 split manifest 已冻结并可追溯。
+- [ ] 合法 formulation 集合和每个 exact target schema 已人工确认。
+- [ ] 每个 formulation 是标准 v5.7 形态 JSONL，逐行都有非空 `target_text`。
+- [ ] 同一 pool 的 JSONL 行数、顺序和 identity 完全一致，只有 target 不同。
+- [ ] `prompt_args` 只服务 prompt renderer，不含 target 组合真值。
+- [ ] pool 不含 `target_template` / `target`，source 行不含多 target mapping。
+- [ ] 所有 target 通过 codec/schema，所有 prompt variants 通过参数 preflight。
+- [ ] 随机分布、curriculum 边界、planning/runtime 一致和 resume fingerprint 已 smoke。
+- [ ] 数据产物、报告、pool、配置、builder 与文档属于同一 v5.8 版本。
+
+在清单完成前，v5.8 保持 preparation 状态。

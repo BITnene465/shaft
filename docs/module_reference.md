@@ -32,7 +32,8 @@
 - `DataConfig`
 - `DataScheduleConfig`：logical draw 的 mixing / shuffle
 - `DatasetSourceConfig.offline_transforms/online_transforms`：dataset 声明的通用变换边界
-- `PromptSourceConfig`：dataset 级 task formulation/prompt/target 投影入口
+- `PromptSourceConfig`：dataset 级 formulation source 绑定、prompt pool 与选择入口
+- `PromptSourceFormulationSourceConfig`：单个离线 formulation 的 train/val 标准 SFT 路径
 - `PromptSourceScheduleConfig`：按 `source_draw_id` 的 step/linear curriculum
 - `DataBatchingConfig`：grouping / cardinality / packing / layout 的父 contract
 - `DataPackingConfig`：独立的 logical-sequence packing 入口
@@ -162,9 +163,11 @@
   rank-local epoch microstep 数；sampler 与 checkpoint cadence 不再各自推导一份 epoch 几何。
 - `data.schedule` 只决定 mixing 与 shuffle，形成确定性的 logical draw stream。
 - `data.prompt_sources` 按 dataset name 选择 PromptSource pool，默认只作用于 train；它先选择 task
-  formulation，再在 formulation 内选择 prompt variant，并原子地产生 prompt/target，不改变 draw 顺序或
-  dataset mixing 权重。curriculum 由 dataset-local `source_draw_id` 驱动，静态/参数化 prompt 与 target
-  program 都复用 `shaft.prompting` 的受限编译器。未配置的 dataset 直接消费 materialized SFT 数据。
+  formulation，再在 formulation 内选择 prompt variant，并取出对应 source 已离线物化的 `target_text`，
+  不改变 draw 顺序或 dataset mixing 权重。formulation source 加载、逐行对齐和 pool exact-match 都封装在
+  `ShaftPromptSource.prepare_records`；DataCenter 不解析内部层级。curriculum 由 dataset-local
+  `source_draw_id` 驱动，只有 prompt 使用 `shaft.prompting` 的受限编译器。未配置的 dataset 直接消费
+  materialized SFT 数据。
 - Arrow build-time record validator 与非空 validation fingerprint 是不可拆分的 API contract；二者必须同时
   提供或同时省略，防止 cache hit 绕过新校验。train execution fingerprint 还组合规范化 record store 与
   `media_snapshot_id`，不能只绑定 sample 数量和 transform。Arrow source fingerprint 绑定 cache format、

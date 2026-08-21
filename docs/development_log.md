@@ -3333,18 +3333,18 @@
 
 - 训练侧原有 `prompt_sampling` 只能在一个 pool 内轮换 user prompt；同一 reconstruction 样本无法正式表达
   “只输出 A”“只输出 B”“同时输出 AB”三种 prompt/target 对。
-- 若只轮换问题而继续使用固定 `target_text`，prompt 与监督范围可能不一致；若由业务脚本分别派生三份数据，
-  又会复制 canonical 样本并把 curriculum、审计和 resume identity 留在框架外。
+- 若只轮换问题而继续使用固定 `target_text`，prompt 与监督范围可能不一致；业务脚本即使已经分别物化三份
+  target，框架也缺少把这些离线 sources 绑定到同一 pool、逐行对齐并可复现选择的合同。
 - “view” 一词容易与 multi-view representation learning 混淆，无法准确描述“问什么、监督什么”的变化。
 
 ### 根因
 
 - 旧配置把能力建模为 `data.transforms.prompt_sampling`，运行时只拥有 prompt variant，没有 task
-  formulation、target program 或 prompt/target 原子投影合同。
+  formulation、离线 target source 绑定或 prompt/target 原子选择合同。
 - 旧 sample context 只有 global `draw_id`；直接用它驱动 curriculum 会让一个 dataset 的阶段随着其它
   dataset mixing 权重变化，无法保持 dataset-local 的渐进训练语义。
-- Prompt pool、transform、审计字段和训练配置分别维护部分状态，缺少一个同时绑定 pool、schedule、seed、
-  prompt program、target program 与选择算法的 execution fingerprint 真源。
+- Prompt pool、transform、审计字段和训练配置分别维护部分状态，缺少一个同时绑定 pool、全部 formulation
+  source snapshots、schedule、seed、prompt program 与选择算法的 execution fingerprint 真源。
 
 ### 影响范围
 
@@ -3355,15 +3355,16 @@
 
 ### 修复方式
 
-- 新增唯一运行时真源 `ShaftPromptSource`：task formulation 原子决定 system/user/target，formulation 内再用
-  独立随机域选择 prompt variant；顶层 `prompts` pool 正式编译为一个 `default + materialized target`
-  formulation，不保留旧 `PromptSamplingTransform` 双轨。
-- `data.prompt_sources.<dataset>` 统一配置 pool、train/all split、seed 与 step/linear schedule；未配置的 dataset
-  直接使用 materialized row，不需要 enabled/fallback 开关。
+- 新增唯一运行时真源 `ShaftPromptSource`：task formulation 选择一份已离线物化的 target source，formulation
+  内再用独立随机域选择 prompt variant；顶层 `prompts` pool 正式编译为单一 `default` formulation，不保留
+  旧 `PromptSamplingTransform` 双轨。
+- `data.prompt_sources.<dataset>` 统一配置 pool、逐 formulation 标准 SFT sources、train/all split、seed 与
+  step/linear schedule；未配置的 dataset 直接使用 materialized row，不需要 enabled/fallback 开关。
 - `ShaftSampleContext` 增加精确 dataset-local `source_draw_id`，concat/weighted 与 shuffle/unshuffle 都从逻辑
   sample stream 直接计算；curriculum 不读取 epoch、optimizer step 或跨进程可变状态。
-- Arrow preflight 验证所有可达 formulation/variant；planning 与 runtime 共用同一 resolver。审计收敛到
-  `extra.prompt_source`，execution fingerprint 绑定 source-draw 算法、pool/schema/program、schedule 和 seed。
+- Arrow preflight 验证所有 formulation sources 的单 target 行、identity 对齐和 prompt variants；planning 与
+  runtime 共用同一 resolver。审计收敛到 `extra.prompt_source`，execution fingerprint 绑定 source snapshots、
+  source-draw 算法、pool/prompt schema、schedule 和 seed。
 - 删除空的全局 `DataTransformsConfig`、旧 `PromptSamplingConfig`、旧 builder 与散落的 `runtime_prompt_*`
   状态；dataset 通用 transform 仍只由 `DatasetSourceConfig.offline_transforms/online_transforms` 声明。
 - worker 环境补齐共享 CUDA 12.8 toolkit，使 PyTorch 2.10 CUDA 12.8 与 DeepSpeed 0.19 能在测试和真实 GPU
@@ -3371,7 +3372,7 @@
 
 ### 回归测试
 
-- focused config/prompting/data/planning 回归覆盖 A/B/AB 原子投影、static/step/linear curriculum、独立随机域、
+- focused config/prompting/data/planning 回归覆盖 A/B/AB 离线 target 选择、static/step/linear curriculum、独立随机域、
   materialized 退化、严格 schema/未知字段拒绝、planning/runtime 一致、fingerprint 与四种 schedule 的精确
   `source_draw_id`；收口后全部通过。
 - framework suite 在调整冷启动测试的有界 timeout 后整套通过；RLHF 分布式 8 场景边界用例也按正式测试
@@ -3389,7 +3390,7 @@
   RNG、epoch callback 或 optimizer step 反推数据阶段。
 - 新 PromptSource schema/config 字段必须进入严格解析、pool/selection fingerprint、Arrow preflight、主链 smoke
   和正式文档；未知字段保持 fail closed。
-- fully materialized 数据始终是无 PromptSource 配置的直接路径，不为兼容性增加第二套 loader、transform 或
+- fully materialized 数据始终是一行一个 `target_text`；formulation 模式只增加对齐 source store，不增加在线
   target 解释逻辑。
 
 ## 2026-08-21：PromptSource 完成后数据文档仍停留在阶段性设计状态
@@ -3400,8 +3401,8 @@
   `prompt_source_design.md`；该文件同时包含目标、迁移步骤、删除计划、当前合同和日期化验收结果。
 - 根 README 仍标注“重构中”，`docs/` 没有一份统一说明 source truth、structured、SFT JSONL、
   materialized 数据与 PromptSource canonical row 的当前数据合同。
-- 准备 Banana v5.8 时，若继续沿用 v5.7 的 materialized target 习惯，容易把同一 sample 展开成 A/B/AB
-  三行，或只换 prompt 不同步切换 target。
+- 准备 Banana v5.8 时，需要把 v5.7 的单 materialized target 扩展为按 formulation 分开的、逐行对齐的标准
+  SFT sources；若只换 prompt 不同步选择对应离线 target，监督范围会错位。
 
 ### 根因
 
@@ -3424,8 +3425,8 @@
 - 新增 `docs/data.md`，统一 source/selection/structured/SFT 主链、三类 materialized/PromptSource row、
   formulation pool、curriculum、fingerprint、审计和发布检查；配置逐字段说明仍由 `config_reference.md` 维护。
 - 删除阶段性 `docs/prompt_source_design.md`，不保留 redirect；迁移过程与验收证据只留在开发日志。
-- 新增 `scripts/tasks/banana_v5_8.md`：规定一条 canonical SFT row 保存完整、可重算的 A/B 参数，由
-  formulation 原子生成 A/B/AB prompt-target；数据未物化前不创建 production catalog 或训练 recipe。
+- 新增 `scripts/tasks/banana_v5_8.md`：规定每个 formulation 都生成一份 v5.7 形态、单 `target_text` 的标准
+  SFT JSONL，各文件逐行对齐，PromptSource 在线只做选择；数据未物化前不创建 production catalog 或 recipe。
 - 更新 README、文档索引、架构/模块/扩展/配置参考和 v5.7 task 文档；README 移除“重构中”，v5.7 明确
   使用 PromptSource 的 `default + materialized target` 简写。
 
@@ -3443,8 +3444,8 @@
 
 - `docs/data.md` 只维护框架公共数据合同；具体数据版本、业务 schema、行数和构建命令继续与
   `scripts/tasks/` 共置。阶段性设计完成后必须合并到当前真源并删除，不长期保留双轨说明。
-- A/B/AB 的业务字段必须先冻结 exact output schema，再由同一 structured/source truth 重算
-  `prompt_args`；不得复制 train row 或只切 prompt 不切 target。
+- A/B/AB 的业务字段必须先冻结 exact output schema，再由同一 structured/source truth 离线重算各自
+  `target_text`；`prompt_args` 只保存 prompt renderer 参数，不得只切 prompt 不切 target。
 - builder 或 pool 文件存在不代表数据已发布。只有 media/JSONL 物化、split/schema/codec 校验和 smoke
   完成后，才创建 catalog、更新 `media_snapshot_id` 并登记训练 recipe。
 - 依赖 DeepSpeed 的本地测试必须显式使用已安装的 CUDA toolkit 环境，避免把 shell 环境变量缺失误判为
@@ -3478,8 +3479,8 @@
   draw 可重放，不保证短前缀比例或 round-robin 顺序。
 - 公共 data reference 和 v5.8 task 文档改为“人工枚举任意合法组合，在线随机选择”。框架不自动生成幂集、
   不解析 formulation 依赖，也不增加 row-level 动态 allowlist。
-- 简单组合由 `target_template` 组装 atomic arguments；复杂组合允许 derived builder 为每个已声明
-  formulation 生成可从 structured/source truth 重算的 `target_<formulation>` JSON 参数。
+- 无论组合简单或复杂，derived builder 都为每个已声明 formulation 生成一份可从 structured/source truth
+  重算的标准 SFT target source；训练运行时不组装 JSON。
 - 一个 pool 的 rows 若不是同一 eligibility class，则拆成不同 named datasets/pools，再由通用 mixing 组合。
 
 ### 回归测试
@@ -3496,4 +3497,64 @@
 - 文档出现具体抽样序列时必须同时标明它是随机观测、固定测试夹具还是生产策略，不能从一次可复现序列外推
   为 round-robin 合同。
 - A/B/AB 只能作为最小示例；正式说明必须同时覆盖任意 formulation 数量和命名。
-- 组合集合和依赖由版本化 pool/derived builder 人工维护；运行时只负责严格校验、按权重选择、投影和审计。
+- 组合集合和依赖由版本化 pool/derived builder 人工维护；运行时只负责严格校验、按权重选择和审计。
+
+## 2026-08-21：渐进式 formulation 错误依赖 prompt_args 在线生成 target
+
+### 现象
+
+- 初版 formulation 实现把业务 atomic attributes 放入 `prompt_args`，再由 pool 的 `target_template` 在线拼出
+  A/B/AB target；这使 prompt 参数 schema 同时承担监督数据 schema。
+- 后续改为离线 target 时，装配逻辑一度进入 `ShaftDataCenter`，让通用 DataCenter 开始解析 formulation id、
+  source mapping 和逐行对齐规则，破坏 PromptSource 的独立边界。
+- source loader 仍允许“有 `prompt_args` 就可以没有 `target_text`”，继续保留了旧在线 target 路径的暗门。
+
+### 根因
+
+- 混淆了 prompt templating 与 task formulation：前者只改变输入措辞，后者决定监督目标。
+- 把“同一 canonical sample 的多个离线训练视图”误建模为一行多参数、在线 target program，而不是多个对齐
+  的标准单 target record stores。
+- PromptSource 的 source preparation API 没有在设计初期收口，导致 DataCenter 临时接管了内部层级。
+
+### 影响范围
+
+- 影响需要任意人工属性子集、随机 formulation sampling 和渐进式权重的 SFT dataset。
+- 在线模板会把业务字段/依赖耦合进框架，无法复用 v5.7 的标准 SFT 数据合同；DataCenter 耦合会让其它算法
+  和 source types 被迫理解 PromptSource 私有语义。
+- 本问题属于 data/PromptSource 架构与监督语义偏差，不是模型能力问题，也不是 eval、codec 或 metric 误判。
+
+### 修复方式
+
+- 删除 `target_template`、`target: materialized` 和 target program；formulation pool 只声明 id、权重与 prompts。
+- 每个 formulation 使用一份逐行对齐、格式与 v5.7 相同的标准 SFT JSONL，每行必须有一个非空
+  `target_text`；source JSONL 禁止嵌入多 target mapping。
+- `prompt_args` 恢复为纯 prompt renderer 参数。source loader 即使看到非空 `prompt_args` 也仍要求 materialized
+  target。
+- `formulation_sources` 移入 `PromptSourceConfig`。PromptSource 自己完成 source/pool exact match、Arrow
+  validation、逐行 identity 对齐、内部组合 store、随机选择与审计；DataCenter 只调用
+  `ShaftPromptSource.prepare_records`，普通 `DatasetSourceConfig` 和 `SFTRecord` 不含 formulation 字段；
+  `SFTDataset` 只调用通用的 opaque runtime-field hook，不识别 formulation 或多 target 语义。
+- 组合 store fingerprint 优先绑定子 store snapshot；自定义 offline transform 若返回无 fingerprint 的内联
+  sequence，则逐行 hash 全部 identity 与 materialized target，禁止退化成只绑定行数。
+- v5.8 文档改为“每个人工 formulation 一份标准 SFT source”；复杂依赖全部由离线 builder 配置和物化。
+
+### 回归测试
+
+- source tests 覆盖 `prompt_args` 不能替代 target，以及 source JSONL 禁止 `formulation_targets`。
+- config tests 覆盖 PromptSource 自管 formulation source path、与 dataset 顶层 train source 互斥。
+- data tests 覆盖 pool/source id exact match、逐行 identity mismatch 拒绝、planning/runtime 选择同一离线 target。
+- sampling tests 覆盖任意四 formulation 的 `1:2:3:4` 随机分布、step/linear curriculum、独立 prompt variant
+  随机域、旧 target 配置键拒绝和普通单 target prompt rotation。
+- fingerprint 回归覆盖无显式 fingerprint 的内联 formulation stores，任一 target 内容变化都会改变组合
+  store fingerprint。
+- 最短 SFT 训练 smoke 使用强制 AB 权重，验证 collator/trainer 实际消费预写 AB target。
+
+### 后续防线
+
+- `prompt_args` 永远只描述 prompt renderer 输入；任何 target 字段、组合依赖或 target 生成函数进入其中都应
+  视为边界回归。
+- 标准 source record 永远是一行一个 materialized target。多 formulation 只能通过 PromptSource 管理的对齐
+  record stores 表达，不增加业务专用 JSONL schema。
+- DataCenter、sampler、collator 和 trainer 不解析 formulation id 或 target 结构；PromptSource 新能力必须先
+  通过独立 API 暴露，再由 DataCenter 做单一调用。
+- 文档和测试示例出现 A/B/AB 时必须说明它只是任意人工集合的最小示例，且生产选择是随机而非固定轮换。

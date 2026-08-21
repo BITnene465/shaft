@@ -197,35 +197,46 @@ def test_prompt_source_formulation_sft_smoke(tmp_path: Path) -> None:
         train_size=2,
         val_size=1,
     )
-    train_path = tmp_path / "train.jsonl"
     image_path = tmp_path / "image.png"
-    rows = [
+    a_rows = [
         {
             "image_path": str(image_path),
             "sample_id": f"s{index}",
-            "prompt_args": {"a": {"value": index}, "b": [index, index + 1]},
+            "target_text": json.dumps({"A": {"value": index}}, separators=(",", ":")),
         }
         for index in range(2)
     ]
-    train_path.write_text(
-        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+    ab_rows = [
+        {
+            "image_path": str(image_path),
+            "sample_id": f"s{index}",
+            "target_text": json.dumps(
+                {"A": {"value": index}, "B": [index, index + 1]},
+                separators=(",", ":"),
+            ),
+        }
+        for index in range(2)
+    ]
+    a_path = tmp_path / "a.jsonl"
+    ab_path = tmp_path / "ab.jsonl"
+    a_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in a_rows),
+        encoding="utf-8",
+    )
+    ab_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in ab_rows),
         encoding="utf-8",
     )
     pool_path = tmp_path / "prompt-source.yaml"
     pool_path.write_text(
         """
 metadata: {id: smoke.prompt-source, version: v1}
-arguments:
-  a: {type: json}
-  b: {type: json}
 formulations:
   - id: a
-    target_template: '{{ a | json }}'
     prompts:
       - id: direct
         user_prompt: Reconstruct A.
   - id: ab
-    target_template: '{"A":{{ a | json }},"B":{{ b | json }}}'
     prompts:
       - id: direct
         user_prompt: Reconstruct A and B.
@@ -237,6 +248,10 @@ formulations:
     payload["data"]["prompt_sources"] = {
         "smoke_ds": {
             "path": str(pool_path),
+            "formulation_sources": {
+                "a": {"train_path": str(a_path)},
+                "ab": {"train_path": str(ab_path)},
+            },
             "schedule": {
                 "interpolation": "step",
                 "points": [
@@ -245,6 +260,8 @@ formulations:
             },
         }
     }
+    dataset = payload["data"]["datasets"][0]
+    dataset.pop("train_path")
     config_path.write_text(
         yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
         encoding="utf-8",

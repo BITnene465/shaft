@@ -184,7 +184,7 @@ grouping/packing 不作用于 eval；`data.datasets[*].weight` 只控制 train s
 | `catalog / datasets` | 配置 -> source snapshots | source 集合、路径、权重、train/eval 资格 | batch 大小、训练顺序 |
 | `schedule` | `draw_id` -> `SampleRef` | source mixing、source 内 row 顺序 | prompt 内容、batch 成员关系 |
 | `datasets[*].online_transforms` | `SampleRef` -> logical sample view | dataset 声明的 planning-safe 在线视图 | `draw_id`、source 权重、row identity |
-| `prompt_sources` | canonical row -> prompt/target view | formulation、prompt variant、原子 target 投影 | `draw_id`、source 权重、row identity |
+| `prompt_sources` | aligned offline targets -> selected prompt/target view | formulation source、prompt variant、curriculum | `draw_id`、dataset mixing、业务 target 构造 |
 | `batching.grouping` | draws -> 有界重排后的 draws | 候选分组和局部顺序 | draw multiset、prompt variant |
 | `batching.cardinality` | draws -> local batch membership | 每卡本 microstep 的 physical-pack 数 | pack 内 segment 组合、tensor layout |
 | `batching.packing` | logical samples -> physical packs | 多个完整 segment 是否共享一个 pack | 样本内容、segment 内 token 顺序 |
@@ -824,14 +824,15 @@ FSDP、DeepSpeed、torch.compile、varlen 下的单样本多图和视频仍明�
 - JSONL 首次加载时会规范化到 source snapshot 指纹化的 Arrow cache；`record_cache_dir` 可覆盖默认的
   `~/.cache/shaft/records`。后续 rank/worker 使用只读 mmap，不再各自保留完整 Python record list。
 - SFT JSONL 可使用顶层 `prompt_args` 保存 prompt 模板参数。它必须是 JSON object，是 Arrow record 的正式
-  JSON 字段，不会进入 `extra`；提供完整 `messages` 的行不能同时提供非空 `prompt_args`。
+  JSON 字段，不会进入 `extra`；提供完整 `messages` 的行不能同时提供非空 `prompt_args`。`prompt_args`
+  不能替代非空 `target_text`，也不能承载在线 target 生成逻辑。
 - SFT/DPO 单图行可使用 `image_path`（兼容 `image`）；多图行使用非空有序列表 `images`，三个字段只能
   选择一个。图片顺序是训练接口契约：显式 `messages` 中的 `type: image` 占位符必须逐个对应且数量相等；
   没有 `messages` 时模板会按 `images` 顺序自动生成占位符。通用 record 的 `user_prompt` 默认 `""`，任务
   prompt 应来自数据、prompt pool 或显式调用参数。
-- DataCenter 在首次构建 Arrow cache 时按对应 pool program 校验每条 SFT record；验证 program fingerprint
-  进入 cache key。后续 mmap 命中表示该 source snapshot 已在同一 schema/template 语义下通过验证，不需要
-  每次启动重新扫描全量数据，也不会先解码图片再在 worker 中发现参数错误。
+- PromptSource 在首次构建 Arrow cache 时按对应 pool prompt schema 校验每条 SFT record，随后校验各
+  formulation store 的行数和 identity 对齐；validation fingerprint 进入 cache key。后续 mmap 命中表示该
+  source snapshot 已在同一 prompt schema 下通过验证，不会先解码图片再在 worker 中发现参数错误。
 - `image_cache_size` 是每个 worker 的解码后 PIL 图像 LRU 容量，默认 `0`（关闭）。多 rank/worker
   环境应按总内存预算谨慎开启。
 - `max_length` 是 processor 后完整训练序列的严格上限，覆盖 multimodal prefix、assistant target 和 EOS，
@@ -857,23 +858,30 @@ data:
 
 ### `data.prompt_sources`
 
-用途：把一条 canonical SFT row 投影成完整的 `system_prompt/user_prompt/target_text`。它统一承载两层选择：
+用途：独立管理 task formulation 的离线 target sources，并为每个 logical draw 完成两层在线选择：
 
 - task formulation：决定问什么、监督什么；数量、命名和合法组合完全由 pool 人工声明，A/B/AB 只是示例；
 - prompt variant：同一 formulation 内轮换语义等价的措辞。
 
-未配置的 dataset 直接使用 materialized 数据，不执行在线投影。这就是与普通 HF/LLaMA-Factory 风格离线
-数据的退化路径，不需要 `enabled: false`。
+每个 formulation 的 `target_text` 必须已经存在于自己的标准 SFT JSONL。PromptSource 只选择答案，不从
+`prompt_args`、full target 或模板生成答案。未配置的 dataset 直接使用普通 materialized 数据。
 
 配置示例：
 
 ```yaml
 data:
+  datasets:
+    - dataset_name: reconstruction
+      use_for_eval: false
   prompt_sources:
     reconstruction:
       path: ../prompts/reconstruction.formulations.yaml
       apply_to: train       # train | all
       seed: 42              # 省略时继承 experiment.seed
+      formulation_sources:
+        a: {train_path: ../data/reconstruction/sft/formulations/a/train.jsonl}
+        b: {train_path: ../data/reconstruction/sft/formulations/b/train.jsonl}
+        ab: {train_path: ../data/reconstruction/sft/formulations/ab/train.jsonl}
       schedule:
         interpolation: linear  # step | linear
         points:
@@ -888,34 +896,34 @@ formulation pool 示例：
 ```yaml
 metadata: {id: shaft.reconstruction.formulations.v1, version: v1}
 arguments:
-  object_a: {type: json}
-  object_b: {type: json}
+  proposal_bbox_2d: {type: bbox_2d_0_999}
 formulations:
   - id: a
     sampling_weight: 1.0
-    target_template: '{{ object_a | json }}'
     prompts:
       - id: direct
         system_prompt: Return compact JSON only.
-        user_prompt: Reconstruct attribute A.
+        user_prompt_template: Reconstruct A near {{ proposal_bbox_2d | json }}.
   - id: b
     sampling_weight: 1.0
-    target_template: '{{ object_b | json }}'
     prompts:
       - id: direct
-        user_prompt: Reconstruct attribute B.
+        user_prompt_template: Reconstruct B near {{ proposal_bbox_2d | json }}.
   - id: ab
     sampling_weight: 0.0
-    target_template: '{"A":{{ object_a | json }},"B":{{ object_b | json }}}'
     prompts:
       - id: direct
-        user_prompt: Reconstruct attributes A and B.
+        user_prompt_template: Reconstruct A and B near {{ proposal_bbox_2d | json }}.
 ```
 
-对应 rendered-target canonical 行不物化多个答案：
+每个 source 文件内仍是一行一个离线 target。例如 A 与 AB 文件中的对齐行分别为：
 
 ```json
-{"image_path":"images/a.png","prompt_args":{"object_a":{"x":1},"object_b":{"y":2}}}
+{"image_path":"images/a.png","sample_id":"a-1","prompt_args":{"proposal_bbox_2d":[1,2,300,400]},"target_text":"{\"A\":{\"x\":1}}"}
+```
+
+```json
+{"image_path":"images/a.png","sample_id":"a-1","prompt_args":{"proposal_bbox_2d":[1,2,300,400]},"target_text":"{\"A\":{\"x\":1},\"B\":[2,3]}"}
 ```
 
 现有顶层 `prompts` pool 是正式简写：它会编译成一个名为 `default`、使用 materialized target 的
@@ -923,17 +931,16 @@ formulation，因此当前 prompt 轮换自然属于 PromptSource，而不是另
 
 约束：
 
-- pool 路径相对训练 YAML 解析。`apply_to=train` 要求 eval 行已经 materialized；`apply_to=all` 也投影 eval，
-  eval 固定使用 `source_draw_id=0`。
-- `formulations` 与顶层 `prompts` 只能二选一。每个 formulation 必须选择 `target_template` 或
-  `target: materialized`，并至少包含一个正权重 prompt variant。
-- pool 级 `arguments` 是 prompt 与 target program 的共同 schema。SFT `prompt_args` 因此表示整个
-  PromptSource 的参数，而不只是 user prompt 参数。
+- pool 与 formulation source 路径都相对训练 YAML 解析。`formulation_sources` id 必须与 pool exact match。
+- formulation 模式禁止 dataset 顶层 `train_path`；`apply_to=train` 的 eval 走顶层 materialized val，
+  `apply_to=all` 则要求每个 formulation source 都有对齐 val。
+- `formulations` 与顶层 `prompts` 只能二选一。formulation 只声明 prompts；`target_template`、`target` 和
+  source 行内多 target mapping 都会被拒绝。
+- pool 级 `arguments` 只约束 prompt renderer；每行 `prompt_args` 不能承担 target 组合真值。
 - 动态语法只有 `{{ name }}` 与 `{{ name | json }}`；不支持 Jinja、属性访问、表达式或任意代码。类型支持
   `string/enum/integer/float/boolean/json/bbox_2d_0_999`，所有参数必须齐全且不能多出 schema。
-- pool 模式禁止 materialized `messages/user_prompt`。rendered-target formulation 禁止非空 `target_text`；
-  materialized-target formulation 要求非空 `target_text`。所有可达 formulation/variant 在 Arrow preflight
-  阶段统一验证，不能等随机抽到时才失败。
+- pool 模式禁止 materialized `messages/system_prompt/user_prompt`。每个 formulation source 的
+  `target_text` 必须非空；各 source 行数和 identity 字段完全对齐，仅 target 可以不同。
 - `schedule.points` 首点必须是 0 且严格递增；每点完整列出所有 formulation，权重有限、非负并至少有一个
   正值。未配置 schedule 时使用 formulation 的静态 `sampling_weight`。
 - 每个 draw 在当前正权重 formulations 中执行 weighted categorical sampling，不是 round-robin；短前缀不
@@ -944,8 +951,8 @@ formulation，因此当前 prompt 轮换自然属于 PromptSource，而不是另
   分布；planning/runtime、多 worker、DP rank 和 exact resume 对同一 draw 的结果一致。
 - 投影审计集中写入 `extra.prompt_source`，包含 pool/formulation/variant、全局和 source-local draw、实际权重
   以及 prompt/target/arguments 的 SHA256，不再维护散落的 `runtime_prompt_*` 字段。
-- execution fingerprint 绑定 sample stream、`source_draw_id` 算法、record/media snapshot、pool schema、
-  prompt/target programs、schedule、weights、seed 与 renderer。任一合同变化后旧 checkpoint 只能作为
+- execution fingerprint 绑定 sample stream、`source_draw_id` 算法、全部 formulation record/media
+  snapshots、pool prompt schema、schedule、weights、seed 与 renderer。任一合同变化后旧 checkpoint 只能作为
   `init_from_checkpoint` 启动新 schedule。
 
 完整 pool schema、合法 row 模式、选择算法与验收门禁见

@@ -315,9 +315,10 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - SFT/DPO 的 padded 路径支持单条样本内有序多图；multi-image varlen/sequence packing 仍 fail closed。
 - SFT PromptSource 支持人工配置任意数量、任意命名的 task formulation（A/B/AB 只是最小例子），在线按
   权重做可复现随机选择，并在 formulation 内继续轮换 prompt wording；框架不自动生成属性幂集或推断组合
-  依赖。prompt/target 原子投影和 dataset-local draw 的 step/linear curriculum 与训练 planning 共用受限
-  `{{ name }}` / `{{ name | json }}` renderer。未配置 PromptSource 时直接消费普通 materialized
-  HF/LLaMA-Factory 风格数据。完整合同见
+  依赖。每个 formulation 的标准 SFT JSONL 和 `target_text` 必须离线物化并逐行对齐；`prompt_args` 只服务
+  prompt renderer，运行时不拼装 target。PromptSource 自管 source 绑定、选择和 dataset-local
+  step/linear curriculum，DataCenter 不理解 formulation 内部层级。未配置 PromptSource 时直接消费普通
+  materialized HF/LLaMA-Factory 风格数据。完整合同见
   [`docs/data.md`](docs/data.md)。
 - `DPO`（实验能力；配置、数据、collator 与 TRL 装配合同已接通，但真实 Qwen release gate 尚未完成；
   FSDP+PEFT exact resume 当前不属于支持范围，即使通用配置预检未提前拒绝也不得使用）
