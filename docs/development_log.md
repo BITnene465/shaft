@@ -3606,3 +3606,55 @@
 - formulation 是人工声明的请求属性集合；框架不假设集合之间存在包含关系，也不推断依赖或在线组装 target。
 - PromptSource 概率只允许在 pool 的 `sampling_weight` 中维护；不得重新增加 callback、draw milestone 或
   另一套权重覆盖入口。
+
+## 2026-08-21：points-only eligibility 被误建模为重复 PromptSource pool
+
+### 现象
+
+- `line_context_reconstruction` pool 已经定义 `appearance/points/reconstruction`，但 points-only 数据 cohort
+  又维护了一份 `line_context_points.v5.8.yaml`，重复定义同一个 `points` formulation 和 prompt。
+- 框架要求 `formulation_sources` 与 pool formulations 全量 exact match，使只具备 points target 的真实 line
+  数据无法直接复用 line reconstruction pool。
+
+### 根因
+
+- 混淆了 task formulation 与 dataset eligibility：`points` 是 line reconstruction 的既有 formulation，
+  points-only 只是某个物理数据 cohort 的可选范围。
+- 把“这个 dataset 只能选择哪些 formulation”错误放进新 pool，而没有把
+  `formulation_sources` 的键集合视为 dataset 级 eligibility 真源。
+
+### 影响范围
+
+- 重复 prompt 会产生两份 wording/version 真源，后续修改容易漂移；同一 line reconstruction 子任务也会被
+  错报为两个 PromptSource task/pool。
+- 影响 PromptSource 配置、selection fingerprint、v5.8 preparation recipe 和数据准备文档；不改变 v5.7
+  单 target SFT 行格式，也不是模型能力、eval、codec、metric 或 data label 问题。
+
+### 修复方式
+
+- `formulation_sources` 改为共享 pool formulations 的显式非空子集，其键集合唯一声明当前 dataset cohort 的
+  eligibility；未知 id 和全零 eligible 权重 fail fast。
+- selection、record validation、source loading 和 audit 只遍历 eligible 子集，子集内沿用 pool 的静态权重并
+  重新归一化；resolver/record fingerprint 显式绑定 eligibility id 顺序。
+- 删除重复的 `line_context_points.v5.8.yaml`。`line_context_reconstruction` 与 `line_context_points` 两个物理
+  dataset cohort 都引用 `line_context_reconstruction.v5.8.yaml`；后者只配置现有 `points` source。
+
+### 回归测试
+
+- PromptSource 单测验证共享三 formulation pool 配置单元素 `points`/`b` 子集后，任意 draw 都复用原有 prompt
+  和对应离线 target，且 full/subset resolver fingerprint 不同。
+- DataCenter 主链测试验证 pool 中即使其它 formulation 权重更高，只提供一个 eligible source 时，planning 与
+  runtime 仍选择同一个离线 target；未知 formulation source id 被拒绝。
+- v5.8 配置测试验证两个 line cohort 的 pool path 完全相同，而 eligibility 分别为三 formulation 与
+  `points` 单元素子集。
+- focused config/data/PromptSource 回归全部通过；默认全量回归首次有 49 项统一失败于 shell 未设置
+  `CUDA_HOME`，在 `worker-0` 显式启用用户级 CUDA 12.8 toolkit 后 `--lf` 49 项全部通过。
+- `worker-0` GPU 0 上的 PromptSource 最短 SFT 训练 smoke 通过，确认 trainer 实际消费共享 pool 中选中的
+  formulation prompt 与预写 target。
+
+### 后续防线
+
+- task/prompt 语义相同且 formulation 已存在时，不得为了数据 eligibility 新建或复制 pool/prompt。
+- 不同 eligibility class 继续拆成 named dataset cohort，便于外层 mixing；每个 cohort 只通过
+  `formulation_sources` 键选择共享 pool 子集，不增加 row-level allowlist。
+- 文档和测试必须同时区分 pool 的完整 formulation 集合与 dataset 的 eligible formulation 子集。

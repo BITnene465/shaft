@@ -29,7 +29,14 @@ V5_7_CONFIGS = (
     "banana_sft_27b_qwen36_v5_7_re_full_zero3.yaml",
 )
 
-V5_8_FORMULATIONS = {
+V5_8_POOL_FORMULATIONS = {
+    "grounding_layout": ("labels", "boxes", "objects"),
+    "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
+    "line_context_reconstruction": ("appearance", "points", "reconstruction"),
+    "line_context_points": ("appearance", "points", "reconstruction"),
+    "image_context_reconstruction": ("image_type",),
+}
+V5_8_ELIGIBLE_FORMULATIONS = {
     "grounding_layout": ("labels", "boxes", "objects"),
     "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
     "line_context_reconstruction": ("appearance", "points", "reconstruction"),
@@ -40,7 +47,7 @@ V5_8_FORMULATION_WEIGHTS = {
     "grounding_layout": (1.0, 1.0, 4.0),
     "shape_context_reconstruction": (1.0, 1.0, 4.0),
     "line_context_reconstruction": (1.0, 1.0, 4.0),
-    "line_context_points": (1.0,),
+    "line_context_points": (1.0, 1.0, 4.0),
     "image_context_reconstruction": (1.0,),
 }
 
@@ -79,9 +86,9 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
     config = load_config(Path("configs/train/banana_sft_4b_v5_8_preparation.yaml"))
 
     assert tuple(dataset.dataset_name for dataset in config.data.datasets) == tuple(
-        V5_8_FORMULATIONS
+        V5_8_POOL_FORMULATIONS
     )
-    assert tuple(config.data.catalog_names) == tuple(V5_8_FORMULATIONS)
+    assert tuple(config.data.catalog_names) == tuple(V5_8_POOL_FORMULATIONS)
     assert all(not dataset.train_paths for dataset in config.data.datasets)
     assert all(not dataset.use_for_eval for dataset in config.data.datasets)
     assert config.eval.enabled is False
@@ -93,7 +100,11 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
     assert dataset_weights["line_context_points"] == pytest.approx(2.0)
 
     system_prompts = set()
-    for dataset_name, expected_formulations in V5_8_FORMULATIONS.items():
+    line_full_source = config.data.prompt_sources["line_context_reconstruction"]
+    line_points_source = config.data.prompt_sources["line_context_points"]
+    assert line_points_source.path == line_full_source.path
+
+    for dataset_name, expected_formulations in V5_8_POOL_FORMULATIONS.items():
         source = config.data.prompt_sources[dataset_name]
         pool = load_prompt_source_pool(source.path)
         formulation_ids = tuple(item.formulation_id for item in pool.formulations)
@@ -101,7 +112,7 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
         assert pool.version == "v5.8"
         assert pool.explicit_formulations is True
         assert formulation_ids == expected_formulations
-        assert tuple(source.formulation_sources) == expected_formulations
+        assert tuple(source.formulation_sources) == V5_8_ELIGIBLE_FORMULATIONS[dataset_name]
         assert tuple(
             formulation.sampling_weight for formulation in pool.formulations
         ) == V5_8_FORMULATION_WEIGHTS[dataset_name]

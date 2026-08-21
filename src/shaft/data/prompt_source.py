@@ -27,9 +27,9 @@ from .sources import build_data_source
 from .transforms import planning_safe_online_transform
 
 
-PROMPT_SOURCE_VERSION = "shaft-prompt-source-v3-static-formulations"
+PROMPT_SOURCE_VERSION = "shaft-prompt-source-v4-formulation-eligibility"
 PROMPT_SOURCE_POOL_VERSION = "shaft-prompt-source-pool-v2"
-PROMPT_SOURCE_SELECTION_VERSION = "shaft-prompt-source-selection-v3-static-weights"
+PROMPT_SOURCE_SELECTION_VERSION = "shaft-prompt-source-selection-v4-eligible-formulations"
 FORMULATION_RECORD_STORE_VERSION = "shaft-formulation-record-store-v1"
 _PROMPT_SOURCE_TARGETS_KEY = "_shaft_prompt_source_targets"
 
@@ -236,6 +236,7 @@ class _DatasetPromptSource:
     apply_to: str
     seed: int
     pool: ShaftPromptSourcePool
+    eligible_formulations: tuple[ShaftTaskFormulation, ...]
     formulation_sources: Mapping[str, PromptSourceFormulationSourceConfig]
 
     def active_for(self, split: str) -> bool:
@@ -387,6 +388,10 @@ class ShaftPromptSource:
                     "apply_to": source.apply_to,
                     "seed": source.seed,
                     "pool_sha256": source.pool.fingerprint,
+                    "eligible_formulations": [
+                        formulation.formulation_id
+                        for formulation in source.eligible_formulations
+                    ],
                 }
                 for dataset_name, source in sorted(self._sources.items())
             },
@@ -405,7 +410,19 @@ class ShaftPromptSource:
                     "split": str(split),
                     "active": active,
                     "source_sha256": (
-                        source.pool.fingerprint if active and source is not None else "materialized"
+                        _sha256_text(
+                            canonical_json(
+                                {
+                                    "pool_sha256": source.pool.fingerprint,
+                                    "eligible_formulations": [
+                                        formulation.formulation_id
+                                        for formulation in source.eligible_formulations
+                                    ],
+                                }
+                            )
+                        )
+                        if active and source is not None
+                        else "materialized"
                     ),
                 }
             )
@@ -425,25 +442,9 @@ class ShaftPromptSource:
         if source is None or not source.active_for(str(split)):
             return None
         if not source.pool.explicit_formulations:
-            if source.formulation_sources:
-                raise ValueError(
-                    f"PromptSource dataset={dataset_meta.dataset_name!r} defines "
-                    "formulation_sources, but its pool uses top-level prompts."
-                )
             return None
-        expected_ids = {
-            formulation.formulation_id for formulation in source.pool.formulations
-        }
-        actual_ids = set(source.formulation_sources)
-        if actual_ids != expected_ids:
-            raise ValueError(
-                "PromptSource formulation_sources must match the pool exactly for "
-                f"dataset={dataset_meta.dataset_name!r}: "
-                f"missing={sorted(expected_ids - actual_ids)}, "
-                f"extra={sorted(actual_ids - expected_ids)}."
-            )
         stores: dict[str, Sequence[SFTRecord]] = {}
-        for formulation in source.pool.formulations:
+        for formulation in source.eligible_formulations:
             formulation_source = source.formulation_sources[formulation.formulation_id]
             if split == "train":
                 paths = tuple(formulation_source.train_paths) or (
@@ -519,7 +520,7 @@ class ShaftPromptSource:
             )
         formulations = {
             formulation.formulation_id: formulation
-            for formulation in source.pool.formulations
+            for formulation in source.eligible_formulations
         }
         formulation = formulations.get(str(formulation_id))
         if formulation is None:
@@ -584,12 +585,13 @@ class ShaftPromptSource:
                 )
             formulation_targets = dict(getattr(record, "_targets", {}) or {})
             expected_ids = {
-                formulation.formulation_id for formulation in source.pool.formulations
+                formulation.formulation_id for formulation in source.eligible_formulations
             }
             actual_ids = set(formulation_targets)
             if actual_ids != expected_ids:
                 raise ValueError(
-                    "Materialized formulation targets must match the PromptSource pool exactly: "
+                    "Materialized formulation targets must match the dataset eligibility "
+                    "subset exactly: "
                     f"missing={sorted(expected_ids - actual_ids)}, "
                     f"extra={sorted(actual_ids - expected_ids)} ({context})."
                 )
@@ -602,7 +604,7 @@ class ShaftPromptSource:
                 )
             if not str(getattr(record, "target_text", "") or "").strip():
                 raise ValueError(f"Materialized SFT sample is missing target_text ({context}).")
-        for formulation in source.pool.formulations:
+        for formulation in source.eligible_formulations:
             for prompt in formulation.prompt_variants:
                 if prompt.sampling_weight > 0:
                     prompt.render(prompt_args, context=context)
@@ -675,10 +677,10 @@ class ShaftPromptSource:
             source="PromptSource draw_id",
         )
         formulation_weights = tuple(
-            formulation.sampling_weight for formulation in source.pool.formulations
+            formulation.sampling_weight for formulation in source.eligible_formulations
         )
         formulation = _weighted_choice(
-            source.pool.formulations,
+            source.eligible_formulations,
             formulation_weights,
             key=(
                 f"{PROMPT_SOURCE_SELECTION_VERSION}\n{source.seed}\n{dataset_name}\n"
@@ -732,7 +734,7 @@ class ShaftPromptSource:
             "variant_id": str(prompt.variant_id or ""),
             "draw_id": draw_id,
             "formulation_weight": formulation_weights[
-                source.pool.formulations.index(formulation)
+                source.eligible_formulations.index(formulation)
             ],
             "variant_weight": prompt.sampling_weight,
             "prompt_program_sha256": prompt_audit["program_sha256"],
@@ -785,11 +787,46 @@ def build_prompt_source_resolver(
     sources: dict[str, _DatasetPromptSource] = {}
     for dataset_name, config in sorted(configs.items()):
         pool = load_prompt_source_pool(config.path)
+        configured_ids = set(config.formulation_sources)
+        pool_formulations = {
+            formulation.formulation_id: formulation for formulation in pool.formulations
+        }
+        if pool.explicit_formulations:
+            if not configured_ids:
+                raise ValueError(
+                    "PromptSource explicit formulation pools require a non-empty "
+                    f"formulation_sources subset for dataset={dataset_name!r}."
+                )
+            unknown_ids = configured_ids - set(pool_formulations)
+            if unknown_ids:
+                raise ValueError(
+                    "PromptSource formulation_sources must be a subset of the pool for "
+                    f"dataset={dataset_name!r}: unknown={sorted(unknown_ids)}, "
+                    f"available={sorted(pool_formulations)}."
+                )
+            eligible_formulations = tuple(
+                formulation
+                for formulation in pool.formulations
+                if formulation.formulation_id in configured_ids
+            )
+        else:
+            if configured_ids:
+                raise ValueError(
+                    f"PromptSource dataset={dataset_name!r} defines formulation_sources, "
+                    "but its pool uses top-level prompts."
+                )
+            eligible_formulations = pool.formulations
+        if not any(formulation.sampling_weight > 0 for formulation in eligible_formulations):
+            raise ValueError(
+                f"PromptSource dataset={dataset_name!r} eligibility subset needs at least "
+                "one positive formulation sampling_weight."
+            )
         sources[str(dataset_name)] = _DatasetPromptSource(
             dataset_name=str(dataset_name),
             apply_to=str(config.apply_to).strip().lower(),
             seed=int(default_seed) if config.seed is None else int(config.seed),
             pool=pool,
+            eligible_formulations=eligible_formulations,
             formulation_sources=MappingProxyType(dict(config.formulation_sources)),
         )
     return ShaftPromptSource(sources)

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from shaft.config import PromptSourceConfig
+from shaft.config import PromptSourceConfig, PromptSourceFormulationSourceConfig
 from shaft.data import SFTRecord, build_offline_pipeline, build_online_pipeline
 from shaft.data.prompt_source import (
     ShaftFormulationRecordStore,
@@ -45,8 +45,26 @@ formulations:
     )
 
 
-def _static_config(path: Path) -> PromptSourceConfig:
-    return PromptSourceConfig(path=str(path), seed=7)
+def _formulation_sources(*formulation_ids: str) -> dict[
+    str, PromptSourceFormulationSourceConfig
+]:
+    return {
+        formulation_id: PromptSourceFormulationSourceConfig(train_path="unused.jsonl")
+        for formulation_id in formulation_ids
+    }
+
+
+def _static_config(
+    path: Path,
+    *,
+    seed: int = 7,
+    formulation_ids: tuple[str, ...] = ("a", "b", "ab"),
+) -> PromptSourceConfig:
+    return PromptSourceConfig(
+        path=str(path),
+        seed=seed,
+        formulation_sources=_formulation_sources(*formulation_ids),
+    )
 
 
 def _sample(
@@ -161,6 +179,56 @@ def test_prompt_source_selects_materialized_a_b_and_ab(tmp_path: Path) -> None:
         resolver(invalid_context)
 
 
+def test_prompt_source_selects_only_the_configured_shared_pool_subset(
+    tmp_path: Path,
+) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    subset_config = PromptSourceConfig(
+        path=str(pool),
+        seed=7,
+        formulation_sources={
+            "b": PromptSourceFormulationSourceConfig(train_path="unused.jsonl")
+        },
+    )
+    subset_resolver = build_prompt_source_resolver(
+        {"ds": subset_config},
+        default_seed=3,
+    )
+    full_resolver = build_prompt_source_resolver(
+        {"ds": _static_config(pool)},
+        default_seed=3,
+    )
+
+    resolved = [
+        subset_resolver(_sample(draw_id, targets={"b": "[2,3]"}))
+        for draw_id in range(100)
+    ]
+
+    assert {
+        item["extra"]["prompt_source"]["formulation_id"] for item in resolved
+    } == {"b"}
+    assert {item["user_prompt"] for item in resolved} == {"Reconstruct B."}
+    assert {item["target_text"] for item in resolved} == {"[2,3]"}
+    assert subset_resolver.fingerprint != full_resolver.fingerprint
+
+
+def test_prompt_source_rejects_formulation_source_outside_shared_pool(
+    tmp_path: Path,
+) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    config = PromptSourceConfig(
+        path=str(pool),
+        formulation_sources={
+            "unknown": PromptSourceFormulationSourceConfig(train_path="unused.jsonl")
+        },
+    )
+
+    with pytest.raises(ValueError, match="must be a subset.*unknown=\\['unknown'\\]"):
+        build_prompt_source_resolver({"ds": config}, default_seed=3)
+
+
 def test_prompt_source_records_one_structured_audit_object(tmp_path: Path) -> None:
     pool = tmp_path / "pool.yaml"
     _write_formulation_pool(pool)
@@ -186,7 +254,7 @@ def test_prompt_variant_sampling_preserves_static_formulation_distribution(
 ) -> None:
     pool = tmp_path / "pool.yaml"
     _write_formulation_pool(pool)
-    config = PromptSourceConfig(path=str(pool), seed=11)
+    config = _static_config(pool, seed=11)
     resolver = build_prompt_source_resolver({"ds": config}, default_seed=3)
 
     counts = Counter(
@@ -224,7 +292,18 @@ formulations:
         encoding="utf-8",
     )
     resolver = build_prompt_source_resolver(
-        {"ds": PromptSourceConfig(path=str(pool), seed=29)},
+        {
+            "ds": _static_config(
+                pool,
+                seed=29,
+                formulation_ids=(
+                    "geometry",
+                    "style",
+                    "geometry_style",
+                    "geometry_text_links",
+                ),
+            )
+        },
         default_seed=3,
     )
     targets = {
@@ -293,6 +372,33 @@ prompts:
     assert resolved["user_prompt"] in {"first", "second"}
     assert resolved["target_text"] == "materialized"
     assert resolved["extra"]["prompt_source"]["formulation_id"] == "default"
+
+
+def test_explicit_formulation_pool_requires_nonempty_eligibility(
+    tmp_path: Path,
+) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+
+    with pytest.raises(ValueError, match="require a non-empty formulation_sources subset"):
+        build_prompt_source_resolver(
+            {"ds": PromptSourceConfig(path=str(pool))},
+            default_seed=3,
+        )
+
+
+def test_prompt_source_rejects_all_zero_eligible_subset(tmp_path: Path) -> None:
+    pool = tmp_path / "pool.yaml"
+    _write_formulation_pool(pool)
+    config = _static_config(pool, formulation_ids=("a",))
+    payload = pool.read_text(encoding="utf-8").replace(
+        "  - id: a\n    sampling_weight: 1",
+        "  - id: a\n    sampling_weight: 0",
+    )
+    pool.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="eligibility subset needs at least one positive"):
+        build_prompt_source_resolver({"ds": config}, default_seed=3)
 
 
 def test_materialized_mode_is_identity_and_rejects_ignored_args() -> None:

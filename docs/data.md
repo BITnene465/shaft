@@ -100,8 +100,10 @@ sft/formulations/
 
 这里没有在线属性解析、target template 或组合逻辑。PromptSource 只在对齐的离线答案中选择一个。
 
-如果不同样本支持的合法 formulation 集合不同，应按 eligibility class 拆成不同 named dataset/pool，再由
-`data.schedule.mixing` 混合；不要写空 target、row-level 动态 allowlist，也不要让框架推断依赖。
+如果不同样本支持的合法 formulation 集合不同，应按 eligibility class 拆成不同 named dataset cohort，再由
+`data.schedule.mixing` 混合。只要 task 和 prompt 语义相同，这些 cohort 必须复用同一个 PromptSource pool；
+每个 dataset 通过 `formulation_sources` 的键选择自己的合法子集。不要复制 prompt、写空 target、增加
+row-level 动态 allowlist，或让框架推断依赖。
 
 ## 4. PromptSource 配置
 
@@ -112,6 +114,8 @@ sft/formulations/
 data:
   datasets:
     - dataset_name: reconstruction
+      use_for_eval: false
+    - dataset_name: reconstruction_b_only
       use_for_eval: false
 
   prompt_sources:
@@ -126,11 +130,20 @@ data:
           train_path: ../data/reconstruction/sft/formulations/b/train.jsonl
         ab:
           train_path: ../data/reconstruction/sft/formulations/ab/train.jsonl
+
+    reconstruction_b_only:
+      path: ../prompts/reconstruction.formulations.yaml  # 与 reconstruction 复用同一 pool
+      apply_to: train
+      formulation_sources:
+        b:
+          train_path: ../data/reconstruction_b_only/sft/formulations/b/train.jsonl
 ```
 
 约束：
 
-- `formulation_sources` 的 id 必须与 pool 中的 formulations 完全相同；缺少或多出都直接失败。
+- `formulation_sources` 必须是 pool 中 formulations 的显式非空子集；未知 id 直接失败。
+- 该键集合是 dataset 级 eligibility 的唯一真源。运行时只在子集内按 pool 的原始静态权重重新归一化采样；
+  单元素子集因此始终选择同一个既有 formulation/prompt。
 - formulation 模式不能再为同一 dataset 配置顶层 `train_path/train_paths`，避免两套训练真源。
 - `apply_to: train` 时 eval 使用 dataset 顶层已经 materialized 的 `val_path`。
 - `apply_to: all` 时每个 formulation source 还必须提供对齐的 `val_path/val_paths`，dataset 顶层不再提供 val。
@@ -187,7 +200,8 @@ PromptSource 的单 formulation 子集，不存在第二套运行时。
 
 ## 6. 静态权重随机选择
 
-每个 logical draw 先按当前权重随机选择 formulation，再在其内部随机选择 prompt variant：
+每个 logical draw 先在当前 dataset 的 eligible 子集内按 pool 权重随机选择 formulation，再在其内部随机选择
+prompt variant：
 
 ```text
 logical draw identity
@@ -208,7 +222,7 @@ rank 和 exact resume 之间重放。
 
 PromptSource 在训练前完成：
 
-1. pool/formulation source id exact match；
+1. formulation source id 是 pool id 的显式非空子集；
 2. 每份 JSONL 是标准单 target SFT 行；
 3. formulation stores 行数和 identity 字段严格对齐；
 4. 所有 prompt variants 对 `prompt_args` 通过 exact schema preflight；
@@ -216,8 +230,8 @@ PromptSource 在训练前完成：
 
 运行时 `extra.prompt_source` 记录 pool/formulation/variant、`draw_id`、静态权重，以及 prompt
 program、arguments、user prompt 和选中 target 的 SHA256。execution fingerprint 同时绑定逻辑样本流、所有
-formulation source snapshots、media snapshot、pool、static weights、seed 和选择算法；合同改变后旧 checkpoint 只能
-作为新的初始化点，不能冒充 exact resume。
+formulation source snapshots、media snapshot、pool、dataset eligibility 子集、static weights、seed 和选择算法；
+合同改变后旧 checkpoint 只能作为新的初始化点，不能冒充 exact resume。
 
 ## 8. 发布检查
 
@@ -225,7 +239,7 @@ formulation source snapshots、media snapshot、pool、static weights、seed 和
 
 1. source truth、split manifest 和 sample identity 可追溯，train/val/test 不交叉；
 2. 每个 formulation source 都能从同一 structured snapshot 重建；
-3. 同一 pool 的 formulation JSONL 逐行对齐且只有 `target_text` 不同；
+3. 同一 dataset eligibility 子集中的 formulation JSONL 逐行对齐且只有 `target_text` 不同；
 4. 所有 target 通过任务 codec 和 exact output schema；
 5. `prompt_args` 只含 prompt renderer 参数，并通过 pool exact schema；
 6. pool/source/static weights 配置与训练 recipe 一致；

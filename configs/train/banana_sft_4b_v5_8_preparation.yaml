@@ -83,7 +83,7 @@ data:
         reconstruction:
           train_path: ../../data/line_context_reconstruction/sft/formulations/reconstruction/train.jsonl
     line_context_points:
-      path: ../prompts/pools/line_context_points.v5.8.yaml
+      path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
       apply_to: train
       formulation_sources:
         points:

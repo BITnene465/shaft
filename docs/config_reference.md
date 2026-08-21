@@ -874,6 +874,8 @@ data:
   datasets:
     - dataset_name: reconstruction
       use_for_eval: false
+    - dataset_name: reconstruction_b_only
+      use_for_eval: false
   prompt_sources:
     reconstruction:
       path: ../prompts/reconstruction.formulations.yaml
@@ -883,6 +885,11 @@ data:
         a: {train_path: ../data/reconstruction/sft/formulations/a/train.jsonl}
         b: {train_path: ../data/reconstruction/sft/formulations/b/train.jsonl}
         ab: {train_path: ../data/reconstruction/sft/formulations/ab/train.jsonl}
+    reconstruction_b_only:
+      path: ../prompts/reconstruction.formulations.yaml
+      apply_to: train
+      formulation_sources:
+        b: {train_path: ../data/reconstruction_b_only/sft/formulations/b/train.jsonl}
 ```
 
 formulation pool 示例：
@@ -925,7 +932,9 @@ formulation，因此当前 prompt 轮换自然属于 PromptSource，而不是另
 
 约束：
 
-- pool 与 formulation source 路径都相对训练 YAML 解析。`formulation_sources` id 必须与 pool exact match。
+- pool 与 formulation source 路径都相对训练 YAML 解析。`formulation_sources` id 必须组成 pool formulations
+  的显式非空子集；键集合是该 dataset 的 eligibility 真源，未知 id 直接失败。同一 task 的多个 dataset
+  cohort 可以复用同一 pool 并选择不同子集。
 - formulation 模式禁止 dataset 顶层 `train_path`；`apply_to=train` 的 eval 走顶层 materialized val，
   `apply_to=all` 则要求每个 formulation source 都有对齐 val。
 - `formulations` 与顶层 `prompts` 只能二选一。formulation 只声明 prompts；`target_template`、`target` 和
@@ -935,16 +944,18 @@ formulation，因此当前 prompt 轮换自然属于 PromptSource，而不是另
   `string/enum/integer/float/boolean/json/bbox_2d_0_999`，所有参数必须齐全且不能多出 schema。
 - pool 模式禁止 materialized `messages/system_prompt/user_prompt`。每个 formulation source 的
   `target_text` 必须非空；各 source 行数和 identity 字段完全对齐，仅 target 可以不同。
-- 每个 draw 始终按 formulation 的静态 `sampling_weight` 执行 weighted categorical sampling，不是
-  round-robin；短前缀不保证严格比例。`sampling_weight` 必须有限、非负，且 pool 至少有一个正权重。
+- 每个 draw 始终在当前 dataset 的 eligible 子集内按 formulation 的静态 `sampling_weight` 执行 weighted
+  categorical sampling，不是 round-robin；子集内权重自动重新归一化，单元素子集为确定选择。短前缀不保证
+  严格比例。`sampling_weight` 必须有限、非负，且 eligible 子集至少有一个正权重。
   PromptSource 不提供按 epoch、step 或 draw 改权重的 curriculum。
 - 框架不自动生成属性幂集或推断组合依赖；`A`、`B`、`A+B` 等合法请求集合必须逐项人工声明。
 - formulation 和 prompt variant 使用独立的确定性 hash 随机域。增加 prompt wording 不会改变 formulation
   分布；planning/runtime、多 worker、DP rank 和 exact resume 对同一 draw 的结果一致。
 - PromptSource 审计集中写入 `extra.prompt_source`，包含 pool/formulation/variant、全局 draw、实际权重
   以及 prompt/target/arguments 的 SHA256，不再维护散落的 `runtime_prompt_*` 字段。
-- execution fingerprint 绑定 sample stream、全部 formulation record/media snapshots、pool prompt schema、
-  static weights、seed 与 renderer。任一合同变化后旧 checkpoint 只能作为 `init_from_checkpoint` 启动新 run。
+- execution fingerprint 绑定 sample stream、eligible formulation record/media snapshots、pool prompt schema、
+  dataset eligibility 子集、static weights、seed 与 renderer。任一合同变化后旧 checkpoint 只能作为
+  `init_from_checkpoint` 启动新 run。
 
 完整 pool schema、合法 row 模式、选择算法与验收门禁见
 [data.md](data.md)。

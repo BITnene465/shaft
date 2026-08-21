@@ -317,8 +317,9 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
   权重做可复现随机选择，并在 formulation 内继续轮换 prompt wording；框架不自动生成属性幂集或推断组合
   依赖。每个 formulation 的标准 SFT JSONL 和 `target_text` 必须离线物化并逐行对齐；`prompt_args` 只服务
   prompt renderer，运行时不拼装 target。PromptSource 自管 source 绑定和两层静态加权随机选择；概率只由
-  pool 中的 `sampling_weight` 决定，不支持随训练进度变化的 curriculum。DataCenter 不理解 formulation
-  内部层级。未配置 PromptSource 时直接消费普通 materialized HF/LLaMA-Factory 风格数据。完整合同见
+  pool 中的 `sampling_weight` 决定，不支持随训练进度变化的 curriculum。同一任务的不同数据 cohort 可复用
+  同一个 pool，并用 `formulation_sources` 的键声明各自可选的 formulation 子集；DataCenter 不理解
+  formulation 内部层级。未配置 PromptSource 时直接消费普通 materialized HF/LLaMA-Factory 风格数据。完整合同见
   [`docs/data.md`](docs/data.md)。
 - `DPO`（实验能力；配置、数据、collator 与 TRL 装配合同已接通，但真实 Qwen release gate 尚未完成；
   FSDP+PEFT exact resume 当前不属于支持范围，即使通用配置预检未提前拒绝也不得使用）

@@ -219,7 +219,7 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   │   ├── mixing
   │   └── shuffle
   ├── prompt_sources
-  │   └── offline formulation sources / static weighted selection / prompt variant
+  │   └── shared pool / dataset eligibility subset / offline targets / weighted selection
   └── batching
       ├── grouping
       ├── cardinality
@@ -695,8 +695,10 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
   - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache，worker 只读 mmap record store。
   - SFT `prompt_args` 是 normalized record 的正式 JSON 字段，但只服务 prompt renderer。PromptSource 的
     formulation 模式为每个 formulation 绑定一份逐行对齐、单 `target_text` 的标准 SFT source；target 的业务
-    构造全部离线完成。PromptSource 独立负责 source/pool 合同、选择与审计，DataCenter 只调用其记录准备
-    接口，最终下游仍只消费普通 `system_prompt/user_prompt/target_text`。
+    构造全部离线完成。同一 task 的多个 dataset cohort 可以指向同一 pool，各自以
+    `formulation_sources` 键集合声明可选子集。PromptSource 独立负责 source/pool 合同、选择与审计，
+    DataCenter 只调用其记录准备接口，最终下游仍只消费普通
+    `system_prompt/user_prompt/target_text`。
   - `concat` 表示覆盖式计划；`weighted + shuffle=true` 表示固定配额的可复现 stratified source stream，
     每个 source 内部独立置换并在耗尽前无放回。
   - plan 按位置计算 sample ref，不物化或复制全量 Python tuple index。

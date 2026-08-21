@@ -442,21 +442,10 @@ prompts:
     )
 
 
-def test_materialized_formulation_target_is_identical_for_planning_and_actual_reads(
+def test_materialized_formulation_subset_uses_shared_pool_for_planning_and_actual_reads(
     tmp_path: Path,
 ) -> None:
     image = _write_image(tmp_path / "img.png")
-    a_path = _write_jsonl(
-        tmp_path / "a.jsonl",
-        [
-            {
-                "image_path": str(image),
-                "sample_id": "sample-1",
-                "prompt_args": {"proposal_bbox_2d": [10, 20, 300, 400]},
-                "target_text": '{"a":{"x":1}}',
-            }
-        ],
-    )
     ab_path = _write_jsonl(
         tmp_path / "ab.jsonl",
         [
@@ -476,7 +465,7 @@ arguments:
   proposal_bbox_2d: {type: bbox_2d_0_999}
 formulations:
   - id: a
-    sampling_weight: 0
+    sampling_weight: 5
     prompts:
       - id: main
         user_prompt_template: 'Reconstruct A near {{ proposal_bbox_2d | json }}.'
@@ -496,7 +485,6 @@ formulations:
         "ds": PromptSourceConfig(
             path=str(prompt_pool),
             formulation_sources={
-                "a": PromptSourceFormulationSourceConfig(train_path=str(a_path)),
                 "ab": PromptSourceFormulationSourceConfig(train_path=str(ab_path)),
             },
         )
@@ -577,7 +565,7 @@ formulations:
         ShaftDataCenter(config.data).prepare_records()
 
 
-def test_formulation_source_ids_must_match_prompt_pool(tmp_path: Path) -> None:
+def test_formulation_source_ids_must_be_a_subset_of_prompt_pool(tmp_path: Path) -> None:
     image = _write_image(tmp_path / "img.png")
     first = _write_jsonl(
         tmp_path / "first.jsonl",
@@ -602,6 +590,7 @@ formulations:
             path=str(pool),
             formulation_sources={
                 "first": PromptSourceFormulationSourceConfig(train_path=str(first)),
+                "unknown": PromptSourceFormulationSourceConfig(train_path=str(first)),
             },
         )
     }
@@ -612,7 +601,7 @@ formulations:
         )
     ]
 
-    with pytest.raises(ValueError, match="must match.*missing=\\['second'\\]"):
+    with pytest.raises(ValueError, match="must be a subset.*unknown=\\['unknown'\\]"):
         ShaftDataCenter(config.data).prepare_records()
 
 
