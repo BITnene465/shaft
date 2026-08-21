@@ -23,7 +23,7 @@ from shaft.prompting import (
 
 from .dataset import SFTRecord
 from .meta import ShaftDatasetMeta
-from .sources import build_data_source
+from .sources import BaseDataSource, ShaftRecordCacheTask, build_data_source
 from .transforms import planning_safe_online_transform
 
 
@@ -457,12 +457,52 @@ class ShaftPromptSource:
     ) -> Sequence[Any] | None:
         """Load an aligned formulation store, or defer to the ordinary data source."""
 
+        formulation_sources = self._build_formulation_data_sources(
+            dataset_meta,
+            split=split,
+            cache_dir=cache_dir,
+        )
+        if formulation_sources is None:
+            return None
+        stores = {
+            formulation_id: offline_pipeline(source_impl.load_split(split))
+            for formulation_id, source_impl in formulation_sources
+        }
+        return ShaftFormulationRecordStore(stores)
+
+    def record_cache_tasks(
+        self,
+        dataset_meta: ShaftDatasetMeta,
+        *,
+        split: str,
+        cache_dir: str | None,
+    ) -> tuple[ShaftRecordCacheTask, ...] | None:
+        formulation_sources = self._build_formulation_data_sources(
+            dataset_meta,
+            split=split,
+            cache_dir=cache_dir,
+        )
+        if formulation_sources is None:
+            return None
+        return tuple(
+            task
+            for _, source_impl in formulation_sources
+            for task in source_impl.record_cache_tasks(split)
+        )
+
+    def _build_formulation_data_sources(
+        self,
+        dataset_meta: ShaftDatasetMeta,
+        *,
+        split: str,
+        cache_dir: str | None,
+    ) -> tuple[tuple[str, BaseDataSource], ...] | None:
         source = self._sources.get(str(dataset_meta.dataset_name))
         if source is None or not source.active_for(str(split)):
             return None
         if not source.pool.explicit_formulations:
             return None
-        stores: dict[str, Sequence[SFTRecord]] = {}
+        sources: list[tuple[str, BaseDataSource]] = []
         for formulation in source.eligible_formulations:
             formulation_source = source.formulation_sources[formulation.formulation_id]
             if split == "train":
@@ -513,10 +553,8 @@ class ShaftPromptSource:
                 ),
                 validation_fingerprint=validation_fingerprint,
             )
-            stores[formulation.formulation_id] = offline_pipeline(
-                source_impl.load_split(split)
-            )
-        return ShaftFormulationRecordStore(stores)
+            sources.append((formulation.formulation_id, source_impl))
+        return tuple(sources)
 
     def validate_formulation_record(
         self,

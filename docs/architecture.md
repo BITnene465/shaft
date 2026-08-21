@@ -699,7 +699,11 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - 通过 `ShaftDatasetMeta -> BaseDataSource -> ShaftDataCenter` 统一多数据源、元信息、增强和 mixing。
 - train split 由不可变 source snapshot、`ShaftSampleSchedule`、有限 `ShaftSamplePlan` adapter 与
   `ShaftSampleRef` 组成：
-  - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache，worker 只读 mmap record store。
+  - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache。分布式冷启动时，DataCenter 先把每个独立
+    JSONL/formulation store 建模为一个 cache task，再按 source bytes 做 largest-first local-rank 分片；同一
+    节点的 ranks 并行完成各自任务后，全部通过无排他锁的只读 mmap 打开已发布 Arrow。builder 仍使用文件锁
+    与原子替换，保证共享或本地 cache 目录下都只有完整产物可见。`num_workers` 只属于后续 DataLoader，
+    不参与这一步。
   - SFT `prompt_args` 是 normalized record 的正式 JSON 字段，但只服务 prompt renderer。PromptSource 的
     formulation 模式为每个 formulation 绑定一份逐行对齐、单 `target_text` 的标准 SFT source；target 的业务
     构造全部离线完成。同一 task 的多个 dataset cohort 可以指向同一 pool，各自以

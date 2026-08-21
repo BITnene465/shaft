@@ -95,6 +95,7 @@
 ### 关键类
 
 - `ShaftDataCenter` / `ShaftDatasetBundle` / `ShaftDatasetMeta`
+- `ShaftRecordCachePlan` / `ShaftRecordCacheWarmupSummary`
 - `SFTRecord` / `DPORecord` / `PPORecord`
 - `ShaftSampleSchedule` / `ShaftSamplePlan` / `ShaftSampleRef` /
   `ShaftSampleContext`

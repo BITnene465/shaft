@@ -3869,3 +3869,92 @@
   allowlist。
 - CoT 数据必须显式区分 reasoning 与最终答案，loader/template 对不匹配的模板和标注 fail closed，不能静默
   丢弃 reasoning 或猜测 `<think>` 边界。
+
+## 2026-08-22：分布式首次启动把 Arrow records cache 串行化到单个 rank
+
+### 现象
+
+- Banana v5.8 八卡启动长期停在 `startup.data/loading`，GPU 仅建立约 911 MiB CUDA context，模型尚未加载。
+- 10 份 JSONL/formulation source 共 2,045,398 条、5.18 GB；每份 300K source 冷缓存约需 3 分 20 秒，
+  全部串行预计 20–25 分钟。
+- 8 个训练 rank 均已存活，但七个 rank 阻塞在同一 `~/.cache/shaft/records/*.lock`，只有一个 rank 写 Arrow。
+
+### 根因
+
+- 每个 rank 按相同 dataset/formulation 顺序调用 `from_jsonl()`；排他文件锁保证了原子发布，却也让所有 rank
+  依次争用同一个任务，没有利用独立 source 之间天然可并行的关系。
+- `data.num_workers` 只在正式 DataLoader 创建后生效，不能加速模型加载前的 JSON parse、record normalization、
+  PromptSource render validation 和 Arrow serialization。
+- 已发布 cache hit 仍先获取 builder 排他锁，使预热后的多 rank mmap 打开也发生短暂串行化。
+- 本问题属于 data runtime/cache 编排与启动可观测性偏差，不是数据内容、模型能力或 eval/codec/metric 误判。
+
+### 影响范围
+
+- 影响 SFT、RL 与 OPD 共用 `ShaftDataCenter` 的多进程冷启动；单进程语义、cache fingerprint、训练样本顺序、
+  PromptSource 选择及 checkpoint resume contract 不变。
+- cache 已命中时主要是额外锁等待；cache 未命中且存在多份大 JSONL/formulation source 时 wall time 最明显。
+
+### 修复方式
+
+- DataCenter 将每个独立 JSONL/formulation store 暴露为指纹化 cache task；`ShaftRecordCachePlan` 对 task 去重，
+  再按 source bytes largest-first 贪心分配到 `LOCAL_WORLD_SIZE` 个 shard。
+- 每个 torchrun rank 在正式 records 装配前只预热自己的 local-rank shard；每个节点独立覆盖完整 task 集，兼容
+  node-local cache，多节点共享 cache 继续由既有 `flock + os.replace` 保证单一原子发布。
+- Arrow cache hit 增加 immutable fast path：先并发验证并打开已发布文件，只有缺失或损坏时才进入排他修复路径。
+- rank 0 启动日志公布 task 数、source 总字节、各 shard 估算字节与 plan fingerprint；各 rank 记录自身 task、
+  rows 和耗时，关闭 `rank_zero_only` 时可展开逐 rank 诊断。
+
+### 回归测试
+
+- 单测覆盖三个 materialized formulation source 形成三个独立任务、三 shard 无重叠覆盖、预热后正式装配不再
+  调用 Arrow builder，以及 torchrun 环境自动采用 `LOCAL_RANK/LOCAL_WORLD_SIZE`。
+- cache hit 测试禁止获取 `fcntl.LOCK_EX`，证明已发布 mmap 不再被 builder 锁串行化。
+- 两进程真实 torchrun smoke 证明两个 local rank 各预热两份互不重叠 source，合并后覆盖四份 cache，最终两端
+  均能加载完整 dataset。
+- 真实 Banana v5.8 配置只读计划检查得到 10 tasks / 8 shards；六份 716.6–807.1 MB 大 source 独占 shard，
+  四份小 source 合并为 292.9 MB 与 325.6 MB 两个 shard，总 source bytes 仍精确为 5.18 GB。
+
+### 后续防线
+
+- `num_workers`、DataLoader prefetch 与 record cache warmup 必须保持不同语义，禁止用一个字段同时控制两阶段。
+- 新 data source 若使用可预热的 immutable cache，应通过 `BaseDataSource.record_cache_tasks()` 暴露原子任务；
+  不支持预热的 source 返回空任务并沿用普通加载，不在 DataCenter 猜测 source 私有格式。
+- cache plan 只优化物化顺序，不进入训练数据/采样语义；fingerprint、验证规则和原子发布必须继续由 record
+  store 单一真源维护。
+
+## 2026-08-22：项目命令反复因 shell 未继承 CUDA_HOME 而失败
+
+### 现象
+
+- CUDA 12.8 toolkit 已安装且 `nvcc` 可用，但新 shell 中没有 `CUDA_HOME`；依赖 DeepSpeed 的 smoke 在收集或
+  导入阶段反复报 `MissingCUDAException: CUDA_HOME does not exist`。
+- 同一套测试只要手工导出 toolkit 路径即可通过，导致环境准备需要在不同命令中重复补写。
+
+### 根因
+
+- toolkit 位于用户级缓存目录，不在系统默认 CUDA 路径；项目此前没有本地、可忽略且由正式入口加载的环境
+  文件。
+- 测试和训练依赖调用方 shell 偶然继承环境变量，项目环境真源缺失。
+
+### 影响范围
+
+- 影响会在导入期检测或编译 CUDA 扩展的训练与测试命令；不改变模型、数据、训练配置或 checkpoint 语义。
+- `torchrun` 的 hostname `err=-3` 是独立的反向解析警告，不由 `CUDA_HOME` 引起。
+
+### 修复方式
+
+- 增加被 Git 忽略的项目本地 `.shaft.env` 与可提交的 `.shaft.env.example`；训练入口和 pytest 在导入训练栈前
+  加载该文件。
+- loader 只接受 `NAME=value` / `export NAME=value`，不执行 shell 展开或命令替换；调用方 shell 已显式设置的
+  同名变量始终优先。
+
+### 回归测试
+
+- 从显式移除 `CUDA_HOME` 的子进程执行训练入口探针，确认自动恢复 CUDA 12.8 路径且 DeepSpeed 0.19.0 可导入。
+- 同样移除 `CUDA_HOME` 后运行完整 smoke suite，全部通过；CLI 单测覆盖显式 shell 值优先与非法 assignment
+  fail fast。
+
+### 后续防线
+
+- 非系统路径的 toolkit 统一登记在本地 `.shaft.env`，不再把个人绝对路径写入源码、公共配置或提交记录。
+- 新增项目环境项时继续保持无 shell 求值、显式环境优先；需要跨机器共享的只提交 example，不提交实际值。

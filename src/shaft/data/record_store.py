@@ -3,7 +3,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from array import array
 from collections.abc import Iterator, Sequence
-from dataclasses import fields
+from dataclasses import dataclass, fields
 import hashlib
 import json
 import os
@@ -20,6 +20,14 @@ RecordT = TypeVar("RecordT")
 _CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v7"
 _JSON_FIELDS = {"image_paths", "messages", "prompt_args", "extra"}
 _RECORD_TYPES: dict[str, type[Any]] = {}
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftRecordCacheIdentity:
+    source_path: str
+    source_size_bytes: int
+    fingerprint: str
+    cache_path: str
 
 
 def register_record_type(record_type: type[RecordT]) -> type[RecordT]:
@@ -89,6 +97,32 @@ def _source_fingerprint(
     return digest.hexdigest()
 
 
+def build_record_cache_identity(
+    path: str | Path,
+    *,
+    dataset_name: str,
+    record_type: type[RecordT],
+    validation_fingerprint: str = "",
+    cache_dir: str | Path | None = None,
+) -> ShaftRecordCacheIdentity:
+    source_path = Path(path).resolve()
+    fingerprint = _source_fingerprint(
+        source_path,
+        dataset_name=dataset_name,
+        record_type=record_type,
+        validation_fingerprint=validation_fingerprint,
+    )
+    resolved_cache_dir = (
+        Path(cache_dir).expanduser() if cache_dir is not None else _default_cache_dir()
+    )
+    return ShaftRecordCacheIdentity(
+        source_path=str(source_path),
+        source_size_bytes=int(source_path.stat().st_size),
+        fingerprint=fingerprint,
+        cache_path=str(resolved_cache_dir / f"{fingerprint}.arrow"),
+    )
+
+
 def _record_to_arrow_row(record: RecordT) -> dict[str, str | None]:
     row: dict[str, str | None] = {}
     for field_info in fields(record):
@@ -140,19 +174,32 @@ class ShaftArrowRecordStore(Sequence[RecordT], Generic[RecordT]):
             raise ValueError(
                 "record_validator and validation_fingerprint must be provided together."
             )
-        jsonl_path = Path(path).resolve()
-        fingerprint = _source_fingerprint(
-            jsonl_path,
+        identity = build_record_cache_identity(
+            path,
             dataset_name=dataset_name,
             record_type=record_type,
             validation_fingerprint=resolved_validation_fingerprint,
+            cache_dir=cache_dir,
         )
-        resolved_cache_dir = (
-            Path(cache_dir).expanduser() if cache_dir is not None else _default_cache_dir()
-        )
+        jsonl_path = Path(identity.source_path)
+        fingerprint = identity.fingerprint
+        cache_path = Path(identity.cache_path)
+        resolved_cache_dir = cache_path.parent
         resolved_cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = resolved_cache_dir / f"{fingerprint}.arrow"
         lock_path = resolved_cache_dir / f"{fingerprint}.lock"
+
+        # Published Arrow files are immutable and arrive through atomic replace. A valid hit can
+        # therefore be opened concurrently by every rank without serializing mmap setup behind
+        # the exclusive builder lock. Corrupt/stale files fall through to the locked repair path.
+        if cache_path.exists():
+            try:
+                return cls(
+                    cache_path,
+                    record_type=record_type,
+                    fingerprint=fingerprint,
+                )
+            except Exception:  # noqa: BLE001 - repair is serialized below
+                pass
 
         with lock_path.open("a+b") as lock_handle:
             try:

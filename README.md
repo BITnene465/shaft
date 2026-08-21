@@ -44,6 +44,10 @@ uv pip install -e ".[train,rlhf]"
 uv pip install -e ".[serve]"
 ```
 
+如果 CUDA toolkit 不在系统默认搜索路径，复制 `.shaft.env.example` 为 `.shaft.env` 并填写
+`CUDA_HOME`。该本地文件不会提交；`scripts/train.py` 与 pytest 会在导入训练栈前读取它，且不会覆盖 shell
+中已显式设置的同名变量。
+
 ## 统一入口
 
 ### 训练

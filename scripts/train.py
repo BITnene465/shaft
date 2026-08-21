@@ -3,6 +3,12 @@ from __future__ import annotations
 
 import os
 import warnings
+from pathlib import Path
+
+from shaft.cli.environment import load_project_environment
+
+
+load_project_environment(Path(__file__).resolve().parents[1] / ".shaft.env")
 
 
 def _configure_early_warning_filters() -> None:

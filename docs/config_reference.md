@@ -849,10 +849,14 @@ FSDP、DeepSpeed、torch.compile、varlen 下的单样本多图和视频仍明�
   DataLoader 会再 shuffle finite-plan positions，因此完整 plan 的 multiset/coverage 保留，但不承诺
   canonical prefix 顺序或 exact resume。
 - `weight=0` 会禁用该 source 的 train split 加载与抽样；若 `use_for_eval=true`，val split 仍可参与评估。
-- `num_workers` 是每个 rank 的 worker 数。例如 8 rank × 4 worker 会产生 32 个读取进程。
+- `num_workers` 是正式 DataLoader 阶段每个 rank 的 worker 数。例如 8 rank × 4 worker 会产生 32 个读取
+  进程；它不控制首次 Arrow record cache 构建。
 - `prefetch_factor` 是每个 worker 预取 batch 数，仅在 `num_workers>0` 时传给 HF DataLoader。
 - JSONL 首次加载时会规范化到 source snapshot 指纹化的 Arrow cache；`record_cache_dir` 可覆盖默认的
-  `~/.cache/shaft/records`。后续 rank/worker 使用只读 mmap，不再各自保留完整 Python record list。
+  `~/.cache/shaft/records`。`torchrun` 冷启动会自动把独立 JSONL/formulation cache task 按文件大小分配给
+  `LOCAL_WORLD_SIZE` 个本地 rank 并行构建，不需要新增配置；每个节点都覆盖完整 task 集，因此本地盘与共享盘
+  均可使用。发布后的 cache hit 不获取 builder 排他锁，后续 rank/worker 并发只读 mmap，不再各自保留完整
+  Python record list。
 - SFT JSONL 可使用顶层 `prompt_args` 保存 prompt 模板参数。它必须是 JSON object，是 Arrow record 的正式
   JSON 字段，不会进入 `extra`；提供完整 `messages` 的行不能同时提供非空 `prompt_args`。`prompt_args`
   不能替代非空 `target_text`，也不能承载在线 target 生成逻辑。

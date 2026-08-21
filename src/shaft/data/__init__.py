@@ -18,7 +18,13 @@ from .collator import (
     SFTCollator,
     ShaftSequenceCollatorBase,
 )
-from .center import ShaftDataCenter, ShaftDatasetBundle, ShaftPreparedRecords
+from .center import (
+    ShaftDataCenter,
+    ShaftDatasetBundle,
+    ShaftPreparedRecords,
+    ShaftRecordCachePlan,
+    ShaftRecordCacheWarmupSummary,
+)
 from .cost import (
     ShaftSampleCost,
     ShaftSampleCostProvider,
@@ -133,6 +139,8 @@ __all__ = [
     "build_dataset_metas",
     "DATA_SOURCE_REGISTRY",
     "ShaftDataCenter",
+    "ShaftRecordCachePlan",
+    "ShaftRecordCacheWarmupSummary",
     "ShaftArrowRecordStore",
     "ShaftConcatRecordStore",
     "ShaftRecordSubset",

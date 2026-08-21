@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import pickle
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -120,6 +121,14 @@ def test_jsonl_loader_builds_and_reuses_memory_mapped_arrow_store(tmp_path: Path
     assert first.cache_path == second.cache_path
     assert Path(first.cache_path).suffix == ".arrow"
     assert first[0].target_text == "{}"
+
+    with patch("fcntl.flock", side_effect=AssertionError("cache hit must not take build lock")):
+        lock_free_hit = load_jsonl_sft_records(
+            jsonl,
+            dataset_name="demo",
+            cache_dir=cache_dir,
+        )
+    assert lock_free_hit.cache_path == first.cache_path
 
     restored = pickle.loads(pickle.dumps(first))
     assert restored[0] == first[0]

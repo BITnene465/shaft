@@ -1,15 +1,43 @@
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 import pytest
 
 from shaft.cli.common import apply_common_overrides, run_from_args
+from shaft.cli.environment import load_project_environment
 from shaft.config import DatasetSourceConfig, RuntimeConfig
 from tests.support.cli import build_common_train_args
 
 
 pytestmark = pytest.mark.component
+
+
+def test_load_project_environment_preserves_explicit_shell_values(tmp_path, monkeypatch) -> None:
+    environment_path = tmp_path / ".shaft.env"
+    environment_path.write_text(
+        "# local toolkit\n"
+        "CUDA_HOME=/project/cuda\n"
+        "export SHAFT_ENV_QUOTED='enabled'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CUDA_HOME", "/shell/cuda")
+    monkeypatch.delenv("SHAFT_ENV_QUOTED", raising=False)
+
+    loaded = load_project_environment(environment_path)
+
+    assert loaded == ("SHAFT_ENV_QUOTED",)
+    assert os.environ["CUDA_HOME"] == "/shell/cuda"
+    assert os.environ["SHAFT_ENV_QUOTED"] == "enabled"
+
+
+def test_load_project_environment_rejects_shell_expressions(tmp_path) -> None:
+    environment_path = tmp_path / ".shaft.env"
+    environment_path.write_text("CUDA_HOME export /cuda\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid environment assignment"):
+        load_project_environment(environment_path)
 
 
 def _valid_runtime_config() -> RuntimeConfig:

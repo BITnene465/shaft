@@ -5,8 +5,11 @@ from pathlib import Path
 
 import pytest
 
+from shaft.cli.environment import load_project_environment
+
 
 _TEST_ROOT = Path(__file__).resolve().parent
+load_project_environment(_TEST_ROOT.parent / ".shaft.env")
 
 # This manifest is the single source of truth for framework test-suite membership.
 # Every present test file must appear in exactly one leaf suite. Pytest validates the

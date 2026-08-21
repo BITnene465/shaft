@@ -1,5 +1,6 @@
 .DS_Store
 .env
+.shaft.env
 __pycache__/
 *.pyc
 *.pyo

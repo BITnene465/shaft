@@ -94,6 +94,35 @@ def _assert_torchrun_succeeded(completed: subprocess.CompletedProcess[str]) -> N
     raise AssertionError(f"torchrun failed (code={completed.returncode}).\n{output}")
 
 
+def test_torchrun_record_cache_warmup_shards_sources_across_local_ranks(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--rdzv-backend=c10d",
+            "--rdzv-endpoint=127.0.0.1:0",
+            "--rdzv-id=record-cache-smoke",
+            "--nnodes=1",
+            "--nproc-per-node=2",
+            "tests/support/distributed_record_cache_probe.py",
+            str(tmp_path),
+        ],
+        cwd=repo_root,
+        env=_torchrun_env(repo_root),
+        text=True,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+
+    _assert_torchrun_succeeded(completed)
+    assert "distributed record cache warmup probe passed" in completed.stdout
+
+
 def _reserve_loopback_port() -> int:
     for _ in range(128):
         port = 20_000 + secrets.randbelow(40_000)

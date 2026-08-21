@@ -1,18 +1,109 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from pathlib import Path
 from collections.abc import Sequence
+from dataclasses import dataclass, field
+import logging
+from pathlib import Path
+import time
 from typing import Any, Callable, Literal
 
 from shaft.utils.messages import count_message_content_type
 
 from .dataset import DPORecord, PPORecord, SFTRecord
 from .meta import ShaftDatasetMeta
-from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore
+from .record_store import (
+    ShaftArrowRecordStore,
+    ShaftConcatRecordStore,
+    build_record_cache_identity,
+)
 from .registry import DATA_SOURCE_REGISTRY, register_data_source
 
 Split = Literal["train", "val"]
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftRecordCacheTaskResult:
+    fingerprint: str
+    dataset_name: str
+    split: Split
+    source_path: str
+    cache_path: str
+    row_count: int
+    duration_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftRecordCacheTask:
+    fingerprint: str
+    dataset_name: str
+    split: Split
+    source_path: str
+    cache_path: str
+    source_size_bytes: int
+    _loader: Callable[[], ShaftArrowRecordStore[Any]] = field(
+        repr=False,
+        compare=False,
+    )
+
+    def warm(self) -> ShaftRecordCacheTaskResult:
+        started_at = time.monotonic()
+        logger.info(
+            "[record-cache] preparing dataset=%s split=%s source=%s bytes=%d",
+            self.dataset_name,
+            self.split,
+            self.source_path,
+            self.source_size_bytes,
+        )
+        records = self._loader()
+        duration_seconds = time.monotonic() - started_at
+        result = ShaftRecordCacheTaskResult(
+            fingerprint=self.fingerprint,
+            dataset_name=self.dataset_name,
+            split=self.split,
+            source_path=self.source_path,
+            cache_path=self.cache_path,
+            row_count=len(records),
+            duration_seconds=duration_seconds,
+        )
+        logger.info(
+            "[record-cache] ready dataset=%s split=%s rows=%d duration=%.2fs cache=%s",
+            self.dataset_name,
+            self.split,
+            result.row_count,
+            result.duration_seconds,
+            self.cache_path,
+        )
+        return result
+
+
+def _build_record_cache_task(
+    path: str | Path,
+    *,
+    dataset_name: str,
+    split: Split,
+    record_type: type[Any],
+    validation_fingerprint: str,
+    cache_dir: str | Path | None,
+    loader: Callable[[], ShaftArrowRecordStore[Any]],
+) -> ShaftRecordCacheTask:
+    identity = build_record_cache_identity(
+        path,
+        dataset_name=dataset_name,
+        record_type=record_type,
+        validation_fingerprint=validation_fingerprint,
+        cache_dir=cache_dir,
+    )
+    return ShaftRecordCacheTask(
+        fingerprint=identity.fingerprint,
+        dataset_name=dataset_name,
+        split=split,
+        source_path=identity.source_path,
+        cache_path=identity.cache_path,
+        source_size_bytes=identity.source_size_bytes,
+        _loader=loader,
+    )
 
 
 def _normalize_message_content(content: Any) -> list[dict[str, Any]]:
@@ -420,59 +511,107 @@ class BaseDataSource(ABC):
     def _resolve_paths(self, split: Split) -> list[str]:
         return list(self.dataset_meta.train_paths if split == "train" else self.dataset_meta.val_paths)
 
+    def record_cache_tasks(self, split: Split) -> tuple[ShaftRecordCacheTask, ...]:
+        _ = split
+        return ()
+
 
 @register_data_source("jsonl_sft")
 class JsonlSFTDataSource(BaseDataSource):
+    def _validation_fingerprint(self, split: Split) -> str:
+        if not self.validation_fingerprint:
+            return ""
+        return f"{self.validation_fingerprint}:{split}"
+
+    def _load_path(self, path: str, *, split: Split) -> ShaftArrowRecordStore[SFTRecord]:
+        return load_jsonl_sft_records(
+            path,
+            dataset_name=self.dataset_meta.dataset_name,
+            cache_dir=self.cache_dir,
+            record_validator=(
+                None
+                if self.record_validator is None
+                else lambda record: self.record_validator(record, split)
+            ),
+            validation_fingerprint=self._validation_fingerprint(split),
+        )
+
     def load_split(self, split: Split) -> Sequence[SFTRecord]:
         return ShaftConcatRecordStore(
-            [
-                load_jsonl_sft_records(
-                    path,
-                    dataset_name=self.dataset_meta.dataset_name,
-                    cache_dir=self.cache_dir,
-                    record_validator=(
-                        None
-                        if self.record_validator is None
-                        else lambda record: self.record_validator(record, split)
-                    ),
-                    validation_fingerprint=(
-                        f"{self.validation_fingerprint}:{split}"
-                        if self.validation_fingerprint
-                        else ""
-                    ),
-                )
-                for path in self._resolve_paths(split)
-            ]
+            [self._load_path(path, split=split) for path in self._resolve_paths(split)]
+        )
+
+    def record_cache_tasks(self, split: Split) -> tuple[ShaftRecordCacheTask, ...]:
+        validation_fingerprint = self._validation_fingerprint(split)
+        return tuple(
+            _build_record_cache_task(
+                path,
+                dataset_name=self.dataset_meta.dataset_name,
+                split=split,
+                record_type=SFTRecord,
+                validation_fingerprint=validation_fingerprint,
+                cache_dir=self.cache_dir,
+                loader=lambda current_path=path: self._load_path(current_path, split=split),
+            )
+            for path in self._resolve_paths(split)
         )
 
 
 @register_data_source("jsonl_dpo")
 class JsonlDPODataSource(BaseDataSource):
+    def _load_path(self, path: str) -> ShaftArrowRecordStore[DPORecord]:
+        return load_jsonl_dpo_records(
+            path,
+            dataset_name=self.dataset_meta.dataset_name,
+            cache_dir=self.cache_dir,
+        )
+
     def load_split(self, split: Split) -> Sequence[DPORecord]:
         return ShaftConcatRecordStore(
-            [
-                load_jsonl_dpo_records(
-                    path,
-                    dataset_name=self.dataset_meta.dataset_name,
-                    cache_dir=self.cache_dir,
-                )
-                for path in self._resolve_paths(split)
-            ]
+            [self._load_path(path) for path in self._resolve_paths(split)]
+        )
+
+    def record_cache_tasks(self, split: Split) -> tuple[ShaftRecordCacheTask, ...]:
+        return tuple(
+            _build_record_cache_task(
+                path,
+                dataset_name=self.dataset_meta.dataset_name,
+                split=split,
+                record_type=DPORecord,
+                validation_fingerprint="",
+                cache_dir=self.cache_dir,
+                loader=lambda current_path=path: self._load_path(current_path),
+            )
+            for path in self._resolve_paths(split)
         )
 
 
 @register_data_source("jsonl_ppo")
 class JsonlPPODataSource(BaseDataSource):
+    def _load_path(self, path: str) -> ShaftArrowRecordStore[PPORecord]:
+        return load_jsonl_ppo_records(
+            path,
+            dataset_name=self.dataset_meta.dataset_name,
+            cache_dir=self.cache_dir,
+        )
+
     def load_split(self, split: Split) -> Sequence[PPORecord]:
         return ShaftConcatRecordStore(
-            [
-                load_jsonl_ppo_records(
-                    path,
-                    dataset_name=self.dataset_meta.dataset_name,
-                    cache_dir=self.cache_dir,
-                )
-                for path in self._resolve_paths(split)
-            ]
+            [self._load_path(path) for path in self._resolve_paths(split)]
+        )
+
+    def record_cache_tasks(self, split: Split) -> tuple[ShaftRecordCacheTask, ...]:
+        return tuple(
+            _build_record_cache_task(
+                path,
+                dataset_name=self.dataset_meta.dataset_name,
+                split=split,
+                record_type=PPORecord,
+                validation_fingerprint="",
+                cache_dir=self.cache_dir,
+                loader=lambda current_path=path: self._load_path(current_path),
+            )
+            for path in self._resolve_paths(split)
         )
 
 

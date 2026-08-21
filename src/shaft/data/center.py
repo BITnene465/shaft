@@ -4,19 +4,32 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
 import hashlib
 import inspect
+import logging
+import time
 from typing import Any, Generic, TypeVar
 
 from torch.utils.data import Sampler
 
 from shaft.config import DataConfig
 from shaft.prompting import canonical_json
+from shaft.utils.distributed import (
+    get_local_rank,
+    get_local_world_size,
+    get_world_size,
+    is_rank_zero,
+)
 
 from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule
 from .prompt_source import ShaftPromptSource, build_prompt_source_resolver
 from .record_store import ShaftConcatRecordStore
 from .sampler import ShaftSampleSampler
 from .meta import ShaftDatasetMeta, build_dataset_metas
-from .sources import build_data_source
+from .sources import (
+    BaseDataSource,
+    ShaftRecordCacheTask,
+    ShaftRecordCacheTaskResult,
+    build_data_source,
+)
 from .transforms import (
     build_offline_pipeline,
     build_online_pipeline,
@@ -28,6 +41,100 @@ from .transforms import (
 RecordT = TypeVar("RecordT")
 DatasetT = TypeVar("DatasetT")
 OnlineSampleTransform = Callable[[dict[str, Any]], dict[str, Any]]
+logger = logging.getLogger(__name__)
+_RECORD_CACHE_PLAN_VERSION = "shaft-record-cache-plan-v1"
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftRecordCachePlan:
+    tasks: tuple[ShaftRecordCacheTask, ...]
+    shards: tuple[tuple[ShaftRecordCacheTask, ...], ...]
+    fingerprint: str
+
+    @classmethod
+    def build(
+        cls,
+        tasks: Sequence[ShaftRecordCacheTask],
+        *,
+        shard_count: int,
+    ) -> ShaftRecordCachePlan:
+        resolved_shard_count = int(shard_count)
+        if resolved_shard_count <= 0:
+            raise ValueError("record cache shard_count must be > 0.")
+        unique_tasks: dict[str, ShaftRecordCacheTask] = {}
+        for task in tasks:
+            existing = unique_tasks.get(task.fingerprint)
+            if existing is not None:
+                if (
+                    existing.source_path != task.source_path
+                    or existing.cache_path != task.cache_path
+                    or existing.dataset_name != task.dataset_name
+                    or existing.split != task.split
+                ):
+                    raise ValueError(
+                        "Record cache fingerprint collision across distinct tasks: "
+                        f"{task.fingerprint}."
+                    )
+                continue
+            unique_tasks[task.fingerprint] = task
+
+        ordered_tasks = sorted(
+            unique_tasks.values(),
+            key=lambda task: (-task.source_size_bytes, task.fingerprint),
+        )
+        shard_tasks: list[list[ShaftRecordCacheTask]] = [
+            [] for _ in range(resolved_shard_count)
+        ]
+        shard_bytes = [0] * resolved_shard_count
+        for task in ordered_tasks:
+            shard_index = min(
+                range(resolved_shard_count),
+                key=lambda index: (
+                    shard_bytes[index],
+                    len(shard_tasks[index]),
+                    index,
+                ),
+            )
+            shard_tasks[shard_index].append(task)
+            shard_bytes[shard_index] += task.source_size_bytes
+        shards = tuple(tuple(shard) for shard in shard_tasks)
+        payload = {
+            "version": _RECORD_CACHE_PLAN_VERSION,
+            "shards": [
+                [task.fingerprint for task in shard]
+                for shard in shards
+            ],
+        }
+        fingerprint = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+        return cls(
+            tasks=tuple(sorted(unique_tasks.values(), key=lambda task: task.fingerprint)),
+            shards=shards,
+            fingerprint=fingerprint,
+        )
+
+    @property
+    def shard_count(self) -> int:
+        return len(self.shards)
+
+    def tasks_for_shard(self, shard_index: int) -> tuple[ShaftRecordCacheTask, ...]:
+        resolved_index = int(shard_index)
+        if resolved_index < 0 or resolved_index >= self.shard_count:
+            raise ValueError(
+                "record cache shard_index must satisfy "
+                f"0 <= shard_index < {self.shard_count}, got {resolved_index}."
+            )
+        return self.shards[resolved_index]
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftRecordCacheWarmupSummary:
+    plan_fingerprint: str
+    shard_index: int
+    shard_count: int
+    task_count: int
+    source_size_bytes: int
+    row_count: int
+    duration_seconds: float
 
 
 @dataclass
@@ -155,16 +262,107 @@ class ShaftDataCenter:
         self.train_sample_budget = (
             int(train_sample_budget) if train_sample_budget is not None else None
         )
+        self._prompt_source: ShaftPromptSource | None = None
+
+    def _get_prompt_source(self) -> ShaftPromptSource:
+        if self._prompt_source is None:
+            self._prompt_source = build_prompt_source_resolver(
+                self.data_config.prompt_sources,
+                default_seed=self.seed,
+            )
+        return self._prompt_source
+
+    def build_record_cache_plan(self, *, shard_count: int) -> ShaftRecordCachePlan:
+        prompt_source = self._get_prompt_source()
+        tasks: list[ShaftRecordCacheTask] = []
+        for dataset_meta in build_dataset_metas(self.data_config):
+            if not dataset_meta.enabled:
+                continue
+            if float(dataset_meta.weight) > 0:
+                tasks.extend(
+                    self._record_cache_tasks_for_split(
+                        dataset_meta,
+                        split="train",
+                        prompt_source=prompt_source,
+                    )
+                )
+            if dataset_meta.use_for_eval:
+                tasks.extend(
+                    self._record_cache_tasks_for_split(
+                        dataset_meta,
+                        split="val",
+                        prompt_source=prompt_source,
+                    )
+                )
+        return ShaftRecordCachePlan.build(tasks, shard_count=shard_count)
+
+    def warm_record_caches(
+        self,
+        plan: ShaftRecordCachePlan,
+        *,
+        shard_index: int,
+    ) -> ShaftRecordCacheWarmupSummary:
+        tasks = plan.tasks_for_shard(shard_index)
+        started_at = time.monotonic()
+        results: list[ShaftRecordCacheTaskResult] = []
+        for task in tasks:
+            results.append(task.warm())
+        return ShaftRecordCacheWarmupSummary(
+            plan_fingerprint=plan.fingerprint,
+            shard_index=int(shard_index),
+            shard_count=plan.shard_count,
+            task_count=len(tasks),
+            source_size_bytes=sum(task.source_size_bytes for task in tasks),
+            row_count=sum(result.row_count for result in results),
+            duration_seconds=time.monotonic() - started_at,
+        )
+
+    def _warm_local_record_cache_shard(self) -> None:
+        if get_world_size() <= 1:
+            return
+        local_world_size = get_local_world_size()
+        local_rank = get_local_rank()
+        if local_world_size <= 1:
+            return
+        if local_rank < 0 or local_rank >= local_world_size:
+            raise ValueError(
+                "LOCAL_RANK must satisfy 0 <= LOCAL_RANK < LOCAL_WORLD_SIZE for record "
+                f"cache warmup, got rank={local_rank}, world_size={local_world_size}."
+            )
+        plan = self.build_record_cache_plan(shard_count=local_world_size)
+        if is_rank_zero():
+            shard_sizes = [
+                sum(task.source_size_bytes for task in shard)
+                for shard in plan.shards
+            ]
+            logger.info(
+                "[record-cache] distributed warmup tasks=%d local_shards=%d "
+                "source_bytes=%d shard_bytes=%s fingerprint=%s",
+                len(plan.tasks),
+                plan.shard_count,
+                sum(task.source_size_bytes for task in plan.tasks),
+                shard_sizes,
+                plan.fingerprint,
+            )
+        summary = self.warm_record_caches(plan, shard_index=local_rank)
+        logger.info(
+            "[record-cache] local shard ready index=%d/%d tasks=%d rows=%d "
+            "source_bytes=%d duration=%.2fs",
+            summary.shard_index,
+            summary.shard_count,
+            summary.task_count,
+            summary.row_count,
+            summary.source_size_bytes,
+            summary.duration_seconds,
+        )
 
     def prepare_records(self) -> ShaftPreparedRecords[Any]:
         records_by_dataset_train: dict[str, Sequence[Any]] = {}
         records_by_dataset_val: dict[str, Sequence[Any]] = {}
         weights: dict[str, float] = {}
         dataset_online_pipelines: dict[str, OnlineSampleTransform] = {}
-        prompt_source = build_prompt_source_resolver(
-            self.data_config.prompt_sources,
-            default_seed=self.seed,
-        )
+        prompt_source = self._get_prompt_source()
+        self._warm_local_record_cache_shard()
 
         for dataset_meta in build_dataset_metas(self.data_config):
             if not dataset_meta.enabled:
@@ -275,11 +473,45 @@ class ShaftDataCenter:
         )
         if prompt_source_records is not None:
             return prompt_source_records
+        source_impl = self._build_standard_data_source(
+            dataset_meta,
+            split=split,
+            prompt_source=prompt_source,
+        )
+        return offline_pipeline(source_impl.load_split(split))
+
+    def _record_cache_tasks_for_split(
+        self,
+        dataset_meta: ShaftDatasetMeta,
+        *,
+        split: str,
+        prompt_source: ShaftPromptSource,
+    ) -> tuple[ShaftRecordCacheTask, ...]:
+        prompt_source_tasks = prompt_source.record_cache_tasks(
+            dataset_meta,
+            split=split,
+            cache_dir=self.data_config.record_cache_dir,
+        )
+        if prompt_source_tasks is not None:
+            return prompt_source_tasks
+        return self._build_standard_data_source(
+            dataset_meta,
+            split=split,
+            prompt_source=prompt_source,
+        ).record_cache_tasks(split)
+
+    def _build_standard_data_source(
+        self,
+        dataset_meta: ShaftDatasetMeta,
+        *,
+        split: str,
+        prompt_source: ShaftPromptSource,
+    ) -> BaseDataSource:
         validation_fingerprint = prompt_source.record_validation_fingerprint(
             dataset_meta.dataset_name,
             split=split,
         )
-        source_impl = build_data_source(
+        return build_data_source(
             dataset_meta,
             cache_dir=self.data_config.record_cache_dir,
             record_validator=lambda record, current_split: prompt_source.validate_record(
@@ -289,7 +521,6 @@ class ShaftDataCenter:
             ),
             validation_fingerprint=validation_fingerprint,
         )
-        return offline_pipeline(source_impl.load_split(split))
 
     def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:
         return self.prepare_records().build_dataset_bundle(dataset_cls)

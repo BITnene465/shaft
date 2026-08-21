@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from unittest.mock import patch
 import warnings
 
 from PIL import Image
@@ -19,6 +20,7 @@ from shaft.data import (
     DPODataset,
     SFTDataset,
     SFTRecord,
+    ShaftArrowRecordStore,
     ShaftDataCenter,
     ShaftSampleSampler,
 )
@@ -507,6 +509,120 @@ formulations:
     )
     assert planned["target_text"] == actual["target_text"] == '{"A":{"x":1},"B":[2,3]}'
     assert planned["extra"]["prompt_source"] == actual["extra"]["prompt_source"]
+
+
+def test_record_cache_plan_shards_materialized_formulation_files_independently(
+    tmp_path: Path,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    formulation_paths = {
+        formulation_id: _write_jsonl(
+            tmp_path / f"{formulation_id}.jsonl",
+            [
+                {
+                    "image_path": str(image),
+                    "sample_id": "sample-1",
+                    "target_text": formulation_id,
+                }
+            ],
+        )
+        for formulation_id in ("appearance", "geometry", "reconstruction")
+    }
+    prompt_pool = tmp_path / "formulation-pool.yaml"
+    prompt_pool.write_text(
+        """
+metadata: {id: prompt.formulation-cache, version: v1}
+formulations:
+  - id: appearance
+    prompts: [{id: main, user_prompt: appearance}]
+  - id: geometry
+    prompts: [{id: main, user_prompt: geometry}]
+  - id: reconstruction
+    prompts: [{id: main, user_prompt: reconstruction}]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.record_cache_dir = str(tmp_path / "record-cache")
+    config.data.prompt_sources = {
+        "shape": PromptSourceConfig(
+            path=str(prompt_pool),
+            formulation_sources={
+                formulation_id: PromptSourceFormulationSourceConfig(
+                    train_path=str(formulation_path)
+                )
+                for formulation_id, formulation_path in formulation_paths.items()
+            },
+        )
+    }
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="shape", use_for_eval=False)
+    ]
+
+    center = ShaftDataCenter(config.data, seed=5)
+    plan = center.build_record_cache_plan(shard_count=3)
+
+    assert len(plan.tasks) == 3
+    assert [len(plan.tasks_for_shard(index)) for index in range(3)] == [1, 1, 1]
+    assert {Path(task.source_path).name for task in plan.tasks} == {
+        "appearance.jsonl",
+        "geometry.jsonl",
+        "reconstruction.jsonl",
+    }
+    assert len({task.fingerprint for task in plan.tasks}) == 3
+
+    for shard_index in range(3):
+        center.warm_record_caches(plan, shard_index=shard_index)
+
+    assert len(list((tmp_path / "record-cache").glob("*.arrow"))) == 3
+    with patch.object(
+        ShaftArrowRecordStore,
+        "_build_cache",
+        side_effect=AssertionError("prepared cache should be reused"),
+    ):
+        prepared = center.prepare_records()
+    assert len(prepared.train_records["shape"]) == 1
+
+
+def test_prepare_records_automatically_warms_the_local_torchrun_cache_shard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_paths = [
+        _write_jsonl(
+            tmp_path / f"train-{index}.jsonl",
+            [{"image_path": str(image), "sample_id": str(index), "target_text": "{}"}],
+        )
+        for index in range(2)
+    ]
+    config = RuntimeConfig()
+    config.data.record_cache_dir = str(tmp_path / "record-cache")
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_paths=[str(path) for path in train_paths],
+            use_for_eval=False,
+        )
+    ]
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setenv("LOCAL_WORLD_SIZE", "2")
+    monkeypatch.setenv("RANK", "1")
+    monkeypatch.setenv("LOCAL_RANK", "1")
+    center = ShaftDataCenter(config.data, seed=5)
+
+    with patch.object(
+        center,
+        "warm_record_caches",
+        wraps=center.warm_record_caches,
+    ) as warm_record_caches:
+        prepared = center.prepare_records()
+
+    warm_record_caches.assert_called_once()
+    assert warm_record_caches.call_args.kwargs["shard_index"] == 1
+    assert warm_record_caches.call_args.args[0].shard_count == 2
+    assert len(prepared.train_records["ds"]) == 2
 
 
 def test_materialized_formulation_sources_reject_misaligned_rows(tmp_path: Path) -> None:

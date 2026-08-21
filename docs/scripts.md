@@ -40,6 +40,8 @@ python scripts/train.py --config configs/train/sft_4b.yaml
 说明：
 - 如果直接传 `--config`，当前默认走 `sft`
 - 真正的命令定义在 `src/shaft/cli`
+- 入口会在导入训练栈前读取仓库根目录的可选 `.shaft.env`；可从 `.shaft.env.example` 复制，用于设置本机
+  `CUDA_HOME` 等变量。文件中的值不会覆盖启动 shell 已显式设置的同名变量。
 
 ### `scripts/infer.py`
 
