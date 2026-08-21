@@ -88,6 +88,7 @@ def test_v5_7_training_configs_resolve_complete_dataset_and_prompt_contracts(
 def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> None:
     config = load_config(Path("configs/train/banana_sft_4b_v5_8_preparation.yaml"))
 
+    assert config.experiment.seed == 465
     assert tuple(dataset.dataset_name for dataset in config.data.datasets) == tuple(
         V5_8_POOL_FORMULATIONS
     )

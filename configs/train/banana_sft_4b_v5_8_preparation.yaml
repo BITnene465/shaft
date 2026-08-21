@@ -4,10 +4,11 @@
 # Referenced formulation JSONL files are future materialized outputs; this recipe must not be used
 # as a production training config until every source exists and the v5.8 data audits pass.
 # Formulations use static weighted categorical sampling; PromptSource has no curriculum schema.
+# The experiment seed also drives data mixing, shuffle, batch planning, and PromptSource sampling.
 experiment:
   name: banana-v5.8-preparation-qwen3vl-sft-4b
   output_dir: outputs/qwen3vl-sft/4b/banana-v5.8-preparation
-  seed: 42
+  seed: 465
 
 model:
   model_type: qwen3vl
