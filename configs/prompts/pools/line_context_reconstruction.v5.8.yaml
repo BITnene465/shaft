@@ -1,0 +1,88 @@
+metadata:
+  id: shaft.line_context_reconstruction.formulation_pool.v5.8
+  version: v5.8
+  name: v5.8 ordered synthetic line formulations
+  task: line_context_reconstruction
+  subtask: line_context_reconstruction
+  target_labels: [line]
+
+arguments:
+  proposal_bbox_2d:
+    type: bbox_2d_0_999
+
+formulations:
+  - id: appearance
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: &banana_v5_8_system >-
+          You are a specialized model for editable visual layout understanding and
+          reconstruction. Return exactly one compact valid JSON value that follows the requested
+          task schema. Do not output Markdown, code fences, comments, explanations, or unrequested
+          fields. When coordinates are requested, use integers from 0 to 999 relative to the
+          entire current input image. A provided proposal bbox identifies the intended target
+          only; it is not ground-truth geometry and does not define a separate coordinate frame.
+        user_prompt_template: |
+          Recover only the appearance of the complete visible line or arrow near approximate
+          proposal bbox {{ proposal_bbox_2d | json }}. Ignore nearby objects and independent lines.
+
+          Return one {"type":"line","parameters":{...}} object containing exactly line_style,
+          dash_style, begin_arrow, end_arrow, fill, and border. line_style is path or shape;
+          dash_style is solid or dash; arrow markers are none, line, stealth, triangle, pointy,
+          tee, or circle. Marker line is valid only for path and pointy only for shape. Preserve
+          nested fill and border objects. Do not output line_type, is_single, points, corner_style,
+          bbox, or audit fields.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: >-
+          Recover only the appearance of the target line near
+          {{ proposal_bbox_2d | json }}.
+
+  - id: geometry
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: |
+          Recover only the geometry of the complete visible line or arrow near approximate
+          proposal bbox {{ proposal_bbox_2d | json }}. Trace the target rather than the proposal
+          and ignore nearby objects and independent lines.
+
+          Return one {"type":"line","parameters":{...}} object containing exactly line_type,
+          is_single, points, and optional corner_style. points is a list of ordered center-path
+          segments. One segment means is_single true; multiple connected branch segments mean
+          false. Straight segments preserve endpoints and visible bends. Curved segments contain
+          exactly start, one-third, two-thirds, and end. corner_style is allowed only for a bent
+          straight line. Order one-way paths from tail to arrowhead. Output no appearance fields.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: >-
+          Recover only the geometry of the target line near
+          {{ proposal_bbox_2d | json }}.
+
+  - id: reconstruction
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: |
+          Reconstruct the complete visible line or arrow near approximate proposal bbox
+          {{ proposal_bbox_2d | json }}. Trace the target rather than the proposal and ignore
+          nearby objects and independent lines.
+
+          Return one {"type":"line","parameters":{...}} object containing line_type,
+          line_style, is_single, points, dash_style, begin_arrow, end_arrow, fill, border, and
+          corner_style only when applicable. Preserve ordered center-path segments and all nested
+          appearance objects. One segment means is_single true; multiple connected branches mean
+          false. A curved segment contains exactly four ordered points. Marker line is valid only
+          for path and pointy only for shape. Output no target bbox.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: >-
+          Fully reconstruct the target line near {{ proposal_bbox_2d | json }}.

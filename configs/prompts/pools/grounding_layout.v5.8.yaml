@@ -1,0 +1,84 @@
+metadata:
+  id: shaft.grounding_layout.formulation_pool.v5.8
+  version: v5.8
+  name: v5.8 ordered real layout grounding formulations
+  task: grounding
+  subtask: grounding_layout
+  target_labels: [shape, icon, image, line]
+
+formulations:
+  - id: labels
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: &banana_v5_8_system >-
+          You are a specialized model for editable visual layout understanding and
+          reconstruction. Return exactly one compact valid JSON value that follows the requested
+          task schema. Do not output Markdown, code fences, comments, explanations, or unrequested
+          fields. When coordinates are requested, use integers from 0 to 999 relative to the
+          entire current input image. A provided proposal bbox identifies the intended target
+          only; it is not ground-truth geometry and does not define a separate coordinate frame.
+        user_prompt: |
+          Classify every visible non-text layout object as shape, icon, image, or line.
+
+          Return exactly:
+          [{"label":"shape|icon|image|line"}]
+
+          Preserve the standard visual row-major object order. Exclude the page background and
+          text-only regions. A shape or image border and an internal card divider belong to their
+          owner rather than forming a separate line. Treat one visibly connected bent, forked, or
+          branched line structure as one object; incidental crossings remain separate. Return []
+          when no target exists.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt: Classify all visible non-text layout objects in standard order.
+
+  - id: boxes
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt: |
+          Locate every visible non-text shape, icon, image, and line object.
+
+          Return exactly:
+          [{"bbox_2d":[x1,y1,x2,y2]}]
+
+          Preserve the standard visual row-major object order. Each box covers the complete
+          visible object, including visible borders and arrowheads. Exclude the page background
+          and text-only regions. Do not return a shape or image border or an internal card divider
+          as a separate line. One visibly connected bent, forked, or branched line structure uses
+          one box; incidental crossings and disconnected lines remain separate. Return [] when no
+          target exists.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt: Locate all visible non-text layout objects with standard bounding boxes.
+
+  - id: objects
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt: |
+          Detect every visible non-text layout object and label it as shape, icon, image, or line.
+
+          Return exactly:
+          [{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+
+          Preserve the standard visual row-major object order. A shape is an independent
+          geometric container or form; an icon is a compact symbol or small non-photographic
+          graphic; an image is a coherent raster or picture region; and a line includes paths,
+          connectors, separators, curves, polylines, and solid arrows. Each box covers the whole
+          visible object. Exclude background and text-only regions. Shape/image borders and
+          internal card dividers are not separate lines. Keep one visibly connected multi-segment
+          or branched line as one object; incidental crossings remain separate. Return [] when no
+          target exists.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt: Detect and label all visible non-text layout objects.

@@ -29,6 +29,14 @@ V5_7_CONFIGS = (
     "banana_sft_27b_qwen36_v5_7_re_full_zero3.yaml",
 )
 
+V5_8_FORMULATIONS = {
+    "grounding_layout": ("labels", "boxes", "objects"),
+    "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
+    "line_context_reconstruction": ("appearance", "geometry", "reconstruction"),
+    "line_context_points": ("topology", "geometry", "path"),
+    "image_context_reconstruction": ("image_type",),
+}
+
 
 @pytest.mark.parametrize("filename", ("sft_4b.yaml", "dpo_4b.yaml", "grpo_4b.yaml"))
 def test_checkpoint_enabled_example_configs_declare_media_snapshot(filename: str) -> None:
@@ -58,6 +66,45 @@ def test_v5_7_training_configs_resolve_complete_dataset_and_prompt_contracts(
             "v5.3" if dataset_name == "image_context_reconstruction" else "v5.7"
         )
         assert pool.version == expected_version
+
+
+def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> None:
+    config = load_config(Path("configs/train/banana_sft_4b_v5_8_preparation.yaml"))
+
+    assert tuple(dataset.dataset_name for dataset in config.data.datasets) == tuple(
+        V5_8_FORMULATIONS
+    )
+    assert tuple(config.data.catalog_names) == tuple(V5_8_FORMULATIONS)
+    assert all(not dataset.train_paths for dataset in config.data.datasets)
+    assert all(not dataset.use_for_eval for dataset in config.data.datasets)
+    assert config.eval.enabled is False
+    assert config.data.media_snapshot_id == "banana-v5.8-preparation"
+
+    system_prompts = set()
+    for dataset_name, expected_formulations in V5_8_FORMULATIONS.items():
+        source = config.data.prompt_sources[dataset_name]
+        pool = load_prompt_source_pool(source.path)
+        formulation_ids = tuple(item.formulation_id for item in pool.formulations)
+
+        assert pool.version == "v5.8"
+        assert pool.explicit_formulations is True
+        assert formulation_ids == expected_formulations
+        assert tuple(source.formulation_sources) == expected_formulations
+        for formulation in pool.formulations:
+            assert tuple(prompt.variant_id for prompt in formulation.prompt_variants) == (
+                "detailed",
+                "concise",
+            )
+            system_prompts.update(
+                prompt.system_prompt for prompt in formulation.prompt_variants
+            )
+        for point in source.schedule.points:
+            assert tuple(point.weights) == expected_formulations
+
+    assert len(system_prompts) == 1
+    assert next(iter(system_prompts)).startswith(
+        "You are a specialized model for editable visual layout understanding"
+    )
 
 
 def test_load_minimal_config(tmp_path: Path) -> None:

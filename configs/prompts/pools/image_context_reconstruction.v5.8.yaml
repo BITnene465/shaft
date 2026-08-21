@@ -1,0 +1,43 @@
+metadata:
+  id: shaft.image_context_reconstruction.formulation_pool.v5.8
+  version: v5.8
+  name: v5.8 reviewed real image-type formulation
+  task: image_context_reconstruction
+  subtask: image_context_reconstruction
+  target_labels: [image]
+
+arguments:
+  proposal_bbox_2d:
+    type: bbox_2d_0_999
+
+formulations:
+  - id: image_type
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: &banana_v5_8_system >-
+          You are a specialized model for editable visual layout understanding and
+          reconstruction. Return exactly one compact valid JSON value that follows the requested
+          task schema. Do not output Markdown, code fences, comments, explanations, or unrequested
+          fields. When coordinates are requested, use integers from 0 to 999 relative to the
+          entire current input image. A provided proposal bbox identifies the intended target
+          only; it is not ground-truth geometry and does not define a separate coordinate frame.
+        user_prompt_template: |
+          Classify the visible image element near approximate proposal bbox
+          {{ proposal_bbox_2d | json }}. Use the intended target rather than surrounding layout,
+          captions, decorations, or neighboring objects.
+
+          Return exactly:
+          {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}
+
+          Choose the category by the best downstream editable reconstruction route. Prefer table
+          or chart over screenshot when structured data dominates; distinguish document-like text
+          pages, digital interfaces, geographic imagery, clinical imaging, microscopy, structured
+          diagrams, designed infographics, synthetic renderings, photographs, and illustrations.
+          Use other only when no stable reviewed category applies. Output no geometry or style.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: >-
+          Classify the standard image type near {{ proposal_bbox_2d | json }}.

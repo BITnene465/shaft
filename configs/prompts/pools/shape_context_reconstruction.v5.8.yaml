@@ -1,0 +1,89 @@
+metadata:
+  id: shaft.shape_context_reconstruction.formulation_pool.v5.8
+  version: v5.8
+  name: v5.8 ordered synthetic shape formulations
+  task: shape_context_reconstruction
+  subtask: shape_context_reconstruction
+  target_labels: [shape]
+
+arguments:
+  proposal_bbox_2d:
+    type: bbox_2d_0_999
+
+formulations:
+  - id: appearance
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: &banana_v5_8_system >-
+          You are a specialized model for editable visual layout understanding and
+          reconstruction. Return exactly one compact valid JSON value that follows the requested
+          task schema. Do not output Markdown, code fences, comments, explanations, or unrequested
+          fields. When coordinates are requested, use integers from 0 to 999 relative to the
+          entire current input image. A provided proposal bbox identifies the intended target
+          only; it is not ground-truth geometry and does not define a separate coordinate frame.
+        user_prompt_template: |
+          Recover only the appearance of the visible outer shape near approximate proposal bbox
+          {{ proposal_bbox_2d | json }}. Ignore inner and neighboring objects.
+
+          Return one {"type":"shape","parameters":{...}} object. Always include shape_type.
+          For shape_type other, output no additional parameters. Every other shape includes
+          border, fill, and effect. Uniform border/fill values include their required style or
+          color fields. A card keeps its ordered fill regions and each split's border fields but
+          omits corners and split_corners. Do not output any other geometry.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: >-
+          Recover only the appearance of the target shape near
+          {{ proposal_bbox_2d | json }}.
+
+  - id: geometry
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: |
+          Recover only the geometry of the visible outer shape near approximate proposal bbox
+          {{ proposal_bbox_2d | json }}. Follow the target rather than the proposal rectangle and
+          ignore inner and neighboring objects.
+
+          Return one {"type":"shape","parameters":{...}} object with shape_type and only its
+          geometric fields. Polygon-like shapes use clockwise corners beginning at the visually
+          top-left semantic corner. A sharp corner has type and point; a round corner has
+          start/mid/end ordered along the clockwise boundary. Oval and other have no geometry.
+          Callout includes body_type, body_corners or body_bbox, and tail.points ordered as
+          attach_start, tip, attach_end. Card includes outer corners and ordered splits containing
+          exactly two split_corners each, but no appearance fields.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: >-
+          Recover only the geometry of the target shape near
+          {{ proposal_bbox_2d | json }}.
+
+  - id: reconstruction
+    sampling_weight: 1.0
+    prompts:
+      - id: detailed
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: |
+          Reconstruct the complete visible outer shape near approximate proposal bbox
+          {{ proposal_bbox_2d | json }}. Follow the target rather than the proposal rectangle and
+          ignore inner and neighboring objects.
+
+          Return one {"type":"shape","parameters":{...}} object using the complete v5.8 shape
+          schema. Always include shape_type. For shape_type other, output only shape_type. Every
+          other type includes border, fill, and effect. Polygon-like shapes include clockwise
+          corners beginning at the visually top-left semantic corner. Callout additionally
+          includes body_type, body_corners or body_bbox, and ordered tail.points. Card includes
+          outer corners, ordered fill regions, and ordered splits with their border fields and two
+          split_corners each. Preserve all conditional fields and output no target bbox.
+      - id: concise
+        sampling_weight: 1.0
+        system_prompt: *banana_v5_8_system
+        user_prompt_template: >-
+          Fully reconstruct the target shape near {{ proposal_bbox_2d | json }}.

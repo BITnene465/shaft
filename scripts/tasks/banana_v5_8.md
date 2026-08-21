@@ -14,14 +14,19 @@ v5.7 的 reconstruction 行已经是标准 materialized SFT：
 {"image_path":"../images/example.png","sample_id":"example__context_00","dataset_name":"shape_context_reconstruction","system_prompt":"","user_prompt":"","prompt_args":{"proposal_bbox_2d":[115,108,733,621]},"target_text":"{\"type\":\"shape\",\"parameters\":{...}}","extra":{...}}
 ```
 
-v5.8 **不改变这份行格式**。变化只在于同一 canonical sample 可以离线生成多个 task formulation，例如：
+v5.8 **不改变这份行格式**。当前配置冻结的 task formulation 如下，表中顺序就是 curriculum 顺序真源：
 
-- `geometry`：完整输出 geometry 子集；
-- `style`：完整输出 style 子集；
-- `geometry_style`：完整输出人工定义的 geometry + style 组合；
-- `full`：完整输出该任务允许的全属性 schema。
+| dataset / pool | ordered formulations | 监督含义 |
+| --- | --- | --- |
+| `grounding_layout` | `labels -> boxes -> objects` | 类别、位置、类别与位置组合 |
+| `shape_context_reconstruction` | `appearance -> geometry -> reconstruction` | 外观、几何、完整可重建属性 |
+| `line_context_reconstruction` | `appearance -> geometry -> reconstruction` | 合成线外观、几何、完整可重建属性 |
+| `line_context_points` | `topology -> geometry -> path` | 真实/审计线的拓扑、点序列、拓扑与点序列组合 |
+| `image_context_reconstruction` | `image_type` | 已审核的 13 类 image type |
 
-这些名字只是示例。正式组合由业务人工确定，框架不生成幂集、不推断依赖，也不要求严格的 A/B/AB 三种。
+`line_context_points` 不虚构 appearance/full，`image_context_reconstruction` 也不虚构 geometry/full；每个
+task 只列 source truth 确实支持的 formulation。框架不生成幂集、不推断依赖，也不要求严格的 A/B/AB
+三种。以后若样本 eligibility 不同，应人工拆成不同 named dataset/pool。
 
 每个 formulation 都是一份完整的 v5.7 形态 SFT JSONL，`target_text` 已由 builder 写好。训练在线阶段只做
 随机选择，不解析 `parameters`，不通过 `prompt_args` 拼 target。
@@ -33,10 +38,9 @@ authoritative raw / gt_standard snapshot
   -> stable split + source identity selection
   -> structured canonical sample
   -> one offline builder invocation
-       -> formulation geometry:       standard SFT JSONL
-       -> formulation style:          standard SFT JSONL
-       -> formulation geometry_style: standard SFT JSONL
-       -> formulation full:           standard SFT JSONL
+       -> formulation 1: standard SFT JSONL
+       -> formulation 2: standard SFT JSONL (when declared)
+       -> formulation 3: standard SFT JSONL (when declared)
   -> PromptSource online weighted selection
 ```
 
@@ -64,16 +68,13 @@ data/<task>/
 │   └── images/
 ├── sft/
 │   └── formulations/
-│       ├── geometry/
+│       ├── <formulation-1>/
 │       │   ├── train.jsonl
 │       │   └── val.jsonl
-│       ├── style/
+│       ├── <formulation-2>/
 │       │   ├── train.jsonl
 │       │   └── val.jsonl
-│       ├── geometry_style/
-│       │   ├── train.jsonl
-│       │   └── val.jsonl
-│       └── full/
+│       └── <formulation-3>/
 │           ├── train.jsonl
 │           └── val.jsonl
 └── reports/
@@ -135,79 +136,33 @@ data/<task>/
 
 ## 5. PromptSource pool
 
-Pool 人工列出允许的 formulation 与其 prompt variants：
+5 个已冻结的 pool 位于：
 
-```yaml
-metadata:
-  id: shaft.<task>.formulations.v5.8
-  version: v5.8
+- `configs/prompts/pools/grounding_layout.v5.8.yaml`
+- `configs/prompts/pools/shape_context_reconstruction.v5.8.yaml`
+- `configs/prompts/pools/line_context_reconstruction.v5.8.yaml`
+- `configs/prompts/pools/line_context_points.v5.8.yaml`
+- `configs/prompts/pools/image_context_reconstruction.v5.8.yaml`
 
-arguments:
-  proposal_bbox_2d: {type: bbox_2d_0_999}
+每个 formulation 恰好有两个等义 prompt variant：
 
-formulations:
-  - id: geometry
-    sampling_weight: 1.0
-    prompts:
-      - id: direct
-        system_prompt: Return compact JSON only.
-        user_prompt_template: Reconstruct geometry near {{ proposal_bbox_2d | json }}.
+- `detailed`：完整任务合同，延续并收紧 v5.7 的输出约束；
+- `concise`：专用模型使用的极简任务表达，target schema 与 detailed 完全相同。
 
-  - id: style
-    sampling_weight: 1.0
-    prompts:
-      - id: direct
-        user_prompt_template: Reconstruct style near {{ proposal_bbox_2d | json }}.
-
-  - id: geometry_style
-    sampling_weight: 2.0
-    prompts:
-      - id: direct
-        user_prompt_template: Reconstruct geometry and style near {{ proposal_bbox_2d | json }}.
-
-  - id: full
-    sampling_weight: 0.0
-    prompts:
-      - id: direct
-        user_prompt_template: Fully reconstruct the target near {{ proposal_bbox_2d | json }}.
-```
-
-合法集合可以更复杂，例如 `geometry_text_links`，也可以完全没有某些二元组合。pool 文件本身就是人工组合
-清单，不使用 `all_combinations` 或自动依赖规则。
+所有 variant 都显式配置同一份 unified `system_prompt`。YAML 中 `formulations` 的实际列表顺序是唯一顺序
+真源，不再额外维护 `formulation_order`。pool 只列人工允许的组合，不使用 `all_combinations` 或自动依赖规则。
 
 ## 6. 训练配置
 
-每个 formulation id 绑定自己的标准 SFT 路径：
+配置入口：
 
-```yaml
-data:
-  datasets:
-    - dataset_name: <task>
-      weight: 1.0
-      use_for_eval: false
+- catalog：`configs/data/banana_v5_8.yaml`
+- PromptSource/source/curriculum 绑定：
+  `configs/train/banana_sft_4b_v5_8_preparation.yaml`
 
-  prompt_sources:
-    <task>:
-      path: ../prompts/pools/<task>.v5.8.yaml
-      apply_to: train
-      seed: 17
-      formulation_sources:
-        geometry:
-          train_path: ../../data/<task>/sft/formulations/geometry/train.jsonl
-        style:
-          train_path: ../../data/<task>/sft/formulations/style/train.jsonl
-        geometry_style:
-          train_path: ../../data/<task>/sft/formulations/geometry_style/train.jsonl
-        full:
-          train_path: ../../data/<task>/sft/formulations/full/train.jsonl
-      schedule:
-        interpolation: step
-        points:
-          - source_draw: 0
-            weights: {geometry: 1.0, style: 1.0, geometry_style: 0.0, full: 0.0}
-          - source_draw: 100000
-            weights: {geometry: 0.5, style: 0.5, geometry_style: 1.0, full: 0.5}
-```
+preparation recipe 为每个 formulation id 绑定未来的标准 SFT 路径。3-formulation task 使用 dataset-local
+`source_draw` 的 `linear` schedule：先激活第一个子任务，再随机混入第二个，最后提高组合 formulation 权重。
+这只是当前准备基线；正式数据规模和训练预算冻结后，应重新审核 `50000/100000` 两个边界。
 
 dataset 不再同时配置顶层 `train_path`；物理训练来源由对应 PromptSource 管理。外层
 `data.schedule.mixing` 仍负责不同 dataset/task 之间的 mixing，PromptSource 内层负责同一 dataset 的
@@ -215,8 +170,8 @@ formulation sampling。
 
 ## 7. 随机与渐进式语义
 
-生产选择是 weighted categorical sampling，不是固定轮换。即使权重相等，序列也可能是
-`geometry, geometry, full, style, ...`，不会承诺 `A,A,B,B,AB,AB`。
+生产选择是 weighted categorical sampling，不是固定轮换。激活多个 formulation 后，序列可以是
+`appearance, appearance, reconstruction, geometry, ...`，不会承诺 `A,A,B,B,AB,AB`。
 
 - 静态训练：只使用 pool 的 `sampling_weight`。
 - 渐进训练：使用 schedule 按 dataset-local `source_draw_id` 改变权重。
