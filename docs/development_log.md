@@ -3559,15 +3559,15 @@
   通过独立 API 暴露，再由 DataCenter 做单一调用。
 - 文档和测试示例出现 A/B/AB 时必须说明它只是任意人工集合的最小示例，且生产选择是随机而非固定轮换。
 
-## 2026-08-21：把嵌套 formulation 误实现为训练时间 curriculum
+## 2026-08-21：把组合 formulation 误实现为训练时间 curriculum
 
 ### 现象
 
-- 业务所说的“渐进”实际表示监督字段逐层增加，例如 `A`、`A+B`、`A+B+C`；三者在整个训练期间只需按固定
-  概率随机采样。
+- 业务需要的是人工声明任意属性组合，例如 `A`、`B`、`A+B`；这些 formulation 在整个训练期间只需按固定
+  概率随机采样，彼此不要求包含关系。
 - 框架却额外实现了按 dataset-local draw 推进的 step/linear schedule，并在 config、sample context、mixing、
   fingerprint 和审计中维护阶段状态。
-- v5.8 preparation recipe 一度配置 `source_draw=0/50000/100000`，错误地把嵌套输出关系变成时间 curriculum。
+- v5.8 preparation recipe 一度配置 `source_draw=0/50000/100000`，错误地把属性组合关系变成时间 curriculum。
 
 ### 根因
 
@@ -3591,20 +3591,18 @@
 - 删除只为 curriculum 引入的公开 `source_draw_id`：`ShaftSampleContext`、batch plan 序列化和
   `extra.prompt_source` 只保留 global `draw_id`，mixing 内部 occurrence 仅用于 row permutation。
 - 更新 PromptSource selection/sample-context 版本与 execution fingerprint，使旧 source-draw checkpoint
-  fail closed；当前文档统一使用“嵌套 formulation”描述 `A / A+B / A+B+C`。
+  fail closed；当前文档统一把 formulation 定义为人工声明的请求属性集合。
 
 ### 回归测试
 
 - config 回归确认静态 PromptSource 正常加载，旧 schedule 配置被严格 schema 拒绝。
-- sampling 回归覆盖嵌套 formulation 的 `1:1:4` 分布、任意四 formulation 的 `1:2:3:4` 分布、确定性重放、
+- sampling 回归覆盖组合 formulation 的 `1:1:4` 分布、任意四 formulation 的 `1:2:3:4` 分布、确定性重放、
   prompt variant 独立随机域和离线 target 原子匹配。
 - data/planning/batching 回归覆盖 formulation source 对齐、planning/runtime 一致、无 `source_draw_id` 的 sample
   context 序列化以及四种 mixing 路径。
 
 ### 后续防线
 
-- “渐进”必须先明确是 target 字段包含关系还是训练时间 curriculum；没有明确时间轴需求时一律建模为静态
-  formulation 权重。
-- formulation 的包含关系由业务 builder 和离线 target schema 维护，框架不推断依赖、不在线组装 target。
+- formulation 是人工声明的请求属性集合；框架不假设集合之间存在包含关系，也不推断依赖或在线组装 target。
 - PromptSource 概率只允许在 pool 的 `sampling_weight` 中维护；不得重新增加 callback、draw milestone 或
   另一套权重覆盖入口。

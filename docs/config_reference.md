@@ -860,8 +860,8 @@ data:
 
 用途：独立管理 task formulation 的离线 target sources，并为每个 logical draw 完成两层在线选择：
 
-- task formulation：决定问什么、监督什么；数量、命名和合法组合完全由 pool 人工声明，
-  `A / A+B / A+B+C` 是常见嵌套示例；
+- task formulation：一个人工声明的请求属性集合，决定问什么、监督什么；`A`、`B`、`A+B` 或其他合法
+  组合彼此独立，不要求包含关系或顺序；
 - prompt variant：同一 formulation 内轮换语义等价的措辞。
 
 每个 formulation 的 `target_text` 必须已经存在于自己的标准 SFT JSONL。PromptSource 只选择答案，不从
@@ -881,8 +881,8 @@ data:
       seed: 42              # 省略时继承 experiment.seed
       formulation_sources:
         a: {train_path: ../data/reconstruction/sft/formulations/a/train.jsonl}
+        b: {train_path: ../data/reconstruction/sft/formulations/b/train.jsonl}
         ab: {train_path: ../data/reconstruction/sft/formulations/ab/train.jsonl}
-        abc: {train_path: ../data/reconstruction/sft/formulations/abc/train.jsonl}
 ```
 
 formulation pool 示例：
@@ -898,26 +898,26 @@ formulations:
       - id: direct
         system_prompt: Return compact JSON only.
         user_prompt_template: Reconstruct A near {{ proposal_bbox_2d | json }}.
-  - id: ab
-    sampling_weight: 2.0
+  - id: b
+    sampling_weight: 1.0
     prompts:
       - id: direct
-        user_prompt_template: Reconstruct A and B near {{ proposal_bbox_2d | json }}.
-  - id: abc
+        user_prompt_template: Reconstruct B near {{ proposal_bbox_2d | json }}.
+  - id: ab
     sampling_weight: 4.0
     prompts:
       - id: direct
-        user_prompt_template: Reconstruct A, B, and C near {{ proposal_bbox_2d | json }}.
+        user_prompt_template: Reconstruct A and B near {{ proposal_bbox_2d | json }}.
 ```
 
-每个 source 文件内仍是一行一个离线 target。例如 A 与 ABC 文件中的对齐行分别为：
+每个 source 文件内仍是一行一个离线 target。例如 B 与 AB 文件中的对齐行分别为：
 
 ```json
-{"image_path":"images/a.png","sample_id":"a-1","prompt_args":{"proposal_bbox_2d":[1,2,300,400]},"target_text":"{\"A\":{\"x\":1}}"}
+{"image_path":"images/a.png","sample_id":"a-1","prompt_args":{"proposal_bbox_2d":[1,2,300,400]},"target_text":"{\"B\":[2,3]}"}
 ```
 
 ```json
-{"image_path":"images/a.png","sample_id":"a-1","prompt_args":{"proposal_bbox_2d":[1,2,300,400]},"target_text":"{\"A\":{\"x\":1},\"B\":[2,3],\"C\":true}"}
+{"image_path":"images/a.png","sample_id":"a-1","prompt_args":{"proposal_bbox_2d":[1,2,300,400]},"target_text":"{\"A\":{\"x\":1},\"B\":[2,3]}"}
 ```
 
 现有顶层 `prompts` pool 是正式简写：它会编译成一个名为 `default`、使用 materialized target 的
@@ -938,7 +938,7 @@ formulation，因此当前 prompt 轮换自然属于 PromptSource，而不是另
 - 每个 draw 始终按 formulation 的静态 `sampling_weight` 执行 weighted categorical sampling，不是
   round-robin；短前缀不保证严格比例。`sampling_weight` 必须有限、非负，且 pool 至少有一个正权重。
   PromptSource 不提供按 epoch、step 或 draw 改权重的 curriculum。
-- 框架不自动生成属性幂集或推断 `A -> A+B -> A+B+C` 的依赖；这些 formulation 必须逐项人工声明。
+- 框架不自动生成属性幂集或推断组合依赖；`A`、`B`、`A+B` 等合法请求集合必须逐项人工声明。
 - formulation 和 prompt variant 使用独立的确定性 hash 随机域。增加 prompt wording 不会改变 formulation
   分布；planning/runtime、多 worker、DP rank 和 exact resume 对同一 draw 的结果一致。
 - PromptSource 审计集中写入 `extra.prompt_source`，包含 pool/formulation/variant、全局 draw、实际权重

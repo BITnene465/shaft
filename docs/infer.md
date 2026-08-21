@@ -19,6 +19,10 @@
 原生多样本 batch、streaming、async queue 或 Shaft 自有在线服务层。外部 vLLM 服务负责服务端 batching，
 但这不改变 Shaft 请求侧的单样本合同。
 
+当前 infer stage 直接配置 `user_prompt_template`，尚未提供从训练 PromptSource pool 按
+`formulation_id/variant_id` 显式选择 prompt 的公共接口。需要按属性集合推理时，调用方目前必须使用与对应
+formulation 等义的 materialized prompt；不得声称 infer 已经自动理解 `A`、`B`、`A+B` 的组合关系。
+
 ## 2. 核心对象
 
 ### 2.1 配置对象

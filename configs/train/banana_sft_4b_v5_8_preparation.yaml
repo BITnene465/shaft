@@ -58,14 +58,16 @@ data:
       formulation_sources:
         labels:
           train_path: ../../data/grounding_layout/sft/formulations/labels/train.jsonl
+        boxes:
+          train_path: ../../data/grounding_layout/sft/formulations/boxes/train.jsonl
         objects:
           train_path: ../../data/grounding_layout/sft/formulations/objects/train.jsonl
     shape_context_reconstruction:
       path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
       apply_to: train
       formulation_sources:
-        type:
-          train_path: ../../data/shape_context_reconstruction/sft/formulations/type/train.jsonl
+        appearance:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/appearance/train.jsonl
         geometry:
           train_path: ../../data/shape_context_reconstruction/sft/formulations/geometry/train.jsonl
         reconstruction:
@@ -74,8 +76,8 @@ data:
       path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
       apply_to: train
       formulation_sources:
-        topology:
-          train_path: ../../data/line_context_reconstruction/sft/formulations/topology/train.jsonl
+        appearance:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/appearance/train.jsonl
         points:
           train_path: ../../data/line_context_reconstruction/sft/formulations/points/train.jsonl
         reconstruction:

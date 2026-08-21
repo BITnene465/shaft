@@ -313,7 +313,7 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 
 - `SFT`
 - SFT/DPO 的 padded 路径支持单条样本内有序多图；multi-image varlen/sequence packing 仍 fail closed。
-- SFT PromptSource 支持人工配置任意数量、任意命名的 task formulation（例如嵌套的 A、A+B、A+B+C），在线按
+- SFT PromptSource 支持人工配置任意数量、任意命名的 task formulation（例如 A、B、A+B），在线按
   权重做可复现随机选择，并在 formulation 内继续轮换 prompt wording；框架不自动生成属性幂集或推断组合
   依赖。每个 formulation 的标准 SFT JSONL 和 `target_text` 必须离线物化并逐行对齐；`prompt_args` 只服务
   prompt renderer，运行时不拼装 target。PromptSource 自管 source 绑定和两层静态加权随机选择；概率只由

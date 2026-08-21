@@ -60,14 +60,15 @@ message。source JSONL 也禁止嵌入 `formulation_targets` 之类的多答案�
 
 ## 3. Task formulation 的离线数据合同
 
-同一任务若支持 `A`、`A+B`、`A+B+C` 或任意其它人工组合，应为每个 formulation 生成一份独立的标准 SFT
-JSONL。每份文件仍是一行一个 `target_text`，格式与 v5.7 完全相同：
+同一任务若支持 `A`、`B`、`A+B` 或任意其它人工组合，应把每个 formulation 视为独立的“请求属性集合”，
+并分别生成一份标准 SFT JSONL。组合之间不要求包含关系或先后顺序；每份文件仍是一行一个 `target_text`，
+格式与 v5.7 完全相同：
 
 ```text
 sft/formulations/
 ├── a/train.jsonl
-├── ab/train.jsonl
-└── abc/train.jsonl
+├── b/train.jsonl
+└── ab/train.jsonl
 ```
 
 同一 split 的 formulation 文件必须逐行严格对齐：
@@ -85,10 +86,16 @@ sft/formulations/
 {"image_path":"../images/0001.png","sample_id":"0001","prompt_args":{"proposal_bbox_2d":[10,20,300,400]},"target_text":"{\"A\":{\"x\":1}}"}
 ```
 
-`abc/train.jsonl`：
+`b/train.jsonl`：
 
 ```json
-{"image_path":"../images/0001.png","sample_id":"0001","prompt_args":{"proposal_bbox_2d":[10,20,300,400]},"target_text":"{\"A\":{\"x\":1},\"B\":[2,3],\"C\":true}"}
+{"image_path":"../images/0001.png","sample_id":"0001","prompt_args":{"proposal_bbox_2d":[10,20,300,400]},"target_text":"{\"B\":[2,3]}"}
+```
+
+`ab/train.jsonl`：
+
+```json
+{"image_path":"../images/0001.png","sample_id":"0001","prompt_args":{"proposal_bbox_2d":[10,20,300,400]},"target_text":"{\"A\":{\"x\":1},\"B\":[2,3]}"}
 ```
 
 这里没有在线属性解析、target template 或组合逻辑。PromptSource 只在对齐的离线答案中选择一个。
@@ -115,10 +122,10 @@ data:
       formulation_sources:
         a:
           train_path: ../data/reconstruction/sft/formulations/a/train.jsonl
+        b:
+          train_path: ../data/reconstruction/sft/formulations/b/train.jsonl
         ab:
           train_path: ../data/reconstruction/sft/formulations/ab/train.jsonl
-        abc:
-          train_path: ../data/reconstruction/sft/formulations/abc/train.jsonl
 ```
 
 约束：
@@ -154,17 +161,17 @@ formulations:
       - id: inspect
         user_prompt_template: Inspect {{ proposal_bbox_2d | json }} and output A.
 
-  - id: ab
-    sampling_weight: 2.0
+  - id: b
+    sampling_weight: 1.0
     prompts:
       - id: direct
-        user_prompt_template: Reconstruct A and B near {{ proposal_bbox_2d | json }}.
+        user_prompt_template: Reconstruct B near {{ proposal_bbox_2d | json }}.
 
-  - id: abc
+  - id: ab
     sampling_weight: 4.0
     prompts:
       - id: direct
-        user_prompt_template: Reconstruct A, B, and C near {{ proposal_bbox_2d | json }}.
+        user_prompt_template: Reconstruct A and B near {{ proposal_bbox_2d | json }}.
 ```
 
 - `formulations` 与顶层 `prompts` 只能二选一。
@@ -193,9 +200,9 @@ logical draw identity
 `seed + dataset + sample/draw identity` 的 hash 生成，因此同一输入合同可在 planning/runtime、worker、DP
 rank 和 exact resume 之间重放。
 
-权重唯一真源是 pool 内各 formulation 的静态 `sampling_weight`。例如 `A / A+B / A+B+C` 使用 `1:2:4`
-时，长期概率约为 `1/7、2/7、4/7`。PromptSource 不根据 epoch、optimizer step、draw 次数或 wall-clock
-修改权重；所谓“渐进”只描述输出字段的嵌套关系，不描述训练时间轴。
+权重唯一真源是 pool 内各 formulation 的静态 `sampling_weight`。例如 `A / B / A+B` 使用 `1:1:4`
+时，长期概率约为 `1/6、1/6、4/6`。PromptSource 不根据 epoch、optimizer step、draw 次数或 wall-clock
+修改权重；formulation 只表达本次 prompt 请求和 target 监督的属性集合。
 
 ## 7. 校验、fingerprint 与审计
 

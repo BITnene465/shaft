@@ -19,9 +19,9 @@ v5.8 **不改变这份行格式**。当前配置冻结的 task formulation 和 e
 
 | dataset / pool | formulations | 监督含义 |
 | --- | --- | --- |
-| `grounding_layout` | `labels, objects` | 类别、类别与位置组合 |
-| `shape_context_reconstruction` | `type, geometry, reconstruction` | 类型、类型与几何、完整可重建属性 |
-| `line_context_reconstruction` | `topology, points, reconstruction` | 拓扑、拓扑与点序列、完整重建 |
+| `grounding_layout` | `labels, boxes, objects` | 类别、位置、类别与位置组合 |
+| `shape_context_reconstruction` | `appearance, geometry, reconstruction` | 外观、几何、完整可重建属性 |
+| `line_context_reconstruction` | `appearance, points, reconstruction` | 外观、点序列、完整重建 |
 | `line_context_points` | `points` | line reconstruction 的真实/审计 points-only eligibility pool |
 | `image_context_reconstruction` | `image_type` | 已审核的 13 类 image type |
 
@@ -164,11 +164,11 @@ data/<task>/
   `configs/train/banana_sft_4b_v5_8_preparation.yaml`
 
 preparation recipe 为每个 formulation id 绑定未来的标准 SFT 路径，不配置 schedule。每次 draw 都直接按
-pool 中固定的 `sampling_weight` 做 weighted categorical sampling：grounding 使用 `labels:objects=1:4`；
-shape 和 full-capable line 都使用 `1:1:4`，因此完整 reconstruction 在对应 pool 内约占 66.7%。
+pool 中固定的 `sampling_weight` 做 weighted categorical sampling：grounding、shape 和 full-capable line
+均使用 `1:1:4`；其中 `objects` 或 `reconstruction` 在对应 pool 内约占 66.7%。
 
 line reconstruction 还包含 points-only cohort：catalog 对 full-capable/points-only 两个 dataset 使用 `6:2`，
-与 full-capable pool 内部的 `1:1:4` 合成后，line reconstruction 总体约为 topology 12.5%、points 37.5%、
+与 full-capable pool 内部的 `1:1:4` 合成后，line reconstruction 总体约为 appearance 12.5%、points 37.5%、
 reconstruction 50%。修改 catalog weight 或 formulation `sampling_weight` 即可改变这个分布。
 
 dataset 不再同时配置顶层 `train_path`；物理训练来源由对应 PromptSource 管理。外层
@@ -178,7 +178,7 @@ formulation sampling。
 ## 7. 静态随机概率语义
 
 生产选择是 weighted categorical sampling，不是固定轮换。激活多个 formulation 后，序列可以是
-`topology, topology, reconstruction, points, ...`，不会承诺 `A,A,AB,AB,ABC,ABC`。
+`appearance, appearance, reconstruction, points, ...`，不会承诺 `A,A,B,B,AB,AB`。
 
 - 当前 v5.8 只使用 pool 的静态 `sampling_weight`；框架没有 curriculum schedule 配置。
 - 权重是相对比例，不要求归一化；`1:1:4` 等价于约 `16.7%:16.7%:66.7%`。
@@ -196,8 +196,8 @@ formulation sampling。
 - 静态采样权重；
 - 所有样本是否都具备该 formulation。
 
-如果某组样本只能支持 `geometry/style`，另一组支持 `geometry/style/full`，应拆成两个 named dataset 和两个
-pool。不要在一个 pool 内对单行动态禁用 formulation，也不要用 `null` 监督。
+如果某组 line 样本只能支持 `points`，另一组可以支持 `appearance/points/reconstruction`，应拆成两个 named
+dataset 和两个 pool。不要在一个 pool 内对单行动态禁用 formulation，也不要用 `null` 监督。
 
 ## 9. Eval 策略
 
@@ -208,7 +208,7 @@ pool。不要在一个 pool 内对单行动态禁用 formulation，也不要用 
 ## 10. 构建与发布顺序
 
 1. 冻结 source snapshot、split manifest 和 structured schema。
-2. 人工冻结 formulation 集合、依赖、target schema 和 prompt wording。
+2. 人工冻结合法请求属性集合、每个 formulation 的 target schema 和 prompt wording。
 3. builder 从每条 structured row 一次性生成全部 formulation SFT 行。
 4. 检查每份文件的唯一 identity、媒体存在性、target codec/schema。
 5. 检查 formulations 逐行对齐且仅 `target_text` 不同。

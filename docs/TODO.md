@@ -120,6 +120,9 @@ normalize 限制。
 
 ### 11. 推理与评估
 
+- 为 infer stage 增加基于版本化 PromptSource pool 的显式 `formulation_id` 选择；调用方应能请求一个已声明的
+  属性集合（如 `B` 或 `A+B`），并选择/采样其等义 prompt variant。该能力只复用 prompt 编译与渲染，不能在
+  推理侧推断组合依赖，也不能反向引入在线 target 组装。
 - 当前推理 API 是单样本、同步 stage 编排且要求至少一张图片；若承担在线服务，再设计 batch、streaming、
   async queue、text-only request 与服务生命周期合同。
 - 本地 HF `generate()` 当前不能安全抢占；只有找到可证明的取消边界后才开放 deadline/cancellation。
