@@ -1,7 +1,7 @@
 metadata:
   id: shaft.line_context_reconstruction.formulation_pool.v5.8
   version: v5.8
-  name: v5.8 ordered synthetic line formulations
+  name: v5.8 weighted synthetic line formulations
   task: line_context_reconstruction
   subtask: line_context_reconstruction
   target_labels: [line]
@@ -40,32 +40,33 @@ formulations:
           Recover only the appearance of the target line near
           {{ proposal_bbox_2d | json }}.
 
-  - id: geometry
+  - id: points
     sampling_weight: 1.0
     prompts:
       - id: detailed
         sampling_weight: 1.0
         system_prompt: *banana_v5_8_system
         user_prompt_template: |
-          Recover only the geometry of the complete visible line or arrow near approximate
+          Recover only the ordered points of the complete visible line or arrow near approximate
           proposal bbox {{ proposal_bbox_2d | json }}. Trace the target rather than the proposal
           and ignore nearby objects and independent lines.
 
-          Return one {"type":"line","parameters":{...}} object containing exactly line_type,
-          is_single, points, and optional corner_style. points is a list of ordered center-path
-          segments. One segment means is_single true; multiple connected branch segments mean
-          false. Straight segments preserve endpoints and visible bends. Curved segments contain
-          exactly start, one-third, two-thirds, and end. corner_style is allowed only for a bent
-          straight line. Order one-way paths from tail to arrowhead. Output no appearance fields.
+          Return exactly:
+          {"type":"line","parameters":{"is_single":true|false,"points":[[[x1,y1],[x2,y2],...]]}}
+
+          points is a list of ordered center-path segments. One segment means is_single true;
+          multiple connected branch segments mean false. Straight segments preserve endpoints and
+          visible bends. Curved segments contain exactly start, one-third, two-thirds, and end.
+          Order one-way paths from tail to arrowhead. Output no appearance or other geometry fields.
       - id: concise
         sampling_weight: 1.0
         system_prompt: *banana_v5_8_system
         user_prompt_template: >-
-          Recover only the geometry of the target line near
+          Recover only the ordered points of the target line near
           {{ proposal_bbox_2d | json }}.
 
   - id: reconstruction
-    sampling_weight: 1.0
+    sampling_weight: 4.0
     prompts:
       - id: detailed
         sampling_weight: 1.0

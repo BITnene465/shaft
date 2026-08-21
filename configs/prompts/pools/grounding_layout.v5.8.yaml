@@ -1,7 +1,7 @@
 metadata:
   id: shaft.grounding_layout.formulation_pool.v5.8
   version: v5.8
-  name: v5.8 ordered real layout grounding formulations
+  name: v5.8 weighted real layout grounding formulations
   task: grounding
   subtask: grounding_layout
   target_labels: [shape, icon, image, line]
@@ -59,7 +59,7 @@ formulations:
         user_prompt: Locate all visible non-text layout objects with standard bounding boxes.
 
   - id: objects
-    sampling_weight: 1.0
+    sampling_weight: 4.0
     prompts:
       - id: detailed
         sampling_weight: 1.0

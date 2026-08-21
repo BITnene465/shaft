@@ -14,19 +14,21 @@ v5.7 的 reconstruction 行已经是标准 materialized SFT：
 {"image_path":"../images/example.png","sample_id":"example__context_00","dataset_name":"shape_context_reconstruction","system_prompt":"","user_prompt":"","prompt_args":{"proposal_bbox_2d":[115,108,733,621]},"target_text":"{\"type\":\"shape\",\"parameters\":{...}}","extra":{...}}
 ```
 
-v5.8 **不改变这份行格式**。当前配置冻结的 task formulation 如下，表中顺序就是 curriculum 顺序真源：
+v5.8 **不改变这份行格式**。当前配置冻结的 task formulation 和 eligibility pool 如下；列表顺序只用于
+稳定配置与审计，不代表采样阶段：
 
-| dataset / pool | ordered formulations | 监督含义 |
+| dataset / pool | formulations | 监督含义 |
 | --- | --- | --- |
-| `grounding_layout` | `labels -> boxes -> objects` | 类别、位置、类别与位置组合 |
-| `shape_context_reconstruction` | `appearance -> geometry -> reconstruction` | 外观、几何、完整可重建属性 |
-| `line_context_reconstruction` | `appearance -> geometry -> reconstruction` | 合成线外观、几何、完整可重建属性 |
-| `line_context_points` | `topology -> geometry -> path` | 真实/审计线的拓扑、点序列、拓扑与点序列组合 |
+| `grounding_layout` | `labels, boxes, objects` | 类别、位置、类别与位置组合 |
+| `shape_context_reconstruction` | `appearance, geometry, reconstruction` | 外观、几何、完整可重建属性 |
+| `line_context_reconstruction` | `appearance, points, reconstruction` | full-capable 合成线的外观、点序列、完整重建 |
+| `line_context_points` | `points` | line reconstruction 的真实/审计 points-only eligibility pool |
 | `image_context_reconstruction` | `image_type` | 已审核的 13 类 image type |
 
-`line_context_points` 不虚构 appearance/full，`image_context_reconstruction` 也不虚构 geometry/full；每个
-task 只列 source truth 确实支持的 formulation。框架不生成幂集、不推断依赖，也不要求严格的 A/B/AB
-三种。以后若样本 eligibility 不同，应人工拆成不同 named dataset/pool。
+`line_context_points` 不是独立任务；它是 `line_context_reconstruction` 任务中只能监督 `points`
+formulation 的物理数据 cohort。它不虚构 appearance/full，`image_context_reconstruction` 也不虚构
+geometry/full。框架不生成幂集、不推断依赖。样本 eligibility 不同时，人工拆成不同 named dataset/pool，
+再由外层 dataset weight 和内层 formulation weight 共同控制任务总体概率。
 
 每个 formulation 都是一份完整的 v5.7 形态 SFT JSONL，`target_text` 已由 builder 写好。训练在线阶段只做
 随机选择，不解析 `parameters`，不通过 `prompt_args` 拼 target。
@@ -149,34 +151,40 @@ data/<task>/
 - `detailed`：完整任务合同，延续并收紧 v5.7 的输出约束；
 - `concise`：专用模型使用的极简任务表达，target schema 与 detailed 完全相同。
 
-所有 variant 都显式配置同一份 unified `system_prompt`。YAML 中 `formulations` 的实际列表顺序是唯一顺序
-真源，不再额外维护 `formulation_order`。pool 只列人工允许的组合，不使用 `all_combinations` 或自动依赖规则。
+所有 variant 都显式配置同一份 unified `system_prompt`。YAML 中 `formulations` 的实际列表顺序是唯一配置
+顺序真源，不再额外维护 `formulation_order`，但运行时不会按这个顺序轮换。pool 只列人工允许的组合，不使用
+`all_combinations` 或自动依赖规则。
 
 ## 6. 训练配置
 
 配置入口：
 
 - catalog：`configs/data/banana_v5_8.yaml`
-- PromptSource/source/curriculum 绑定：
+- PromptSource/source/probability 绑定：
   `configs/train/banana_sft_4b_v5_8_preparation.yaml`
 
-preparation recipe 为每个 formulation id 绑定未来的标准 SFT 路径。3-formulation task 使用 dataset-local
-`source_draw` 的 `linear` schedule：先激活第一个子任务，再随机混入第二个，最后提高组合 formulation 权重。
-这只是当前准备基线；正式数据规模和训练预算冻结后，应重新审核 `50000/100000` 两个边界。
+preparation recipe 为每个 formulation id 绑定未来的标准 SFT 路径，不配置 schedule。每次 draw 都直接按
+pool 中固定的 `sampling_weight` 做 weighted categorical sampling：grounding 的 `objects`、shape 的
+`reconstruction`、full-capable line 的 `reconstruction` 均使用 `1:1:4`，即对应 pool 内完整 formulation
+约占 66.7%。
+
+line reconstruction 还包含 points-only cohort：catalog 对 full-capable/points-only 两个 dataset 使用 `6:2`，
+与 full-capable pool 内部的 `1:1:4` 合成后，line reconstruction 总体约为 appearance 12.5%、points 37.5%、
+reconstruction 50%。修改 catalog weight 或 formulation `sampling_weight` 即可改变这个分布。
 
 dataset 不再同时配置顶层 `train_path`；物理训练来源由对应 PromptSource 管理。外层
 `data.schedule.mixing` 仍负责不同 dataset/task 之间的 mixing，PromptSource 内层负责同一 dataset 的
 formulation sampling。
 
-## 7. 随机与渐进式语义
+## 7. 静态随机概率语义
 
 生产选择是 weighted categorical sampling，不是固定轮换。激活多个 formulation 后，序列可以是
-`appearance, appearance, reconstruction, geometry, ...`，不会承诺 `A,A,B,B,AB,AB`。
+`appearance, appearance, reconstruction, points, ...`，不会承诺 `A,A,B,B,AB,AB`。
 
-- 静态训练：只使用 pool 的 `sampling_weight`。
-- 渐进训练：使用 schedule 按 dataset-local `source_draw_id` 改变权重。
-- `step` 在阶段边界直接切换；`linear` 在相邻点之间平滑插值。
-- 相同 seed、数据 snapshot 和 logical draw 可重放同一选择；改变 pool/source/schedule 后不允许冒充 exact
+- 当前 v5.8 只使用 pool 的静态 `sampling_weight`，不配置 curriculum schedule。
+- 权重是相对比例，不要求归一化；`1:1:4` 等价于约 `16.7%:16.7%:66.7%`。
+- 每个 draw 独立随机选择，短序列中允许连续多次抽中同一 formulation。
+- 相同 seed、数据 snapshot 和 logical draw 可重放同一选择；改变 pool/source/weight 后不允许冒充 exact
   resume。
 
 ## 8. 复杂子集与 eligibility
@@ -186,7 +194,7 @@ formulation sampling。
 - formulation id；
 - 从 structured row 构建 target 的确定性函数；
 - exact output schema/codec；
-- 静态权重和 curriculum 权重；
+- 静态采样权重；
 - 所有样本是否都具备该 formulation。
 
 如果某组样本只能支持 `geometry/style`，另一组支持 `geometry/style/full`，应拆成两个 named dataset 和两个
@@ -219,7 +227,7 @@ pool。不要在一个 pool 内对单行动态禁用 formulation，也不要用 
 - [ ] `prompt_args` 只服务 prompt renderer，不含 target 组合真值。
 - [ ] pool 不含 `target_template` / `target`，source 行不含多 target mapping。
 - [ ] 所有 target 通过 codec/schema，所有 prompt variants 通过参数 preflight。
-- [ ] 随机分布、curriculum 边界、planning/runtime 一致和 resume fingerprint 已 smoke。
+- [ ] 静态随机分布、planning/runtime 一致和 resume fingerprint 已 smoke。
 - [ ] 数据产物、报告、pool、配置、builder 与文档属于同一 v5.8 版本。
 
 在清单完成前，v5.8 保持 preparation 状态。

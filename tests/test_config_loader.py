@@ -32,9 +32,16 @@ V5_7_CONFIGS = (
 V5_8_FORMULATIONS = {
     "grounding_layout": ("labels", "boxes", "objects"),
     "shape_context_reconstruction": ("appearance", "geometry", "reconstruction"),
-    "line_context_reconstruction": ("appearance", "geometry", "reconstruction"),
-    "line_context_points": ("topology", "geometry", "path"),
+    "line_context_reconstruction": ("appearance", "points", "reconstruction"),
+    "line_context_points": ("points",),
     "image_context_reconstruction": ("image_type",),
+}
+V5_8_FORMULATION_WEIGHTS = {
+    "grounding_layout": (1.0, 1.0, 4.0),
+    "shape_context_reconstruction": (1.0, 1.0, 4.0),
+    "line_context_reconstruction": (1.0, 1.0, 4.0),
+    "line_context_points": (1.0,),
+    "image_context_reconstruction": (1.0,),
 }
 
 
@@ -79,6 +86,11 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
     assert all(not dataset.use_for_eval for dataset in config.data.datasets)
     assert config.eval.enabled is False
     assert config.data.media_snapshot_id == "banana-v5.8-preparation"
+    dataset_weights = {
+        dataset.dataset_name: dataset.weight for dataset in config.data.datasets
+    }
+    assert dataset_weights["line_context_reconstruction"] == pytest.approx(6.0)
+    assert dataset_weights["line_context_points"] == pytest.approx(2.0)
 
     system_prompts = set()
     for dataset_name, expected_formulations in V5_8_FORMULATIONS.items():
@@ -90,6 +102,10 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
         assert pool.explicit_formulations is True
         assert formulation_ids == expected_formulations
         assert tuple(source.formulation_sources) == expected_formulations
+        assert tuple(
+            formulation.sampling_weight for formulation in pool.formulations
+        ) == V5_8_FORMULATION_WEIGHTS[dataset_name]
+        assert not source.schedule.points
         for formulation in pool.formulations:
             assert tuple(prompt.variant_id for prompt in formulation.prompt_variants) == (
                 "detailed",
@@ -98,9 +114,6 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
             system_prompts.update(
                 prompt.system_prompt for prompt in formulation.prompt_variants
             )
-        for point in source.schedule.points:
-            assert tuple(point.weights) == expected_formulations
-
     assert len(system_prompts) == 1
     assert next(iter(system_prompts)).startswith(
         "You are a specialized model for editable visual layout understanding"

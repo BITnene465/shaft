@@ -3,6 +3,7 @@
 # This file freezes the PromptSource pool/source contract before any v5.8 SFT data is built.
 # Referenced formulation JSONL files are future materialized outputs; this recipe must not be used
 # as a production training config until every source exists and the v5.8 data audits pass.
+# Formulations use static weighted categorical sampling; there is no curriculum schedule.
 experiment:
   name: banana-v5.8-preparation-qwen3vl-sft-4b
   output_dir: outputs/qwen3vl-sft/4b/banana-v5.8-preparation
@@ -61,16 +62,6 @@ data:
           train_path: ../../data/grounding_layout/sft/formulations/boxes/train.jsonl
         objects:
           train_path: ../../data/grounding_layout/sft/formulations/objects/train.jsonl
-      schedule:
-        interpolation: linear
-        points:
-          - source_draw: 0
-            weights: {labels: 1.0, boxes: 0.0, objects: 0.0}
-          - source_draw: 50000
-            weights: {labels: 1.0, boxes: 1.0, objects: 0.0}
-          - source_draw: 100000
-            weights: {labels: 0.25, boxes: 0.25, objects: 1.0}
-
     shape_context_reconstruction:
       path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
       apply_to: train
@@ -81,55 +72,22 @@ data:
           train_path: ../../data/shape_context_reconstruction/sft/formulations/geometry/train.jsonl
         reconstruction:
           train_path: ../../data/shape_context_reconstruction/sft/formulations/reconstruction/train.jsonl
-      schedule:
-        interpolation: linear
-        points:
-          - source_draw: 0
-            weights: {appearance: 1.0, geometry: 0.0, reconstruction: 0.0}
-          - source_draw: 50000
-            weights: {appearance: 1.0, geometry: 1.0, reconstruction: 0.0}
-          - source_draw: 100000
-            weights: {appearance: 0.25, geometry: 0.25, reconstruction: 1.0}
-
     line_context_reconstruction:
       path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
       apply_to: train
       formulation_sources:
         appearance:
           train_path: ../../data/line_context_reconstruction/sft/formulations/appearance/train.jsonl
-        geometry:
-          train_path: ../../data/line_context_reconstruction/sft/formulations/geometry/train.jsonl
+        points:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/points/train.jsonl
         reconstruction:
           train_path: ../../data/line_context_reconstruction/sft/formulations/reconstruction/train.jsonl
-      schedule:
-        interpolation: linear
-        points:
-          - source_draw: 0
-            weights: {appearance: 1.0, geometry: 0.0, reconstruction: 0.0}
-          - source_draw: 50000
-            weights: {appearance: 1.0, geometry: 1.0, reconstruction: 0.0}
-          - source_draw: 100000
-            weights: {appearance: 0.25, geometry: 0.25, reconstruction: 1.0}
-
     line_context_points:
       path: ../prompts/pools/line_context_points.v5.8.yaml
       apply_to: train
       formulation_sources:
-        topology:
-          train_path: ../../data/line_context_points/sft/formulations/topology/train.jsonl
-        geometry:
-          train_path: ../../data/line_context_points/sft/formulations/geometry/train.jsonl
-        path:
-          train_path: ../../data/line_context_points/sft/formulations/path/train.jsonl
-      schedule:
-        interpolation: linear
         points:
-          - source_draw: 0
-            weights: {topology: 1.0, geometry: 0.0, path: 0.0}
-          - source_draw: 50000
-            weights: {topology: 1.0, geometry: 1.0, path: 0.0}
-          - source_draw: 100000
-            weights: {topology: 0.25, geometry: 0.25, path: 1.0}
+          train_path: ../../data/line_context_points/sft/formulations/points/train.jsonl
 
     image_context_reconstruction:
       path: ../prompts/pools/image_context_reconstruction.v5.8.yaml
