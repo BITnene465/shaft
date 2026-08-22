@@ -1366,7 +1366,9 @@ train:
   - `SFTCollator` 只执行一次 batch 级多模态 processor 调用、padding 与张量装配
   - `ShaftModelAdapter -> ProcessorPolicy` 负责将 canonical rendered-token span 精确投影到 processor
     展开后的 token layout；缺少模型专用映射时直接报错，不做近似对齐或 partial-image fallback
-  - `training/loss.py` 负责真正的加权 next-token loss
+  - `training/loss.py` 负责真正的加权 next-token loss。默认将扁平 token 以最多 512 条为一块计算 CE；
+    forward 不保留 vocabulary-sized log-softmax，backward 逐块重算并写回完整 logits gradient。该内部策略
+    不改变 token-average、`loss_scale`、global denominator 或 component metric 语义，也不是数据配置字段
 
 ## 7. `eval`
 

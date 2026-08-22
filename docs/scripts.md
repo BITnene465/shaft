@@ -45,6 +45,8 @@ python scripts/train.py --config configs/train/sft_4b.yaml
 - 配置 `SHAFT_TRITON_CACHE_ROOT` 时必须使用节点本地绝对路径；入口会派生
   `<root>/<torchrun-run-id>/rank-<local-rank>` 并在 Triton 导入前写入 `TRITON_CACHE_DIR`。显式设置
   `TRITON_CACHE_DIR` 可覆盖该派生规则。
+- 接近显存上限时可在 `.shaft.env` 设置 `PYTORCH_ALLOC_CONF=expandable_segments:True`，缓解动态 shape
+  引起的 allocator 碎片；模型、batch、token 与 pixel 容量边界仍需由训练配置负责。
 
 ### `scripts/infer.py`
 

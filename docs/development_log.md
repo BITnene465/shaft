@@ -4000,3 +4000,55 @@
   隔离。
 - 遇到 step 0 的裸 ENOENT 必须保留完整 traceback，先区分 input path 缺失与 compiler cache metadata 竞争，
   不能只依赖进度摘要中的异常字符串。
+
+## 2026-08-22：Qwen3.5-4B 长序列在加权交叉熵阶段触发显存峰值 OOM
+
+### 现象
+
+- Banana v5.8 Qwen3.5-4B 八卡 DDP 已稳定运行到 step 157，随后 rank 5 在
+  `training/loss.py::causal_lm_cross_entropy` 申请 6.85 GiB 失败；该卡只剩 6.36 GiB 空闲，PyTorch
+  allocated 58.05 GiB、reserved-but-unallocated 12.87 GiB。
+- 其他 rank 在 600 秒后报 NCCL ALLREDUCE timeout；这是 rank 5 提前 OOM 后的二次症状，不是 sampler
+  卡间不均衡或 collective 首先失败。事故前 `rank_time_skew` 约 1.1%。
+
+### 根因
+
+- 原 loss 将完整 `[batch, sequence, vocabulary]` logits 连续化，再一次性执行 `reduction=none` CE。
+  Qwen3.5 的 248,320 词表使长序列产生数 GiB 的 log-softmax/CE 工作区，并一直保留到 backward。
+- 仅把普通 CE 按 token 循环切块仍会让每块 autograd 缓存同时存活，不能从结构上降低峰值；
+  `expandable_segments` 只能缓解 12.87 GiB reserve 的碎片，不能消除 vocabulary-sized 临时张量。
+- 本问题是训练 loss 内存实现缺陷，与 PromptSource、数据标注、token-average 归一化和模型能力无关。
+
+### 影响范围
+
+- 影响使用 Shaft 自定义加权/global-denominator causal LM loss 的大词表、长序列训练；序列越长、local
+  batch 越大越易触发。Qwen3.8-27B 当前 BS1/GA8 ZeRO-3 配置也自动受益，但未因本事故调整其训练语义。
+- 失败发生在 checkpoint 间隔内，没有产生可 resume 的 step 157 checkpoint；已完成的旧 checkpoint
+  格式和模型导出格式不变。
+
+### 修复方式
+
+- `training/loss.py` 改为内存有界的 causal LM CE：forward 最多按 512 个扁平 token 计算一块且不保存
+  vocabulary-sized autograd 中间量；backward 逐块重算 CE，并把梯度写入唯一的完整 logits gradient。
+- 保留 `loss_scale`、ignore index、跨 GA/DP global denominator、逐样本 numerator/denominator 和
+  token-average 的原有数学语义；低精度 logits 的 CE/recompute 统一使用 FP32。
+- 4B v5.8 配置改为 fixed BS1/GA8，保持八卡 global sample batch 为 64；`max_length` 与
+  `max_tokens_per_microbatch` 统一降为 8000。项目本地 `.shaft.env` 启用
+  `PYTORCH_ALLOC_CONF=expandable_segments:True`，公共 example 同步记录该项。
+
+### 回归测试
+
+- loss 单测比较分块实现与原始 PyTorch CE 的 FP64 value、weighted component numerator/denominator 和
+  logits gradient；同时覆盖全局 denominator 拆分不变性与 EOS shift。
+- 工作区边界测试记录 forward/backward 的每次 CE 输入，确认均不超过指定 token cap，且 backward 确实
+  逐块重算而非保留全部块的 log-softmax。
+- 4B 配置加载和 SFT 装配 focused smoke 必须通过；真实八卡 8000-token 长训由本次重启继续验证，完成前
+  不把该修改表述为已通过长程 GPU canary。
+
+### 后续防线
+
+- 大词表 loss 的内存验收必须同时检查 forward 临时工作区和 backward 保存张量；“循环调用普通 CE”不算
+  内存有界实现。
+- 单 rank CUDA OOM 后出现的 NCCL timeout 统一视为二次症状，排障先保留最早 rank traceback；batch planner
+  skew 只能解释等待差异，不能解释 loss 内 6.85 GiB 的单次分配。
+- 调整 BS/GA 时必须保持显式 global batch 语义；allocator 配置只作为碎片防线，不能替代框架级有界 loss。
