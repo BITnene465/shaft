@@ -4052,3 +4052,49 @@
 - 单 rank CUDA OOM 后出现的 NCCL timeout 统一视为二次症状，排障先保留最早 rank traceback；batch planner
   skew 只能解释等待差异，不能解释 loss 内 6.85 GiB 的单次分配。
 - 调整 BS/GA 时必须保持显式 global batch 语义；allocator 配置只作为碎片防线，不能替代框架级有界 loss。
+
+## 2026-08-24：Offline KD vLLM scorer 移除 token-run 折叠与双侧 resize
+
+### 现象
+
+- 上一版为绕过 vLLM 图片 placeholder 双重展开，在 production path 中扫描本地 processor 已展开的连续
+  image-token run，并将每段压缩成一个 token；同时把 `min_pixels/max_pixels` 传给本地 processor 和 vLLM。
+- 该实现能通过特定 Qwen canary，但“连续 token 等于一张图”并不是 template/processor 的结构化合同；预算在
+  两侧重复传递也不能证明两者使用了完全相同的 resized pixels。
+
+### 根因
+
+- producer 混用了 template rendered prompt（每图一个未展开 placeholder）和 processor scoring prompt（视觉
+  token 已展开）两个层级，并用 token 值猜测结构，形成临时桥接代码。
+- resize 的真源没有收敛到 producer：本地 HF processor 与 vLLM 各自收到预算，后端版本或 rounding policy
+  变化时可能产生不同视觉网格。这是 Offline KD producer 输入合同问题，不是 teacher/student 模型能力问题。
+
+### 影响范围
+
+- 影响多模态 Offline KD 的 vLLM artifact 生产；JSONL+safetensors、top-K+tail 分布格式、artifact identity 与
+  reader/trainer 合同不变。
+- OPD、SFT、DPO、PPO、GRPO 等训练算法运行时不在本次修改范围。
+
+### 修复方式
+
+- producer 先调用既有模型 adapter `prepare_rollout_image()`，对每张图执行一次 Shaft smart resize；同一个
+  resized PIL object 同时交给本地 processor 和 vLLM。本地 processor 不再接收 pixel budget，vLLM request
+  也不再传 `min_pixels/max_pixels`。
+- vLLM prompt 直接由 template 的 structured rendered token plan 和实际 target suffix 构造，每张图恰好一个
+  未展开 placeholder；删除 production image-token run collapse。vLLM 返回的已展开 prompt IDs 必须逐 token
+  严格等于 Shaft collated `input_ids`，不允许 decode/re-tokenize 或静默修补。
+
+### 回归测试
+
+- 新增单图、多图、processor 不接收二次 pixel budget、vLLM request 不携带预算以及 double-expansion 拒绝测试；
+  fake engine 必须模拟 vLLM 展开后的返回 IDs，不能只回显未展开 request。
+- Offline KD producer/artifact/pipeline focused suite 35/35 通过。真实 Qwen3.5 tokenizer/processor canary 验证：
+  64×32 单图对应 vLLM 1 个 placeholder、本地 72 个 image tokens；两张 64×32/32×64 图片对应 2 个
+  placeholder、本地 144 个 image tokens，且两条路径接收相同 PIL object。
+
+### 后续防线
+
+- 外部多模态引擎的未展开 request prompt 与本地展开 scoring prompt 必须由同一 structured plan 派生；禁止
+  恢复 token-run 折叠、后端二次 resize 或按 token 数量容错。
+- 真实 Qwen3.8 checkpoint-4000 仍需重跑新协议 canary 和 HF/vLLM 数值容差 parity；旧 200 条 artifact 证明的
+  是上一版输入路径，不能替代新协议 release gate。

@@ -1,0 +1,114 @@
+# Offline-KD artifact producer input for Banana v5.8.
+#
+# This is an SFT-shaped, finite canonical-input config. It loads the immutable Qwen3.8-27B
+# checkpoint-4000 as teacher, then materializes weighted mixing, shuffle and PromptSource choices
+# into the artifact's train.jsonl. It is not a teacher continuation-training recipe.
+experiment:
+  name: banana-v5.8-offline-kd-qwen38-ckpt4000-producer
+  output_dir: outputs/offline-kd-producer-unused
+  seed: 465
+
+model:
+  model_type: qwen38vl
+  model_name_or_path: outputs/qwen38vl-sft/27b/banana-v5.8-qwen38-27B/checkpoint-4000
+  template: qwen38vl
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  torch_dtype: bfloat16
+  finetune:
+    mode: full
+
+algorithm:
+  name: sft
+  params: {}
+
+data:
+  batching:
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
+  catalog_path: ../data/banana_v5_8.yaml
+  catalog_names:
+    - grounding_layout
+    - background
+    - shape_context_reconstruction
+    - line_context_reconstruction
+    - line_context_points
+    - image_context_reconstruction
+  prompt_sources:
+    grounding_layout:
+      path: ../prompts/pools/grounding_layout.v5.8.yaml
+      apply_to: train
+    background:
+      path: ../prompts/pools/background.v5.8.yaml
+      apply_to: train
+    shape_context_reconstruction:
+      path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        appearance:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/appearance/train.jsonl
+        geometry:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/geometry/train.jsonl
+        reconstruction:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/reconstruction/train.jsonl
+    line_context_reconstruction:
+      path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        appearance:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/appearance/train.jsonl
+        points:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/points/train.jsonl
+        reconstruction:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/reconstruction/train.jsonl
+    line_context_points:
+      path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        points:
+          train_path: ../../data/line_context_points/sft/formulations/points/train.jsonl
+    image_context_reconstruction:
+      path: ../prompts/pools/image_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        image_type:
+          train_path: ../../data/image_context_reconstruction/sft/formulations/image_type/train.jsonl
+  schedule:
+    mixing: weighted
+    shuffle: true
+  media_snapshot_id: banana-v5.8-v9-20260802-reviewed-real-v1
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  min_pixels: 500000
+  max_pixels: 2000000
+  max_length: 7000
+  add_eos_token: true
+
+train:
+  duration:
+    unit: steps
+    value: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  loss_name: auto
+  loss_scale: default
+  load_best_model_at_end: false
+  report_to: []
+
+eval:
+  enabled: false
+
+plugins:
+  hooks: []
+
+logging:
+  level: INFO
+  fmt: text
+  rank_zero_only: true
+
+progress:
+  enabled: true

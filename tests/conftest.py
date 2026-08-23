@@ -62,6 +62,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_online_eval_aggregation.py",
         "test_online_eval_runner.py",
         "test_opd.py",
+        "test_offline_kd.py",
         "test_pipeline_registry.py",
         "test_pipeline_rlhf.py",
         "test_pipeline_sft.py",
@@ -84,6 +85,8 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_transforms.py",
     ),
     "smoke": (
+        "test_offline_kd_producer_smoke.py",
+        "test_pipeline_offline_kd_smoke.py",
         "test_pipeline_opd_smoke.py",
         "test_pipeline_rlhf_smoke.py",
         "test_smoke_train_modes.py",

@@ -1,0 +1,102 @@
+# Qwen3.5-VL-4B student trained from the immutable Qwen3.8-27B checkpoint-4000 artifact.
+# Generate the artifact first with banana_offline_kd_teacher_qwen38_ckpt4000_v5_8.yaml.
+experiment:
+  name: banana-v5.8-qwen35-4B-offline-kd-from-qwen38-ckpt4000
+  output_dir: outputs/qwen35vl-offline-kd/4b/banana-v5.8-from-qwen38-ckpt4000
+  seed: 465
+
+model:
+  model_type: qwen35vl
+  model_name_or_path: ../models/Qwen3.5-4B
+  template: qwen35vl
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  torch_dtype: bfloat16
+  finetune:
+    mode: full
+
+algorithm:
+  name: offline_kd
+
+data:
+  batching:
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
+  datasets:
+    - dataset_name: banana_v5_8_offline_teacher
+      source_type: jsonl_offline_kd
+      train_path: ../../outputs/offline-kd-artifacts/banana-v5.8-qwen38-ckpt4000/train.jsonl
+      use_for_eval: false
+  media_snapshot_id: banana-v5.8-v9-20260802-reviewed-real-v1
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  min_pixels: 500000
+  max_pixels: 2000000
+  max_length: 7000
+  add_eos_token: true
+
+train:
+  duration:
+    unit: steps
+    value: 10000
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  learning_rate: 0.00002
+  param_group_lrs:
+    vision_tower: 0.00001
+    aligner: 0.00002
+  no_decay_name_patterns:
+    - embed_tokens.weight
+  optimizer_name: adamw_torch
+  scheduler_name: cosine
+  scheduler_num_cycles: 0.5
+  weight_decay: 0.003
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 20
+  save_strategy: steps
+  save_steps: 2000
+  save_total_limit: 5
+  save_only_model: false
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: true
+  loss_name: auto
+  loss_scale: default
+  distributed:
+    strategy: ddp
+    ddp:
+      static_graph: false
+  report_to: ["wandb"]
+
+eval:
+  enabled: false
+
+offline_kd:
+  artifact_manifest: ../../outputs/offline-kd-artifacts/banana-v5.8-qwen38-ckpt4000/manifest.json
+  objective:
+    mode: topk_tail
+    divergence: forward_kl
+    temperature: 1.0
+    top_k: 64
+    token_chunk_size: 256
+  loss:
+    ce_weight: 0.5
+    kd_weight: 0.5
+
+plugins:
+  hooks: []
+
+logging:
+  level: INFO
+  fmt: text
+  rank_zero_only: true
+
+progress:
+  enabled: true

@@ -5,6 +5,7 @@ import sys
 
 from . import rl as _rl  # noqa: F401
 from . import opd as _opd  # noqa: F401
+from . import offline_kd as _offline_kd  # noqa: F401
 from . import sft as _sft  # noqa: F401
 from .registry import COMMAND_REGISTRY
 

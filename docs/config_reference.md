@@ -37,7 +37,7 @@ RuntimeConfig
 │       ├── lora_r / lora_alpha / lora_dropout / lora_bias / use_rslora
 │       └── qlora_load_in_4bit / qlora_use_double_quant / qlora_quant_type / qlora_compute_dtype
 ├── algorithm                          训练目标选择
-│   ├── name: sft | dpo | ppo | grpo | opd
+│   ├── name: sft | dpo | ppo | grpo | offline_kd | opd
 │   └── params
 │       └── auxiliary_loss_weights.<term_name>（仅 SFT，稀有覆写）
 ├── data                               从记录到 local microbatch
@@ -89,6 +89,7 @@ RuntimeConfig
 │       ├── rollout
 │       ├── vllm
 │       └── reward_functions
+├── offline_kd                         离线 logits/KL 蒸馏专用参数
 ├── opd                                on-policy direct distillation 专用参数
 │   ├── teacher
 │   ├── rollout
@@ -1010,7 +1011,7 @@ formulation，因此当前 prompt 轮换自然属于 PromptSource，而不是另
 
 关键字段：
 
-- `name`: `sft | dpo | ppo | grpo | opd`
+- `name`: `sft | dpo | ppo | grpo | offline_kd | opd`
 - `params.auxiliary_loss_weights`（仅 SFT）
 
 ```text
@@ -1699,7 +1700,125 @@ algorithm.name
   `train.save_strategy=no` 且禁止 `resume_from_checkpoint`；最终模型导出仍可使用。恢复支持要等 rollout
   使用可持久化 RNG，或按 canonical draw 派生并绑定 per-request seed 后再开放。
 
-## 9. `opd`
+## 9. `offline_kd`
+
+独立的离线 logits/KL 蒸馏域，入口：
+
+```bash
+python scripts/train.py offline-kd --config configs/train/offline_kd_example.yaml
+```
+
+artifact 生成入口：
+
+```bash
+python scripts/build_offline_kd_artifact.py \
+  --config configs/train/banana_offline_kd_teacher_qwen38_ckpt4000_v5_8.yaml \
+  --output-dir /path/to/artifact \
+  --denylist /path/to/denylist.json \
+  --backend vllm --tensor-parallel-size 4 --scoring-batch-size 8 \
+  --mode topk_tail --temperature 1 --top-k 64 \
+  --shard-rows 128 --shard-max-bytes 536870912 --storage-dtype float16 --resume
+```
+
+producer config 必须是 `algorithm.name=sft`、固定 target 的 `jsonl_sft`。weighted mixing、shuffle 与
+PromptSource 由现有 DataCenter 以 experiment seed 展开，并把最终 prompt/target 顺序物化进 artifact
+`train.jsonl`；online media transforms 因无法由不可变 source path 重放而拒绝。CLI 强制显式传入 denylist：
+
+```json
+{"version":"shaft-offline-kd-denylist-v1","sample_ids":[],"image_paths":[]}
+```
+
+空列表也必须由调用方明确写出；canonical eval 集合由任务方写入该合同，框架不硬编码任何 benchmark ID。
+输出目录必须不存在。默认模式在同级随机临时目录中构建，失败时清理；`--resume` 使用稳定的
+`.OUTPUT.building` staging、逐 shard build state 与已提交 JSONL byte offset，异常后可从最后一个 committed
+source index 续写，成功后原子发布。teacher checkpoint fingerprint 始终从 resolved immutable model bytes
+计算；`--expected-teacher-checkpoint-fingerprint` 仅用于可选的外部断言。
+
+`--backend hf` 复用 HF model forward；`--backend vllm` 只在 Shaft 侧加载 tokenizer/processor/config，把完整
+prompt token IDs 和媒体交给 vLLM `prompt_logprobs`。两者的概率语义应一致，但 kernel/精度路径不同，因此验收
+应使用容差而不是 bitwise equality。vLLM 的实用边界：
+
+- producer 先使用模型 adapter 的 Shaft smart resize 把每张原图处理一次；同一个 resized PIL object 同时交给
+  本地 processor 和 vLLM。本地 processor 不再接收 pixel budget，vLLM request 也不传
+  `min_pixels/max_pixels`，避免两侧各自做第二次 resize；
+- vLLM 请求的 token IDs 从 template 的 structured rendered plan 构造，每张图恰好一个未展开 placeholder；
+  禁止扫描并折叠 processor 已展开的 image-token run。vLLM 返回后，其展开 prompt IDs 必须逐 token 严格等于
+  Shaft collated `input_ids`，任何长度或 token 漂移都会 fail closed；
+- `--max-model-length` 是 vLLM 多模态运行时容量，不等于 artifact 中的训练 `data.max_length`。它必须覆盖视觉
+  展开后的完整 prompt 并预留引擎 headroom；调高该值不会改变写入 artifact 的 input contract；
+- `topk_tail, temperature=1` 只取 top K，并由归一化概率计算精确 tail mass，是推荐的吞吐路径；
+- `dense_logits` 或 `topk_tail, temperature!=1` 为正确重算温度投影必须取全词表 raw logprobs，数值语义正确，
+  但 host I/O 和内存开销接近 dense；
+- `topk_tail` 的训练目标是 K+1 bucket divergence，不是 full-vocabulary 精确 KL；需要精确 full-vocab KL/JSD
+  时使用 dense artifact，并接受其容量成本。
+
+```yaml
+algorithm:
+  name: offline_kd
+data:
+  batching:
+    grouping: none
+    cardinality: fixed
+    packing: {mode: none}
+    layout: padded
+  datasets:
+    - dataset_name: teacher_dist
+      source_type: jsonl_offline_kd
+      train_path: /path/to/train.jsonl
+      use_for_eval: false
+offline_kd:
+  artifact_manifest: /path/to/artifact/manifest.json
+  objective:
+    mode: topk_tail           # dense_logits | topk_tail
+    divergence: forward_kl    # forward_kl | reverse_kl | jsd
+    temperature: 2.0
+    top_k: 64                 # 仅 topk_tail
+    token_chunk_size: 256
+  loss:
+    ce_weight: 0.5
+    kd_weight: 0.5
+eval:
+  enabled: false
+```
+
+- `artifact_manifest` 相对路径按训练 YAML 所在目录解析。manifest 必须是
+  `shaft-offline-kd-artifact-v1`，并严格包含
+  `artifact_id/teacher/input_abi/input_contract/distribution/build/shards`；未知或缺失字段直接失败。每个 shard
+  的 SHA-256 在第一次读取前流式校验。
+- JSONL 是普通 SFT prompt/target 字段加顶层 `distillation_ref`，其值严格为
+  `{artifact_id, shard, row}`；该引用不是 `extra`。safetensors shard 使用扁平 position 轴和
+  `row_offsets/completion_token_ids`、`input_row_offsets/input_token_ids` 与逐行 `media_sha256`，再按 mode 保存 `dense_logits`，或
+  `topk_token_ids/topk_log_probs/tail_log_probs`。
+- dense distribution 不绑定运行时 divergence/temperature，可在相同 ABI 与 input contract 下复用；top-k
+  distribution 必须与运行配置的 temperature/K 一致，divergence 仍是运行时选择。完整 token→ID、special
+  token、logits vocabulary、processor input ABI、`max_length/add_eos_token/min_pixels/max_pixels/
+  media_snapshot_id` 和当前 target token IDs 都必须一致；template 或输入策略漂移不能自动修补。
+- `artifact_id` 由 version、teacher、input ABI、input contract、distribution projection 与 build identity
+  canonical 计算，reader 会重算而非只检查它是不是 64 位摘要；媒体内容摘要按 stat identity 缓存，媒体
+  快照仍必须保持不可变。
+- `dense_logits` 是精确 full-vocab KL/JSD，但存储为 `tokens × vocab × dtype`；15 万词表、256 token、FP16
+  约 73 MiB/样本。`topk_tail` 显著节省空间，但计算的是 top-k 加精确 tail mass 的 K+1 bucket divergence，
+  不是精确 full-vocab KL。`--storage-dtype` 只控制 dense tensor；top-k log probability 与 tail 始终存为
+  FP32，避免 FP16 序列化破坏概率和为 1 的合同。
+- `--max-rows N` 用于确定性 canary；限制直接进入 DataCenter sample plan，因此 source fingerprint 与完整数据
+  artifact 不同，不能把 canary staging 续写成全量 artifact。
+- 当前门禁是 `grouping=none/cardinality=fixed/packing=none/layout=padded`、`eval.enabled=false`、
+  `train.loss_name=auto`、`train.loss_scale=default`，且不允许运行时 offline/online transforms。`ce_weight` 和
+  `kd_weight` 必须非负且不能同时为零。
+- teacher/student 不要求模型结构相同，但当前要求同一个 input ABI：token→ID、special IDs、processor contract
+  与 logits vocab size 必须完全一致。因此“同一 tokenizer 文件名”不够；不同 vocab mapping 目前不支持，
+  需要先设计显式 token projection/mass aggregation artifact，而不能静默按 ID 对齐。
+- 仓库已提供 Qwen3.8-27B checkpoint-4000 producer 配置
+  `configs/train/banana_offline_kd_teacher_qwen38_ckpt4000_v5_8.yaml` 与 Qwen3.5-VL-4B student 配置
+  `configs/train/banana_offline_kd_qwen35_4b_from_qwen38_ckpt4000_v5_8.yaml`。当前本地资产的 tokenizer mapping、
+  special IDs、processor contract 和 248320 logits vocabulary 已通过静态 ABI 检查。旧 scorer 输入路径曾完成
+  Qwen3.8-27B checkpoint-4000 的 200 条 vLLM `topk_tail/T=1/K=64` canary；改为“单次 Shaft resize +
+  structured unexpanded prompt”后必须重跑真实 teacher canary。HF/vLLM 数值 parity、完整 artifact throughput 与
+  student fresh/resume 仍是运行前 release gate。
+- 两阶段 curriculum：Offline KD checkpoint 通过下一份 OPD 配置的 `train.init_from_checkpoint` 进入新
+  schedule；不要使用 `resume_from_checkpoint` 做跨算法切换。同一步 online/offline hybrid 尚未实现。
+
+## 10. `opd`
 
 用途：fully on-policy direct-loss distillation 的 teacher、student rollout 与分布目标。
 

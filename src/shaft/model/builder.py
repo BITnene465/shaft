@@ -31,6 +31,7 @@ from .resolution import (
 from .types import (
     LoadedAdapterArtifacts,
     ModelArtifacts,
+    ModelInputArtifacts,
     ShaftModelAdapter,
     ShaftSequenceExecutionContract,
 )
@@ -426,6 +427,34 @@ def build_model_tokenizer_processor(
         else local_phase_runner("finalize", finalize)
     )
     return finalized
+
+
+def build_model_input_artifacts(
+    config: RuntimeConfig,
+    *,
+    resolved_model_plan: ResolvedModelPlan | None = None,
+) -> ModelInputArtifacts:
+    """Load tokenizer/processor and a forward ABI without materializing model weights."""
+
+    model_plan = resolved_model_plan or resolve_model_plan(config)
+    prepared = _prepare_resolved_model_build(
+        config,
+        model_plan=model_plan,
+        sequence_execution_contract=None,
+        apply_adapter_init=False,
+    )
+    loader = prepared.model_plan.model_meta.loader
+    assert loader is not None
+    artifacts = loader.build_input_artifacts(
+        prepared.config,
+        model_meta=prepared.model_plan.model_meta,
+        model_adapter=prepared.model_plan.model_adapter,
+    )
+    validate_resolved_model_artifact(
+        prepared.model_plan,
+        load_guard=prepared.artifact_load_guard,
+    )
+    return artifacts
 
 
 def load_adapter_artifacts(

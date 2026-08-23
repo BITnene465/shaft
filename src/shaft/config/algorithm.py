@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from .generation_backend import GRPOVLLMConfig
 from .opd import normalize_opd_runtime_config
+from .offline_kd import normalize_offline_kd_runtime_config
 
 
 SFT_AUXILIARY_LOSS_WEIGHTS_PARAM = "auxiliary_loss_weights"
@@ -133,6 +134,17 @@ def resolve_algorithm_profile(name: str) -> AlgorithmProfile:
 def algorithm_profile_names() -> tuple[str, ...]:
     return tuple(sorted(_ALGORITHM_PROFILES))
 
+
+register_algorithm_profile(
+    AlgorithmProfile(
+        name="offline_kd",
+        domain="offline_kd",
+        source_types=frozenset({"jsonl_offline_kd"}),
+        config_normalizer=normalize_offline_kd_runtime_config,
+        supports_planned_batching=False,
+        supports_online_eval=False,
+    )
+)
 
 register_algorithm_profile(
     AlgorithmProfile(

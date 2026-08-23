@@ -233,6 +233,10 @@ def _build_planned_batch_sampler(
 class ShaftSFTPipeline:
     """HF-first SFT pipeline with optional lazy global batch planning."""
 
+    algorithm_name = "sft"
+    dataset_cls = SFTDataset
+    collator_cls = SFTCollator
+
     def __init__(self, config: RuntimeConfig):
         self.config = config
         self.interceptor_manager = None
@@ -258,6 +262,18 @@ class ShaftSFTPipeline:
             self.config,
             resolved_model_plan=resolved_model_plan,
         )
+
+    def on_model_artifacts(self, artifacts: Any) -> None:
+        _ = artifacts
+
+    def build_data_collator(self, **kwargs: Any) -> Any:
+        return self.collator_cls(**kwargs)
+
+    def algorithm_trainer_kwargs(self) -> dict[str, Any]:
+        return {}
+
+    def input_contract_options(self) -> dict[str, Any]:
+        return {}
 
     def _progress_phase(self, task_id: str, *, label: str, message: str):
         if not self.progress_manager.enabled:
@@ -288,20 +304,21 @@ class ShaftSFTPipeline:
             self.initialize_runtime()
             if self.interceptor_manager is None or self.hook_manager is None:
                 raise RuntimeError("SFT runtime plugin managers were not initialized.")
-            if algorithm_name != "sft":
+            if algorithm_name != self.algorithm_name:
                 raise ValueError(
-                    f"ShaftSFTPipeline only supports sft, got {algorithm_name!r}. "
-                    "Use ShaftRLPipeline for DPO/PPO/GRPO."
+                    f"{type(self).__name__} only supports {self.algorithm_name!r}, "
+                    f"got {algorithm_name!r}."
                 )
-            config.algorithm.params = normalize_sft_algorithm_params(
-                config.algorithm.params
-            )
-            auxiliary_loss_weights = dict(
-                config.algorithm.params.get(
-                    SFT_AUXILIARY_LOSS_WEIGHTS_PARAM,
-                    {},
+            if algorithm_name == "sft":
+                config.algorithm.params = normalize_sft_algorithm_params(
+                    config.algorithm.params
                 )
-            )
+                auxiliary_loss_weights = dict(
+                    config.algorithm.params.get(
+                        SFT_AUXILIARY_LOSS_WEIGHTS_PARAM,
+                        {},
+                    )
+                )
             validate_training_state_policy(config)
             validate_training_topology(config)
         # This helper owns a distributed I/O convergence collective. It must run
@@ -543,7 +560,7 @@ class ShaftSFTPipeline:
                         max_steps=training_args.max_steps,
                     ),
                 )
-                dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
+                dataset_bundle = data_center.build_dataset_bundle(self.dataset_cls)
             train_dataset = dataset_bundle.train_dataset
             train_sampler = dataset_bundle.train_sampler
             train_schedule = dataset_bundle.train_schedule
@@ -603,6 +620,7 @@ class ShaftSFTPipeline:
                 resolved_model_plan=model_plan,
                 local_phase_runner=run_local_model_build_phase,
             )
+        self.on_model_artifacts(artifacts)
         with distributed_training_contract_stage(
             stage="post-model",
             fingerprints=lambda: {
@@ -648,7 +666,7 @@ class ShaftSFTPipeline:
                 processor=artifacts.processor,
                 tokenizer=artifacts.tokenizer,
                 template=artifacts.template,
-                input_builder=SFTCollator,
+                input_builder=self.collator_cls,
                 input_options={
                     "min_pixels": config.data.min_pixels,
                     "max_pixels": config.data.max_pixels,
@@ -664,6 +682,7 @@ class ShaftSFTPipeline:
                     "sequence_execution_contract_fingerprint": (
                         sequence_execution_contract.fingerprint
                     ),
+                    **self.input_contract_options(),
                 },
             )
             validate_train_input_checkpointability(
@@ -940,7 +959,7 @@ class ShaftSFTPipeline:
             if self.hook_manager.hooks:
                 callbacks.append(TrainerHookCallback(self.hook_manager))
 
-            collator = SFTCollator(
+            collator = self.build_data_collator(
                 model_adapter=artifacts.model_adapter,
                 template=artifacts.template,
                 processor=artifacts.processor,
@@ -956,7 +975,7 @@ class ShaftSFTPipeline:
                 packing_mode=batch_contract.packing,
                 collect_stats=efficiency_monitor is not None,
             )
-            eval_collator = SFTCollator(
+            eval_collator = self.build_data_collator(
                 model_adapter=artifacts.model_adapter,
                 template=artifacts.template,
                 processor=artifacts.processor,
@@ -1013,6 +1032,7 @@ class ShaftSFTPipeline:
                 "eval_config": config.eval,
                 "model_adapter": artifacts.model_adapter,
                 "resolved_optimizer_plan": resolved_optimizer_plan,
+                **self.algorithm_trainer_kwargs(),
                 "efficiency_monitor": efficiency_monitor,
                 "shaft_checkpoint_protocol": checkpoint_protocol,
                 "resume_peft_artifact": (

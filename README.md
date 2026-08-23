@@ -13,7 +13,7 @@
   <img src="assets/brand/shaft-readme-hero.svg" alt="Shaft — HF-first multimodal training and inference" width="100%">
 </p>
 
-Shaft 是一个 `HF-first` 的多模态训练与推理框架。训练入口按 `SFT / RL / OPD` 三个并列域组织；当前
+Shaft 是一个 `HF-first` 的多模态训练与推理框架。训练入口按 `SFT / RL / Offline KD / OPD` 并列域组织；当前
 生产主线仍是 Qwen 多模态 SFT。DPO/GRPO 是实验能力，PPO 仅用于 debug smoke；OPD 按专项能力门禁使用。
 
 ## 快速开始
@@ -65,6 +65,17 @@ python scripts/train.py rl --config configs/train/grpo_4b.yaml --algorithm grpo
 
 # 专项 OPD 配置
 python scripts/train.py opd --config /path/to/opd.yaml
+
+# 离线 logits/KL 蒸馏（训练时不加载 teacher、不做 rollout）
+python scripts/train.py offline-kd --config configs/train/offline_kd_example.yaml
+
+# 先把固定 target 的 canonical SFT 输入构建为 teacher distribution artifact
+python scripts/build_offline_kd_artifact.py \
+  --config /path/to/materialized_teacher_sft.yaml \
+  --output-dir /path/to/offline-kd-artifact \
+  --denylist /path/to/eval-denylist.json \
+  --backend vllm --tensor-parallel-size 4 --scoring-batch-size 8 \
+  --mode topk_tail --temperature 1 --top-k 64 --resume
 ```
 
 DPO/GRPO 尚无完整真实 Qwen release gate，且当前不得使用 FSDP+PEFT periodic checkpoint/exact resume。
@@ -110,7 +121,7 @@ python scripts/export.py merge-peft \
 
 - `scripts/*.py` 只做薄包装入口。
 - 真实 CLI 解析与命令调度在 `src/shaft/cli`。
-- 当前训练入口只保留 `sft / rl / opd` 三个 training domain；RL 的唯一 CLI 是 `rl`。
+- 当前训练入口包含 `sft / rl / offline-kd / opd` 四个 training domain；RL 的唯一 CLI 是 `rl`。
 
 ## 配置示例
 
@@ -339,6 +350,10 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
   checkpoint、best-checkpoint selection 或 resume）
 - `GRPO`（实验能力；复用 `jsonl_sft` 作为 prompt-target 数据并接入 grouped sampler；真实 Qwen release
   gate 尚未完成，FSDP+PEFT exact resume 不受支持，vLLM sampled rollout 禁止 periodic save/resume）
+- `Offline KD`（固定 completion 与离线 `dense_logits`/`topk_tail` 分布；HF/vLLM artifact scorer 支持
+  batching 与断点续产，训练阶段只加载 student，执行 `CE + KL/JSD`，teacher identity、input contract、
+  tokenizer/processor/target alignment 全部 fail closed。当前不支持跨词表；teacher/student 只有在完整 input
+  ABI，包括 token→ID、special IDs、processor contract 和 logits vocabulary，完全一致时才开放）
 - `OPD`（prompt-only fully on-policy direct-loss distillation；支持 `hf_local / vllm` rollout、
   `hf_local / http` teacher、full/chunk/top-k-tail objective，以及 DDP/FSDP/DeepSpeed checkpoint/export；
   发布模型与规模边界见专项架构文档）
@@ -376,7 +391,8 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - `src/shaft/algorithms`：SFT 与既有 RL trainer 装配
 - `src/shaft/rl`：DPO/PPO/GRPO runtime registry；算法差异不进入公共 RL pipeline
 - `src/shaft/opd`：OPD prompt-only data、rollout/teacher execution registry、direct loss、trainer 与 resume policy
-- `src/shaft/pipeline`：SFT / RL / OPD 三域 pipeline 与 training-domain registry
+- `src/shaft/pipeline`：SFT / RL / Offline KD / OPD 四域 pipeline 与 training-domain registry
+- `src/shaft/offline_kd`：版本化 safetensors artifact、独立 data/collator、CE+KD trainer 与 resume policy
 - `src/shaft/training`：trainer、optimizer、scheduler、loss、checkpoint 规则
 - `src/shaft/infer`：`ShaftInferEngine`、`ShaftInferPipeline`、codec
 - `src/shaft/export`：HF 兼容导出工具链

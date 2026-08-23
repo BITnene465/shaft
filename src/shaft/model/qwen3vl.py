@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import importlib.util
+from typing import Any
 import warnings
 
 import torch
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoTokenizer
+import transformers
+from transformers import (
+    AutoConfig,
+    AutoModelForImageTextToText,
+    AutoProcessor,
+    AutoTokenizer,
+)
 
 try:
     from transformers import AutoModelForVision2Seq
@@ -25,12 +32,71 @@ from .sharding import ModelShardingPolicy
 from .types import (
     ModelArtifacts,
     ModelCapabilities,
+    ModelInputArtifacts,
     ModelLoader,
     ModelMeta,
     ModelModuleGroups,
     ShaftModelAdapter,
     ShaftSequenceExecutionContract,
 )
+
+
+def _load_qwen_processor_and_tokenizer(config: RuntimeConfig):
+    model_name = config.model.model_name_or_path
+    processor = AutoProcessor.from_pretrained(
+        model_name,
+        trust_remote_code=config.model.trust_remote_code,
+        fix_mistral_regex=False,
+        revision=config.model.revision,
+        cache_dir=config.model.cache_dir,
+        local_files_only=bool(config.model.local_files_only),
+    )
+    tokenizer = getattr(processor, "tokenizer", None)
+    if tokenizer is None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            trust_remote_code=config.model.trust_remote_code,
+            fix_mistral_regex=False,
+            revision=config.model.revision,
+            cache_dir=config.model.cache_dir,
+            local_files_only=bool(config.model.local_files_only),
+        )
+    if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+    return processor, tokenizer
+
+
+def _qwen_forward_owner_and_vocab(config: RuntimeConfig) -> tuple[type, Any, int]:
+    model_name = config.model.model_name_or_path
+    hf_config = AutoConfig.from_pretrained(
+        model_name,
+        trust_remote_code=config.model.trust_remote_code,
+        revision=config.model.revision,
+        cache_dir=config.model.cache_dir,
+        local_files_only=bool(config.model.local_files_only),
+    )
+    architectures = tuple(getattr(hf_config, "architectures", ()) or ())
+    candidates = [
+        getattr(transformers, name, None)
+        for name in architectures
+        if isinstance(name, str) and name.strip()
+    ]
+    forward_owner = next(
+        (candidate for candidate in candidates if callable(getattr(candidate, "forward", None))),
+        None,
+    )
+    if forward_owner is None:
+        raise ValueError(
+            "Cannot resolve the Qwen forward contract without loading weights; "
+            f"architectures={architectures!r}."
+        )
+    text_config = getattr(hf_config, "text_config", None)
+    vocab_size = getattr(text_config, "vocab_size", None)
+    if vocab_size is None:
+        vocab_size = getattr(hf_config, "vocab_size", None)
+    if type(vocab_size) is not int or vocab_size <= 0:
+        raise ValueError("Cannot resolve Qwen logits vocabulary from AutoConfig.")
+    return forward_owner, hf_config, vocab_size
 
 
 def _resolve_dtype(dtype_name: str) -> torch.dtype | str:
@@ -237,26 +303,7 @@ class Qwen3VLLoader(ModelLoader):
                     f"text={resolved_text_experts!r}."
                 )
 
-        processor = AutoProcessor.from_pretrained(
-            model_name,
-            trust_remote_code=config.model.trust_remote_code,
-            fix_mistral_regex=False,
-            revision=config.model.revision,
-            cache_dir=config.model.cache_dir,
-            local_files_only=bool(config.model.local_files_only),
-        )
-        tokenizer = getattr(processor, "tokenizer", None)
-        if tokenizer is None:
-            tokenizer = AutoTokenizer.from_pretrained(
-                model_name,
-                trust_remote_code=config.model.trust_remote_code,
-                fix_mistral_regex=False,
-                revision=config.model.revision,
-                cache_dir=config.model.cache_dir,
-                local_files_only=bool(config.model.local_files_only),
-            )
-        if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
-            tokenizer.pad_token = tokenizer.eos_token
+        processor, tokenizer = _load_qwen_processor_and_tokenizer(config)
         finetune_plan = build_resolved_finetune_plan(model, finetune, model_adapter=model_adapter)
         model = apply_resolved_finetune_plan(
             model,
@@ -279,4 +326,28 @@ class Qwen3VLLoader(ModelLoader):
             model_info=model_info,
             template=template,
             finetune_plan=finetune_plan,
+        )
+
+    def build_input_artifacts(
+        self,
+        config: RuntimeConfig,
+        *,
+        model_meta: ModelMeta,
+        model_adapter: ShaftModelAdapter,
+    ) -> ModelInputArtifacts:
+        processor, tokenizer = _load_qwen_processor_and_tokenizer(config)
+        forward_owner, hf_config, vocab_size = _qwen_forward_owner_and_vocab(config)
+        resolved_dtype = _resolve_dtype(config.model.torch_dtype)
+        return ModelInputArtifacts(
+            tokenizer=tokenizer,
+            processor=processor,
+            model_meta=model_meta,
+            model_adapter=model_adapter,
+            model_info=model_adapter.build_model_info(
+                torch_dtype=resolved_dtype,
+                max_model_len=getattr(hf_config, "max_position_embeddings", None),
+            ),
+            template=model_adapter.build_template(),
+            forward_owner=forward_owner,
+            logits_vocab_size=vocab_size,
         )

@@ -66,6 +66,9 @@ configs/train/*.yaml
 !configs/train/ppo_4b.yaml
 !configs/train/grpo_4b.yaml
 !configs/train/qwen36_sft_27b_fsdp_example.yaml
+!configs/train/offline_kd_example.yaml
+!configs/train/banana_offline_kd_teacher_qwen38_ckpt4000_v5_8.yaml
+!configs/train/banana_offline_kd_qwen35_4b_from_qwen38_ckpt4000_v5_8.yaml
 !configs/train/banana_sft_4b_v5_0_re.yaml
 !configs/train/banana_sft_4b_v5_0_re2.yaml
 !configs/train/banana_sft_4b_v5_1.yaml

@@ -3,6 +3,7 @@ from __future__ import annotations
 from shaft.pipeline import (
     PIPELINE_REGISTRY,
     ShaftOPDPipeline,
+    ShaftOfflineKDPipeline,
     ShaftRLPipeline,
     ShaftSFTPipeline,
 )
@@ -31,13 +32,18 @@ def test_shaft_opd_pipeline_registered() -> None:
 
 
 def test_training_domains_are_parallel_and_algorithm_owned() -> None:
-    assert PIPELINE_REGISTRY.keys() == ["shaft_opd", "shaft_rl", "shaft_sft"]
-    assert TRAINING_DOMAIN_REGISTRY.keys() == ["opd", "rl", "sft"]
+    assert PIPELINE_REGISTRY.keys() == ["shaft_offline_kd", "shaft_opd", "shaft_rl", "shaft_sft"]
+    assert TRAINING_DOMAIN_REGISTRY.keys() == ["offline_kd", "opd", "rl", "sft"]
     assert TRAINING_DOMAIN_REGISTRY.resolve("sft").name == "sft"
     assert TRAINING_DOMAIN_REGISTRY.resolve("dpo").name == "rl"
     assert TRAINING_DOMAIN_REGISTRY.resolve("ppo").name == "rl"
     assert TRAINING_DOMAIN_REGISTRY.resolve("grpo").name == "rl"
     assert TRAINING_DOMAIN_REGISTRY.resolve("opd").name == "opd"
+    assert TRAINING_DOMAIN_REGISTRY.resolve("offline_kd").name == "offline_kd"
+
+
+def test_shaft_offline_kd_pipeline_registered() -> None:
+    assert PIPELINE_REGISTRY.get("shaft_offline_kd") is ShaftOfflineKDPipeline
 
 
 def test_training_domain_registry_rejects_cross_domain_algorithm_collision() -> None:

@@ -27,7 +27,7 @@ Shaft 仓库级开发规范。面向在本仓库内协作的工程师与编码�
   - 测试/验收要求
   - feature 完成后的收口规则
 - 但**主体框架边界不变**：
-  - `config / data / model / template / algorithms / rl / opd / pipeline / loss_scale / training / infer / codec / metrics / export / plugins / observability / cli`
+  - `config / data / model / template / algorithms / rl / offline_kd / opd / pipeline / loss_scale / training / infer / codec / metrics / export / plugins / observability / cli`
   这些层级职责不能因为单次需求而漂移。
 - 如果用户需求与当前文档不一致，应优先：
   1. 判断是不是文档滞后
@@ -63,6 +63,8 @@ Shaft 仓库级开发规范。面向在本仓库内协作的工程师与编码�
   - `sft / dpo / ppo / grpo` 等训练算法抽象
 - `rl`
   - `dpo / ppo / grpo` runtime 与 registry；算法差异不进入公共 RL pipeline
+- `offline_kd`
+  - 离线 teacher distribution artifact、producer/reader、data/collator、trainer 与 resume policy
 - `opd`
   - on-policy distillation 的 data、rollout、teacher、objective、trainer 与 resume policy
 - `pipeline`
@@ -84,7 +86,7 @@ Shaft 仓库级开发规范。面向在本仓库内协作的工程师与编码�
 - `observability`
   - logging、context、events
 - `cli`
-  - `sft / rl / opd / infer / export` 命令解析与薄入口编排
+  - `sft / rl / offline-kd / opd / infer / export` 命令解析与薄入口编排
 
 ### 2.2 禁止事项
 
@@ -347,6 +349,8 @@ python3 -m compileall src/shaft tests
 - 新增算法 / pipeline：
   - `tests/test_pipeline_sft.py`
   - `tests/test_pipeline_rlhf.py`
+  - Offline KD 使用 `tests/test_offline_kd.py`、`tests/test_offline_kd_producer_smoke.py` 与
+    `tests/test_pipeline_offline_kd_smoke.py`
   - OPD 使用 `tests/test_opd.py` 与 `tests/test_pipeline_opd_smoke.py`
 - 新增在线 eval / codec：
   - `tests/test_codec.py`

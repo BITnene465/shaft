@@ -1,6 +1,7 @@
 from .builder import (
     ModelBuildLocalPhaseRunner,
     ShaftPreparedModelBuild,
+    build_model_input_artifacts,
     build_model_tokenizer_processor,
     finalize_model_build,
     invoke_model_loader,
@@ -77,6 +78,7 @@ from .sequence import (
 from .types import (
     DefaultPeftPolicy,
     ModelArtifacts,
+    ModelInputArtifacts,
     ModelCapabilities,
     ModelGroup,
     ModelInfo,
@@ -111,6 +113,7 @@ __all__ = [
     "PROCESSOR_POLICY_REGISTRY",
     "DefaultPeftPolicy",
     "ModelArtifacts",
+    "ModelInputArtifacts",
     "ModelBuildLocalPhaseRunner",
     "ModelCapabilities",
     "ModelGroup",
@@ -168,6 +171,7 @@ __all__ = [
     "build_peft_policy",
     "build_processor_policy",
     "build_model_tokenizer_processor",
+    "build_model_input_artifacts",
     "finalize_model_build",
     "invoke_model_loader",
     "load_adapter_artifacts",

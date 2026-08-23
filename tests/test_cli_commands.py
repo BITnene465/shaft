@@ -14,7 +14,13 @@ pytestmark = pytest.mark.contract
 
 
 def test_training_cli_has_one_command_per_training_domain() -> None:
-    assert COMMAND_REGISTRY.keys() == ["opd", "rl", "sft"]
+    assert COMMAND_REGISTRY.keys() == ["offline-kd", "opd", "rl", "sft"]
+
+
+def test_parser_dispatches_to_offline_kd() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["offline-kd", "--config", "dummy.yaml"])
+    assert getattr(args, "_command_cls").__name__ == "OfflineKDCommand"
 
 
 def _valid_runtime_config(*, source_type: str = "jsonl_sft") -> RuntimeConfig:

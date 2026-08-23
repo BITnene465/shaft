@@ -73,12 +73,21 @@ def _run_opd(config: RuntimeConfig) -> dict[str, Any]:
     return run_opd(config)
 
 
+def _run_offline_kd(config: RuntimeConfig) -> dict[str, Any]:
+    from .offline_kd import run_offline_kd
+
+    return run_offline_kd(config)
+
+
 TRAINING_DOMAIN_REGISTRY = TrainingDomainRegistry()
 TRAINING_DOMAIN_REGISTRY.register(
     TrainingDomainSpec(name="sft", runner=_run_sft)
 )
 TRAINING_DOMAIN_REGISTRY.register(
     TrainingDomainSpec(name="opd", runner=_run_opd)
+)
+TRAINING_DOMAIN_REGISTRY.register(
+    TrainingDomainSpec(name="offline_kd", runner=_run_offline_kd)
 )
 TRAINING_DOMAIN_REGISTRY.register(
     TrainingDomainSpec(

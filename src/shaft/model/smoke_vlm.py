@@ -23,6 +23,7 @@ from .registry import default_model_groups, register_model
 from .types import (
     ModelArtifacts,
     ModelCapabilities,
+    ModelInputArtifacts,
     ModelLoader,
     ModelMeta,
     ModelModuleGroups,
@@ -385,4 +386,28 @@ class SmokeVLMLoader(ModelLoader):
             model_info=model_info,
             template=template,
             finetune_plan=finetune_plan,
+        )
+
+    def build_input_artifacts(
+        self,
+        config: RuntimeConfig,
+        *,
+        model_meta: ModelMeta,
+        model_adapter: ShaftModelAdapter,
+    ) -> ModelInputArtifacts:
+        tokenizer = SmokeTokenizer()
+        processor = SmokeProcessor(tokenizer=tokenizer)
+        smoke_config = SmokeVLMConfig()
+        return ModelInputArtifacts(
+            tokenizer=tokenizer,
+            processor=processor,
+            model_meta=model_meta,
+            model_adapter=model_adapter,
+            model_info=model_adapter.build_model_info(
+                torch_dtype=config.model.torch_dtype,
+                max_model_len=128,
+            ),
+            template=model_adapter.build_template(),
+            forward_owner=SmokeVLMModel,
+            logits_vocab_size=smoke_config.vocab_size,
         )

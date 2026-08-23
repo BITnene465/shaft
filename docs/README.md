@@ -7,7 +7,7 @@
 
 ### 架构与接口
 
-- [architecture.md](architecture.md)：模块边界、SFT/RL/OPD 三训练域、训练/推理/eval 主链。
+- [architecture.md](architecture.md)：模块边界、SFT/RL/Offline-KD/OPD 四训练域、训练/推理/eval 主链。
 - [module_reference.md](module_reference.md)：模块职责、关键类与公共扩展点。
 - [config_reference.md](config_reference.md)：当前 schema、配置树、合法组合与 fail-closed 规则。
 - [data.md](data.md)：SFT JSONL、数据派生边界、PromptSource 静态随机 formulation 与发布检查。

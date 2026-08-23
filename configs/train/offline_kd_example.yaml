@@ -1,0 +1,52 @@
+experiment:
+  name: offline-kd-example
+  output_dir: outputs/offline-kd-example
+
+model:
+  model_type: qwen3vl
+  model_name_or_path: /path/to/student
+  finetune:
+    mode: full
+
+algorithm:
+  name: offline_kd
+
+data:
+  max_length: 4096
+  batching:
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
+  datasets:
+    - dataset_name: offline_teacher
+      source_type: jsonl_offline_kd
+      train_path: /path/to/train.jsonl
+      use_for_eval: false
+
+train:
+  duration:
+    unit: steps
+    value: 10000
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 1.0e-5
+  loss_name: auto
+  loss_scale: default
+  load_best_model_at_end: false
+
+eval:
+  enabled: false
+
+offline_kd:
+  artifact_manifest: /path/to/offline-kd/manifest.json
+  objective:
+    mode: topk_tail
+    divergence: forward_kl
+    temperature: 2.0
+    top_k: 64
+    token_chunk_size: 256
+  loss:
+    ce_weight: 0.5
+    kd_weight: 0.5

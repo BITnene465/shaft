@@ -76,6 +76,16 @@
 - 大词表 full/chunk/top-k-tail 的显存和吞吐 A/B。
 - 跨 step rollout buffer、PG-OPD/OPSD；引入 buffer 前先设计持久化 cursor/state。
 
+### 6.1 Offline KD 生产化与 hybrid curriculum
+
+- 在现有 batched HF/vLLM、可恢复原子 producer 之上增加多进程/多节点 distributed scoring、跨 worker 唯一性
+  合并协议与生产级 I/O/throughput gate；不得另建第二种 artifact 格式。
+- 对发布 Qwen 做 HF/vLLM raw-logprob parity、dense/top-k-tail 容量与吞吐、DDP/FSDP/DeepSpeed fresh/resume、
+  HF/PEFT export/reload 门禁；当前 row-slice/限界缓存与 CPU/fake smoke 不能外推生产规模。
+- 若需要同一步混合 offline KD 与 online OPD，先设计统一 batch scheduler、双数据 cursor、rollout/teacher
+  execution composition、CE/KD/OPD denominator、telemetry 和 exact-resume contract。当前只支持
+  Offline KD checkpoint 经 `train.init_from_checkpoint` 进入新 OPD schedule 的两阶段 curriculum。
+
 ### 7. 生产证据与 CI
 
 - required CI 当前只覆盖 CPU framework 与 tiny/fake smoke；distributed、integration、GPU 和真实模型门禁不应

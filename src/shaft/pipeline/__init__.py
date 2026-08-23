@@ -4,10 +4,12 @@ __all__ = [
     "ShaftSFTPipeline",
     "ShaftRLPipeline",
     "ShaftOPDPipeline",
+    "ShaftOfflineKDPipeline",
     "PIPELINE_REGISTRY",
     "run_rl",
     "run_opd",
     "run_sft",
+    "run_offline_kd",
 ]
 
 
@@ -34,6 +36,14 @@ def __getattr__(name: str):
         values = {
             "ShaftOPDPipeline": ShaftOPDPipeline,
             "run_opd": run_opd,
+        }
+        return values[name]
+    if name in {"ShaftOfflineKDPipeline", "run_offline_kd"}:
+        from .offline_kd import ShaftOfflineKDPipeline, run_offline_kd
+
+        values = {
+            "ShaftOfflineKDPipeline": ShaftOfflineKDPipeline,
+            "run_offline_kd": run_offline_kd,
         }
         return values[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

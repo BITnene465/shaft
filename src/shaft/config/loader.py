@@ -277,6 +277,18 @@ def _resolve_data_cache_dirs(payload: dict[str, Any], *, config_path: Path) -> d
     return payload
 
 
+def _resolve_offline_kd_manifest(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
+    node = payload.get("offline_kd")
+    if node is None:
+        return payload
+    if not isinstance(node, dict):
+        raise TypeError("Config key `offline_kd` must be a mapping.")
+    value = node.get("artifact_manifest")
+    if value is not None and str(value).strip():
+        node["artifact_manifest"] = _resolve_config_relative_path(value, config_path=config_path)
+    return payload
+
+
 def load_config(path: str | Path) -> RuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
@@ -296,6 +308,7 @@ def load_config_from_payload(payload: dict[str, Any], *, config_path: str | Path
     _validate_explicit_batching_policy(payload)
     payload = resolve_dataset_catalog(payload, config_path=config_path.resolve())
     payload = _resolve_data_cache_dirs(payload, config_path=config_path.resolve())
+    payload = _resolve_offline_kd_manifest(payload, config_path=config_path.resolve())
     payload = _resolve_deepspeed_config_path(payload, config_path=config_path.resolve())
     config = _build_dataclass(RuntimeConfig, payload)
     return normalize_runtime_config(config)

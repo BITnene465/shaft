@@ -7,6 +7,7 @@ from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
 from .data import DataConfig
 from .model import ModelConfig
 from .opd import OPDConfig
+from .offline_kd import OfflineKDConfig
 from .training import EvalConfig, TrainConfig
 
 
@@ -20,6 +21,7 @@ class RuntimeConfig:
     eval: EvalConfig = field(default_factory=EvalConfig)
     rlhf: RLHFConfig = field(default_factory=RLHFConfig)
     opd: OPDConfig = field(default_factory=OPDConfig)
+    offline_kd: OfflineKDConfig = field(default_factory=OfflineKDConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     progress: ProgressConfig = field(default_factory=ProgressConfig)

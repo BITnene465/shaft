@@ -28,6 +28,7 @@ from .opd import (
     OPDRolloutConfig,
     OPDTeacherConfig,
 )
+from .offline_kd import OfflineKDConfig, OfflineKDLossConfig, OfflineKDObjectiveConfig
 from .runtime import RuntimeConfig
 from .training import (
     EvalConfig,
@@ -81,6 +82,9 @@ __all__ = [
     "OPDRolloutConfig",
     "OPDTeacherConfig",
     "OPDVLLMConfig",
+    "OfflineKDConfig",
+    "OfflineKDLossConfig",
+    "OfflineKDObjectiveConfig",
     "PPOConfig",
     "PluginsConfig",
     "PromptSourceConfig",

@@ -563,6 +563,34 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
 - 允许：组件装配、resume/save 时序、回调装配
 - 禁止：硬编码模型族模板、解析 JSONL、实现 loss 公式
 
+### Offline KD 域
+
+- `src/shaft/offline_kd/artifact.py` 定义 `shaft-offline-kd-artifact-v1` manifest、显式 input contract、
+  safetensors row-slice reader、流式 checksum 与完整 `ShaftOPDInputABI` 兼容门禁。记录只携带
+  `OfflineKDArtifactReference`，不把 tensor 放进 Arrow/JSONL。reader 仅限界缓存 shard index，不缓存整分片。
+- `OfflineKDRecord/OfflineKDDataset/OfflineKDCollator` 是独立 `jsonl_offline_kd` 合同。collator 复用一次
+  full-render supervision compiler，然后逐 token 验证离线 completion IDs，输出 batch 级 teacher distribution。
+- `ShaftOfflineKDTrainer` 复用 SFT 的 HF/optimizer/checkpoint 机制，但自行组合 CE 与 distribution loss；
+  `OfflineKDAlgorithm`、`ShaftOfflineKDPipeline` 和 `offline-kd` CLI 分别承担 registry、编排和薄入口职责。
+- `src/shaft/training/distribution_loss.py` 是 Offline KD 的 dense/top-k-tail KL/JSD 数学真源。本域不修改
+  `src/shaft/opd` 或其他训练算法实现。
+- `src/shaft/offline_kd/producer.py` 提供 `OfflineKDTeacherScorer` 协议、batched HF/vLLM scorer、原子且可恢复的
+  `OfflineKDArtifactWriter` 与 `produce_offline_kd_artifact()`。正式薄入口是
+  `scripts/build_offline_kd_artifact.py`；denylist 使用 `shaft-offline-kd-denylist-v1`，显式列出 sample IDs
+  和/或 image paths。DataCenter 的 weighted mixing、shuffle 和 PromptSource 结果会被物化到 artifact
+  `train.jsonl`；在线媒体 transform 仍 fail closed。vLLM T=1 top-k 走 K+tail 快路径；dense 或 T!=1 重投影
+  请求全词表 raw prompt logprobs。vLLM 路径先执行一次 Shaft smart resize，并把同一个 resized PIL 交给
+  本地 processor 与 vLLM；外部请求使用 structured plan 中每图一个未展开 placeholder，不接受 pixel budget，
+  返回的展开 prompt IDs 必须严格等于本地 collated `input_ids`。生产代码不再折叠 image-token run。当前仍缺
+  真实发布模型的吞吐与 HF/vLLM parity release gate。
+- artifact writer 从 resolved immutable model bytes 自动计算 teacher fingerprint；CLI 的 expected fingerprint
+  只是可选断言。reader 会从 teacher/input ABI/input contract/distribution/build 重算 canonical
+  `artifact_id`，并校验 shard checksum。
+  collator 的媒体内容 SHA 使用文件 stat identity 缓存：identity 不变时避免重复读图，dev/inode/size/mtime/ctime
+  任一变化时重哈希并 fail closed；这依赖调用方遵守 `media_snapshot_id` 的不可变快照合同。
+- 同一算法内 exact resume 绑定 artifact manifest/input ABI fingerprint。Offline KD 到 OPD 的 curriculum 使用
+  `train.init_from_checkpoint` 启动新 schedule，不是跨算法 exact resume。
+
 ### RL 与 OPD 域边界
 
 - `src/shaft/rl` 注册 DPO/PPO/GRPO runtime 与各自 resume policy；公共 RL pipeline 和

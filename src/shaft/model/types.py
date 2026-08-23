@@ -1512,6 +1512,17 @@ class ModelLoader(ABC):
     ) -> "ModelArtifacts":
         raise NotImplementedError
 
+    def build_input_artifacts(
+        self,
+        config: Any,
+        *,
+        model_meta: "ModelMeta",
+        model_adapter: "ShaftModelAdapter",
+    ) -> "ModelInputArtifacts":
+        raise NotImplementedError(
+            f"{type(self).__name__} does not expose tokenizer/processor-only artifacts."
+        )
+
 
 @dataclass(frozen=True)
 class ModelGroup:
@@ -2223,6 +2234,26 @@ class ModelArtifacts:
     model_info: ModelInfo
     template: object
     finetune_plan: object | None = None
+
+
+@dataclass
+class ModelInputArtifacts:
+    """Tokenizer/processor ABI assets that do not materialize model weights."""
+
+    tokenizer: object
+    processor: object
+    model_meta: ModelMeta
+    model_adapter: ShaftModelAdapter
+    model_info: ModelInfo
+    template: object
+    forward_owner: object
+    logits_vocab_size: int
+
+    def __post_init__(self) -> None:
+        if type(self.logits_vocab_size) is not int or self.logits_vocab_size <= 0:
+            raise ValueError("ModelInputArtifacts.logits_vocab_size must be > 0.")
+        if not callable(getattr(self.forward_owner, "forward", None)):
+            raise TypeError("ModelInputArtifacts.forward_owner must expose callable forward().")
 
 
 @dataclass

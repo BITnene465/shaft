@@ -50,7 +50,7 @@ flowchart TD
     Scripts["scripts/*.py<br/>薄包装入口"]
     CLI["src/shaft/cli<br/>命令解析与调度"]
     Config["config<br/>schema / loader / normalize / catalog"]
-    Pipeline["pipeline<br/>SFT / RL / OPD 域编排"]
+    Pipeline["pipeline<br/>SFT / RL / Offline KD / OPD 域编排"]
     Data["data<br/>source / transform / mixing / dataset / collator"]
     Model["model<br/>loader / adapter / policy / finetune"]
     Template["template<br/>chat template / decode protocol"]
@@ -95,8 +95,8 @@ flowchart TD
 | `data` | 数据元信息、数据源、记录结构、增强、mixing、dataset、collator | `ShaftDatasetMeta`、`ShaftDataCenter`、`BaseDataSource`、`build_data_source()` | optimizer/loss、训练阶段调度、任务级语义判断 |
 | `model` | 模型族元信息、HF 加载、PEFT 包装、processor/inference/peft policy、冻结执行计划 | `ModelMeta`、`ModelModuleGroups`、`ShaftModelAdapter`、`build_model_tokenizer_processor()` | 数据路径处理、训练循环、推理 stage 编排 |
 | `template` | 消息规范化、chat template、decode 约定、训练 supervision plan | `TemplateMeta`、`Template`、`build_template()` | 图像处理、任务后处理、generation 参数决策 |
-| `algorithms` / `rl` / `opd` | SFT trainer spec、DPO/PPO/GRPO runtime，以及独立 OPD data/rollout/loss/trainer | `RLRuntime`、`ShaftOPDTrainer`、`opd_distribution_loss()` | 中央 CLI 路由、复制公共模型加载/optimizer/export 机制 |
-| `pipeline` | training-domain registry 与三个域的阶段编排 | `ShaftSFTPipeline`、`ShaftRLPipeline`、`ShaftOPDPipeline`、`run_training_domain()` | 数据格式解析、模型专属 patch、按算法名拼装 RL trainer |
+| `algorithms` / `rl` / `offline_kd` / `opd` | SFT trainer spec、DPO/PPO/GRPO runtime、离线分布蒸馏，以及独立 OPD rollout/teacher runtime | `RLRuntime`、`ShaftOfflineKDTrainer`、`ShaftOPDTrainer` | 中央 CLI 路由、复制公共模型加载/optimizer/export 机制 |
+| `pipeline` | training-domain registry 与四个域的阶段编排 | `ShaftSFTPipeline`、`ShaftRLPipeline`、`ShaftOfflineKDPipeline`、`ShaftOPDPipeline` | 数据格式解析、模型专属 patch、把离线 KD 隐式塞入 SFT extra |
 | `training` | Trainer 公共机制、optimizer/scheduler、checkpoint 与可注册 resume policy | `ShaftSFTTrainer`、`register_training_resume_policy()`、`build_optimizer()`、`build_scheduler()` | 读取 `opd.*` 数据语义、配置加载、导出发布 |
 | `codec` | 文本到规范结构的共享解码、JSON 修复与部分解析 | `decode_with_codec()`、`register_codec()` | 指标计算、业务编排、训练循环 |
 | `infer` | 单阶段推理执行、多阶段上下文传递 | `InferEngineConfig`、`ShaftInferEngine`、`ShaftInferPipeline` | 训练逻辑、离线任务 DSL、私有 codec 体系 |
@@ -434,7 +434,49 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   关联训练 term，raw metric 在 model finalizer 完成后才由 Trainer 生成加权诊断；禁止按 eval metric 名推断
   关联，也禁止 override 改写 raw metric。因此指标不随 eval batch 切分改变，`eval_loss` 仍是 CE-only。
 
-### 5.4.2 OPD 执行合同
+### 5.4.2 Offline KD 执行合同
+
+Offline KD 是独立 training domain：completion 与 teacher distribution 在训练前固定，训练运行时不加载
+teacher，也不执行 student rollout。`jsonl_offline_kd` 只保存标准监督样本和
+`distillation_ref={artifact_id, shard, row}`；分布保存在版本化 safetensors 分片，manifest 绑定自动计算的
+teacher artifact identity、完整 `ShaftOPDInputABI`、显式 input contract、存储分布投影和每个分片的 SHA-256。
+运行时 divergence 不属于 artifact identity：dense logits 可复用于任意受支持的 temperature/divergence；
+`topk_tail` 只绑定生成时的 temperature 与 K。
+
+- `dense_logits` 保存每个 completion position 的完整词表 logits，提供精确 full-vocabulary
+  `forward_kl/reverse_kl/jsd`。FP16 下单个样本的近似体积是
+  `completion_tokens × vocab_size × 2 bytes`；15 万词表、256 token 约 73 MiB，10 万样本约 7.0 TiB。
+- `topk_tail` 保存 top-k token ID/log probability 与剩余词表的精确总 tail mass。loss 在 K+1 个概率桶上
+  计算，是 coarse-grained divergence，不得宣称为 full-vocabulary 精确 KL。tail 不能省略或当成零概率。
+- collator 逐样本验证 artifact identity、shard checksum、tokenizer/processor/input ABI，并将当前 template、
+  truncation 与 EOS policy 得到的完整 input/completion token IDs 与 artifact 逐 token 比较；任何漂移直接失败。
+- trainer 计算 `ce_weight * CE + kd_weight * temperature^2 * divergence`。Offline KD 的分布数学实现位于
+  `training/distribution_loss.py`；本域不修改 OPD 或其他训练算法的运行时。
+- `offline_kd/producer.py` 接受固定 target 的 `jsonl_sft`，通过现有 DataCenter 把 weighted mixing、shuffle 和
+  PromptSource 选择物化为唯一 canonical `train.jsonl`；在线图像 transform 因无法由不可变路径重放而拒绝。
+  producer 可选 HF 或 vLLM scorer，并按 batch 生成分布。writer 在 `shard_rows` 或 `shard_max_bytes` 达阈值时
+  把 CPU tensor 写成 safetensors；`--resume` 使用稳定 staging 与已 fsync 的 build state 续写，完成后原子
+  rename。CLI 强制显式 denylist，不能默认忽略 eval exclusion。不能把 logits 内嵌到 JSONL 或
+  `SFTRecord.extra`。
+- vLLM 使用 teacher-forced `prompt_logprobs` 和 `raw_logprobs`。producer 先通过模型 adapter 的
+  `prepare_rollout_image()` 执行一次 Shaft smart resize；同一个 resized PIL object 随后同时交给本地 processor
+  与 vLLM，本地 processor 不再接收 pixel budget，vLLM request 也不携带 `min_pixels/max_pixels`。
+  vLLM prompt 从 template 的 structured rendered token plan 构造，每张图恰好保留一个未展开 placeholder；禁止
+  从 processor 展开后的 image-token run 猜测并折叠。vLLM 返回的展开 prompt IDs 必须逐 token 严格等于 Shaft
+  collated `input_ids`。T=1 的 `topk_tail` 只请求 K 个 logprobs 并从归一化概率计算精确 tail mass；dense 或
+  T!=1 的 top-k 必须请求完整 vocabulary 才能重投影，准确但 I/O/内存代价高。HF 与 vLLM 使用不同 kernel，
+  要求概率语义一致和容差内数值对齐，不承诺 bitwise 相同。
+- 训练只支持固定 cardinality、padded、unpacked、无 eval。artifact reader 流式校验文件 SHA，使用
+  safetensors row slice 读取所需分布，并只缓存有限个 shard index；真实发布模型的多 GPU throughput、
+  HF/vLLM parity 和训练 fresh/resume 仍需专项 release gate。
+
+Offline KD 与 OPD 支持两阶段 curriculum：先完成 `offline_kd`，再在新的 OPD 配置中用
+`train.init_from_checkpoint` 加载标准 HF/PEFT 权重并启动新 schedule。跨算法切换不是 exact resume，禁止使用
+`resume_from_checkpoint` 冒充。单一步骤内混合 CE、离线 KD 与在线 OPD 还需要统一 batch scheduler、双数据源
+cursor、rollout/teacher execution composition、联合 denominator/telemetry 与新的 resume contract；当前不支持，
+现有独立 execution domain 已保留后续组合的边界。
+
+### 5.4.3 OPD 执行合同
 
 OPD 是独立训练域，不是 RL trainer 的分支。pipeline 只装配 resolved plan，具体实现由三个 registry
 分别解析：
