@@ -15,6 +15,8 @@
   line points，不采样、不补造空标注。
 - `build_context_reconstruction_sft.py`：一次 crop pass 同时物化 shape/line 的全部 eligible
   formulations；合成 crop 使用 `synthetic_realism_v1`，真实 points crop 保持干净像素。
+- [layout_recognition_eval.md](layout_recognition_eval.md)：两阶段 layout recognition 推理、断点续跑、
+  本地评估与 prediction-only HF 打包合同。
 
 ## 边界
 

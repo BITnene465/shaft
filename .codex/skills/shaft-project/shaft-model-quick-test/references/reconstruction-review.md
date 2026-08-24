@@ -1,6 +1,7 @@
-# Reconstruction Review Reference
+# Layout Inference and Reconstruction Review Reference
 
-仅在用户要求临时 review reconstruction 推理结果、重建 render/overlay、生成浏览页面时读取。
+在用户要求 task-local 真实模型推理、layout recognition detection/reconstruction 评测、结果 review、重建
+render/overlay 或浏览页面时读取。推理前门禁同时约束 detection 和 reconstruction，不允许只对齐后者。
 
 ## 边界
 
@@ -23,6 +24,51 @@
 
 ## 推理请求契约
 
+### 推理前确认门禁
+
+每次真实推理都必须先向用户展示本次完整合同并获得确认，包括 canary；历史 run、训练配置或本 reference 的
+推荐值都不能代替本次确认。确认前只能做只读检查、配置准备和 dry-run，不启动 vLLM generation。
+
+必须逐项对齐：
+
+- 模型族、精确 checkpoint、finetune/merge 状态、served-model 名称。
+- 数据集名称与 revision、样本范围、是否使用 GT；检测和 reconstruction proposal 的来源。
+- prompt pool 的版本、formulation、variant 和最终 `prompt_id`；v5.7 checkpoint 不得静默使用 v5.8 prompt，
+  反之亦然。
+- thinking/reasoning：`enable_thinking`、适用时的 `preserve_thinking` 与 `reasoning_effort`。
+- detection/reconstruction 分阶段的 `min_pixels/max_pixels`、smart-resize 真源、是否要求原生分辨率。
+- crop 的 `padding_ratio`、`minimum_crop_size`、坐标空间和回映射方式。
+- generation：`do_sample`、`temperature`、`top_p/top_k`、`max_tokens`、stop、重复抑制、结构化/受约束
+  decoding。
+- retry/fallback、失败 attempt 的保留方式、resume/force/overwrite、输出目录和上传范围。
+- GPU、tensor parallel/replica 方式、canary 样本与正式扩量门禁。
+
+对齐时给出“推荐值 + 理由 + 与训练合同的差异”，等待用户确认；不要只问一个笼统的“是否开始”。
+
+### Layout recognition 推荐提案
+
+本轮成功 real_v2 推理形成以下可复用流程。实际成功 run 的 detection/reconstruction 都使用了 1M–4M；
+用户随后分别确定未来默认提案：detection 使用 1M–4M，reconstruction 使用 0.5M–4M。二者必须分阶段列出，
+不能再用一个像素范围概括整个两阶段任务，也不应把未来默认值伪称为本轮已经跑过的配置。
+
+- detection：Shaft 统一 Qwen smart resize，默认提案为 `1,000,000–4,000,000` pixels。它面向整图全局检测，
+  需要保留足够的全图细节。
+- reconstruction：默认提案为 `500,000–4,000,000` pixels；`padding_ratio=0.65`、
+  `minimum_crop_size=256`。
+- Qwen smart resize 只执行一次；vLLM 不再私自解释 pixel budget，也不做第二次业务 resize。
+- 结构化确定性评测的推荐提案是关闭 thinking，`do_sample=false`、`temperature=0`、`top_p=1`、
+  `max_tokens=8000`，并使用 backend 的中性 generation config；这些仍需逐次确认。
+- prompt 必须与 checkpoint 版本匹配，并把最终 `prompt_id` 写进每条 raw artifact 和 summary。
+- 只有 `finish_reason=stop`、完整 JSON、task schema 和跨字段 contract 均通过时才安装 parsed 结果。
+- fallback 前保留原始失败 attempt；summary 分别报告 generation error、parser contract violation、geometry
+  violation 和 fallback，不能合并成“解析成功”。
+- canary 通过后才扩到全集；正式结果逐请求审计 pixel budget、prompt、generation、GT 隔离、ID 集和输出 hash。
+- 发布只上传约定的 prediction JSON；score/method metadata 是否上传必须在本次合同中确认。
+
+对 reconstruction，0.5M 相比无下限/processor 65K 是关键修复；从 0.5M 增到 1M 属于额外质量余量。若怀疑
+tiny shape 退化，先按目标尺寸分桶做 0.5M/1M canary，再决定是否提高 reconstruction 下限。该结论不能外推到
+detection；detection 的默认下限独立保持 1M，除非用户在本次推理前明确修改。
+
 - Qwen3VL 的训练、eval 和运行时推理统一使用 image-first。用户消息中的图片必须在文本指令
   之前。
 - 本地 HF/chat template 形态使用：`[{"type": "image"}, {"type": "text", "text": prompt}]`。
@@ -30,8 +76,8 @@
   `[{"type": "image_url", "image_url": {"url": ...}}, {"type": "text", "text": prompt}]`。
 - 临时 eval/review 脚本不得改成 text-first。若新建 summary 或 manifest，记录
   `message_order: image_first`，方便之后排查 run 之间的请求契约差异。
-- 对比不同 checkpoint 或不同 run 前，先确认 prompt、pixel budget、generation 参数、parser
-  口径以及 `message_order` 一致。
+- 对比不同 checkpoint 或不同 run 前，先确认 prompt、pixel budget、generation 参数、thinking、parser
+  口径以及 `message_order` 一致；将差异写进 comparison summary，不能只凭目录名推断。
 
 ## 页面展示
 
@@ -40,8 +86,9 @@
   - 右侧：只展示 `prediction`，不要把 `source_ann/raw_text/latency/artifacts` 等完整
     JSON 噪声塞进主视图。
 - 完整 JSON 只作为 header 链接保留。
-- 四图区域用稳定 2x2 网格；render 使用棋盘格背景以检查透明 PNG。
-- 图片应可点击放大，放大后支持移动和缩放。
+- 四图区域用稳定 2x2 固定网格；source/crop/overlay/render 必须等比 `contain` 在窗格内，不能因原图过大产生
+  页面或图片区域滚动。右侧完整 JSON 可以独立滚动。
+- 如需细看，可点击进入独立 modal 放大、移动和缩放；modal 不能改变主 review 页固定布局。
 
 ## Render 规则
 

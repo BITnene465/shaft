@@ -1,6 +1,6 @@
 ---
 name: shaft-model-quick-test
-description: 在仓库根目录为外部/新模型快速搭建临时评测工作区：必要时下载上游源码仓库与工具依赖，收口为共享工具模块、批量脚本、独立 Gradio app、轻量单测与最小文档入口。适用于“先验证模型能力，不接训练主链”的请求。
+description: 在仓库根目录为外部/新模型快速搭建临时评测工作区，或执行 task-local checkpoint 推理、detection/reconstruction 评测与 review；覆盖推理前合同确认、批量脚本、可视化、轻量测试和最小文档入口，不接训练主链。
 ---
 
 # Skill：临时模型快速评测
@@ -16,6 +16,8 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
   - requirements / setup / 缺失工具依赖检查
   - 轻量 smoke test
 - 任务对象通常是仓库外部模型或第三方仓库模型，如 `Rex-Omni`。
+- 也适用于 Shaft checkpoint 的 task-local 离线推理、layout recognition detection/reconstruction 两阶段评测
+  和 review；这类任务不因使用仓库内权重就跳过推理合同确认。
 
 ## 目标边界
 - 临时评测工具放在仓库根目录，目录名统一为 `<model-slug>-test/`。
@@ -30,8 +32,10 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
    - `rex-omni-test/batch_infer.py`
    - `rex-omni-test/app.py`
    - `tests/test_rex_omni_tools.py`
-3. 如果任务是 reconstruction 结果 review、render/overlay 临时可视化，读取
-   [references/reconstruction-review.md](references/reconstruction-review.md)。
+3. 如果任务包含真实模型推理、layout recognition detection/reconstruction、结果 review 或 render/overlay，
+   必须先完整读取
+   [references/reconstruction-review.md](references/reconstruction-review.md)，并在首次真实请求前执行其中的
+   “推理前确认门禁”。
 4. 只在需要更具体结构时再读 [references/layout.md](references/layout.md)。
 
 ## 固定结构
@@ -53,46 +57,48 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
   - 用 monkeypatch/mock 替代真实推理与可视化。
 
 ## 实施步骤
-1. 选择目录名 `<model-slug>-test/`，保持和模型名显式对应。
-2. 先判断是否需要上游源码和工具依赖：
+1. 如需向真实模型发请求，先停在配置阶段，把 reference 规定的完整推理合同列给用户确认。未确认前只能做
+   只读审计、配置准备和 dry-run；不能启动 canary 或正式生成。历史 run 和推荐基线不能代替本次确认。
+2. 选择目录名 `<model-slug>-test/`，保持和模型名显式对应。
+3. 先判断是否需要上游源码和工具依赖：
    - 如果官方 demo 依赖 `from xxx import Wrapper, Visualize` 这类包装层，而本地只有权重目录，优先下载上游源码仓库。
    - 读取上游 `README.md`、`requirements.txt`、`setup.py`、`pyproject.toml`，确认最小可运行依赖。
    - 需要 vendoring 时，把源码放到 `<model-slug>-test/<UpstreamRepoName>/`，不要依赖 `.tmp/` 的临时 clone。
-3. 在 tools 模块中先定义：
+4. 在 tools 模块中先定义：
    - `ModelConfig` dataclass
    - `resolve_model_path()`
    - `collect_*()` / `load_*()` helpers
    - `infer_*()` 共享推理函数
    - `run_*_batch()` 批处理入口
-4. 外部模型依赖必须做明确导入保护。
+5. 外部模型依赖必须做明确导入保护。
    - 缺包时报清晰错误。
    - 不要在 import 时静默失败。
    - 推荐导入顺序：
      1. 已安装的官方包
      2. `<model-slug>-test/<UpstreamRepoName>/` 下的 vendored 源码
      3. 本地 fallback 实现
-5. 本地模型路径优先从 `models/` 自动发现。
+6. 本地模型路径优先从 `models/` 自动发现。
    - 找到本地目录则用本地目录。
    - 否则回退到用户传入路径或远端 repo id。
-6. 如果上游依赖额外工具库：
+7. 如果上游依赖额外工具库：
    - 先用 `importlib.util.find_spec()` 或等价方式检查是否已安装。
    - 再决定是提示缺失、写 fallback，还是在用户明确需要时安装。
    - 不要默认假设环境里已经有上游工具包。
-7. 批量脚本与 Gradio app 必须共用一套推理/导出逻辑。
+8. 批量脚本与 Gradio app 必须共用一套推理/导出逻辑。
    - 禁止在 `app.py` 里重新写一遍 batch 逻辑。
-8. 输出至少包含：
+9. 输出至少包含：
    - `summary.json`
    - `manifest.jsonl`
    - `json/*.json`
    - 可选 `visualizations/*.jpg`
-9. 补最小测试：
+10. 补最小测试：
    - 类别/参数解析
    - 本地模型路径发现
    - vendored / fallback 导入路径
    - 图片扫描
    - batch 输出落盘
    - app smoke
-10. 如新增了新的根目录临时工具，在 `docs/module_reference.md` 附录补一句边界说明即可。
+11. 如新增了新的根目录临时工具，在 `docs/module_reference.md` 附录补一句边界说明即可。
 
 ## 验收
 - `.venv/bin/python -m compileall <model-slug>-test`

@@ -4098,3 +4098,296 @@
   恢复 token-run 折叠、后端二次 resize 或按 token 数量容错。
 - 真实 Qwen3.8 checkpoint-4000 仍需重跑新协议 canary 和 HF/vLLM 数值容差 parity；旧 200 条 artifact 证明的
   是上一版输入路径，不能替代新协议 release gate。
+
+## 2026-08-24：real_v2 评测脚本把 4M 像素上限误覆写为 18M
+
+### 现象
+
+- `real_v2` 四组结果完成后，审计发现 detection raw 中的实际合同全部是
+  `min_pixels=2_000_000, max_pixels=18_000_000`，与常规 2M–4M 评测口径不一致。
+- 250 张图中有 52 张实际输入超过 4M，最大约 10.99M；因此这些结果不能标记为 4M 口径。
+
+### 根因
+
+- 正式 runner 的 detection 默认值是 4M，但本次一次性 orchestration 脚本显式传入了 18M，覆盖了安全默认值。
+- 验收只检查了输入未超过传入的 18M，没有同时对照任务级标准预算，进而把“没有触发 18M 降采样”误述为
+  “原生分辨率”。这是 eval protocol/报告口径错误，不是模型能力变化。
+
+### 影响范围
+
+- 影响本轮四组 `real_v2` detection，以及由其 proposal 派生的 reconstruction/final prediction；不影响此前按
+  4M 合同运行的其他数据集结果。
+- 在正式 4M GT 分数比较中不得把这四组结果与历史 4M 结果直接并表。
+
+### 修复方式
+
+- 常规 layout recognition 的最终默认提案经用户校正为 detection 1M–4M、reconstruction 0.5M–4M；只有用户
+  在推理前明确确认时才偏离这两个分阶段预算。
+- 评测文档新增门禁：任务脚本若请求 `max_pixels > 4M`，启动前必须报告预算和受影响图片数并获得确认。
+
+### 回归测试
+
+- 本轮 raw 审计逐 run 验证 250 条 detection 预算，确认每组均有 52 条 `target_pixels > 4M`，从而将当前结果
+  明确标记为非 4M 口径。
+- 后续 4M 运行必须在发布前统计 `min/max target_pixels` 和 `target_pixels > 4M`，后者必须为 0。
+
+### 后续防线
+
+- 不能只依赖 CLI 默认值；一次性 orchestration 也必须进入协议审计。
+- 报告必须区分原图像素、processor 对齐后的 target pixels、上/下限缩放，不能用“原生分辨率”笼统代替。
+
+## 2026-08-23：layout reconstruction 嵌套几何未完整映射回原图坐标
+
+### 现象
+
+- `real_v2` 子属性评测中，部分已成功解析的 shape reconstruction 被标记为
+  `point_out_of_bounds`；问题集中在 `corners` 的具名点以及 `fill.stops`，而普通 line `points` 正常。
+- 同一批次同时存在少量真实生成失败（`finish_reason=length` 或不完整 JSON），不能把所有异常统一归因于
+  模型能力。
+
+### 根因
+
+- task runner 只识别 `point/start/mid/end/points` 等浅层几何键。shape schema 中的
+  `top_left/top_right/bottom_left/bottom_right`，以及 `corners/body_corners/split_corners/stops` 点集合没有进入
+  crop 0..999 到原图像素坐标的递归映射。
+- 这是 eval reconstruction 坐标转换合同缺失，不是模型本身输出越界，也不是 codec/metric 对已正确原图坐标的
+  误判。
+
+### 影响范围
+
+- 影响使用 `scripts/tasks/run_layout_recognition_eval.py` 将 contextual crop reconstruction 合并回原图的 shape
+  嵌套几何；普通 detection bbox、line `points` 和已显式支持的 bbox 字段不受影响。
+- 旧 parsed/final/package 即使 JSON 合法，也可能混入 crop-normalized 的嵌套点，必须从保存的 raw response 重建，
+  不能只清空 contract issue 标记。
+
+### 修复方式
+
+- 扩展几何键合同，统一递归映射具名角点和 shape 点集合；保留 bbox 与 line points 的既有真源。
+- 新增 raw-to-parsed 重建工具，对本轮四个 `real_v2` run 全量重新解析和映射，再重新 merge/package；不重新请求
+  模型，也不读取 GT。
+- 真实生成失败仍单独保留原始 error/crop/response，并使用有限 line JSON Schema 或精简 shape 完整性提示恢复，
+  不与坐标转换问题混为一谈。
+
+### 回归测试
+
+- `tests/test_run_layout_recognition_eval.py` 新增嵌套 `corners/body_corners/split_corners/fill.stops` 映射用例，
+  focused suite 11 条通过。
+- 每个发布 payload 必须满足 raw 数量与 reconstruction manifest 一致、`missing_raw=0`、
+  `contract_issue_records=0`，并在修正后重新生成 250 个最终预测 JSON。
+
+### 后续防线
+
+- reconstruction schema 新增任何几何字段时，必须同步登记 point/bbox/point-collection 语义并补 crop→full-image
+  单测；不能依赖通用递归函数猜测任意长度为 2 的数组。
+- 评测报告必须区分模型生成失败、codec 解析失败、坐标转换合同失败和 metric 评分；raw response 是重建真源，
+  parsed/final/package 都应视为可再生派生产物。
+
+## 2026-08-24：v5.8 prompt source 重构后 layout runner 无法选择正式评测 prompt
+
+### 现象
+
+- Qwen3.8 27B v5.8 checkpoint-6000 的 `real_v1` canary 在加载 prompt 时直接失败：detection
+  pool 不再包含旧 runner 硬编码的 `main` variant，shape/line reconstruction 则已经改为
+  formulation pool，旧 `load_prompt_pool()` 无法表达该结构。
+- 修复后完整评测得到 detection F1 `0.814055`、parameter F1 `0.480730`。其中
+  `00345__det_0014_line` 在 8K 输出上限仍触发 `finish_reason=length`；其余 4083 条
+  reconstruction 成功且没有 geometry contract issue。
+
+### 根因
+
+- prompt 模块升级后，task-local runner 仍假设所有 YAML 都是单层 variant pool，并硬编码选择 `main`，没有通过
+  新的 prompt source 统一入口解析 default/formulation 两种结构。
+- 该启动失败是 eval/prompt 装配兼容问题，不是模型能力问题。修复后的分数下降则来自真实预测结果：相同
+  `real_v1` GT 和 evaluator 下，未发现 codec、geometry 或 metric 误判；单个 length bad case 也被按空参数错误计入，
+  不足以解释 parameter F1 相对历史 27B v5.7 基线约 0.065 的差距。
+
+### 影响范围
+
+- 影响使用 v5.8 formulation prompt YAML 的 `scripts/tasks/run_layout_recognition_eval.py` detection 与
+  reconstruction；旧单层 prompt pool 不受影响。
+- 不影响训练 prompt 在线采样或正式 `src/shaft` 数据主链；本次兼容修复仅收敛 task runner 的评测 prompt 选择。
+
+### 修复方式
+
+- runner 改用 `load_prompt_source_pool()`；对 formulation pool 显式选择 `reconstruction` formulation，普通
+  pool 选择 `default`，variant 按 `main`、`detailed` 顺序选择正式评测提示词。
+- 对 length bad case 保留 crop、error artifact 和失败计数；合并时安装显式空参数 fallback，使参数指标将其计错，
+  不静默丢框、不伪造成功参数。
+
+### 回归测试
+
+- 新增 v5.8 detection default formulation、shape reconstruction formulation、line reconstruction formulation
+  的 prompt 选择测试；`tests/test_run_layout_recognition_eval.py` focused suite 12/12 通过。
+- 4 图 canary 与 `real_v1` 全集 detection 均为零解析错误；全集 175/175 detection、4083/4084
+  reconstruction 成功，成功记录的 geometry contract issue 为 0。
+
+### 后续防线
+
+- task runner 不得再硬编码 prompt variant；prompt schema 演进必须通过统一 source loader，并用真实 v5.8 YAML
+  做 focused regression。
+- reconstruction 需要为确定性 length truncation 增加单次失败策略或受约束解码，避免对相同输入机械重试；发布
+  指标必须保留 bad-case artifact，并明确 fallback 如何进入评分。
+
+## 2026-08-24：19K reconstruction 推理未对齐训练最小像素预算导致小 shape 错定位
+
+### 现象
+
+- 对 `temp/19k_gt_standard.tar.gz` 重新可视化后，大量 shape 的 `corners/body_corners/tail`
+  落在人工 bbox 之外，常见模式是偏到 proposal 左上方的相邻小图形；line 视觉上相对正常。
+- 以外层 shape geometry bbox 与人工 bbox 的 IoU `< 0.3` 作为定位异常代理，353,367 个带外层几何的
+  shape 中有 152,569 个命中。异常强烈依赖目标尺寸：短边 `10–19px`、`20–39px`、`40–79px`
+  的命中率分别为 `95.53%`、`95.36%`、`78.90%`，短边 `>=160px` 仅为 `0.37%`。
+
+### 根因
+
+- 19K task runner 在送入 vLLM 前只调用 `apply_qwen_pixel_budget(max_pixels=4_000_000)`，没有设置
+  `min_pixels`；checkpoint processor 的默认下限是 65,536 pixels，而 v5.7 训练合同是
+  `min_pixels=500_000, max_pixels=2_000_000`。例如 71×71 crop 在本次推理路径先变成 64×64，服务端
+  最多按默认下限放到约 256×256；训练路径则放到约 736×736。小目标的有效视觉 token 数远低于训练态，
+  模型因此经常选择上下文中的邻近图形。
+- 746,740 个 reconstruction target 中，434,309 个服务端有效面积低于对应训练 resize 面积的 15%，另有
+  141,861 个处于 15%–30%。这是 infer/pixel-budget 输入合同偏差，不是统一的 crop→全图换算 offset。
+- 发布校验只验证 schema、坐标在原图范围内、人工 bbox/已有 line points/card splits 未改变，没有验证模型
+  shape 外层几何与人工 bbox/proposal 的一致性，因此这些语义错定位通过了格式验收。
+
+### 影响范围
+
+- 当前 `temp/19k_gt_standard.tar.gz` 的 shape reconstruction 不能在未过滤或重跑前作为可信 GT；尤其短边
+  `<80px` 的 shape 风险很高。大 shape 明显更可靠，但仍需按 geometry gate 重新筛选。
+- line 中 121,704 条非空人工路径在合并时被保留，视觉正常不能证明模型 line 坐标同样可靠；其余模型生成
+  line 仍需独立分层审计。
+- preview 会显示 round corner 的 `start/mid/end` 三个真实控制点，增加视觉拥挤，但不会制造坐标偏移。
+
+### 修复方式
+
+- 本轮只完成诊断并将 archive 暂缓为 GT，没有覆盖原始标注或交付包。全量审计报告落在
+  `temp/raw_19k_subattr_27b/run_meta/coordinate_audit.json`。
+- 重跑时必须至少对齐训练下限 `min_pixels=500_000`；若任务仍要求 4M 上限，则使用明确记录的
+  `500K–4M` 合同，并对 tiny/small/medium/large shape 分桶 canary。context crop/proposal 也应复用训练 builder
+  的同一合同或证明等价，不再维护未经 parity 的固定 padding 版本。
+- 发布前新增 shape 外层 geometry bbox 与人工 bbox 的一致性门禁；对 callout/card/oval 分别使用适合其 schema
+  的规则，异常样本重试、收紧 crop 或剔除，不能仅凭 schema 合法发布。
+
+### 回归测试
+
+- 全量 746,740 个 target 的 crop 覆盖失败为 0；192,663 个 crop 的 padding 在至少一条原图边界被截断，
+  但同尺寸分桶下贴边 crop 的异常率低于内部 crop，排除“padding 越界造成统一坐标偏移”为主因。
+- bbox→crop `0..999`→全图 round-trip 中，98.94% 误差不超过 1.01px；最大 5.32px 来自超大 crop 的
+  1000-bin 量化分辨率。抽样 2,048 个 shape raw response，嵌套几何映射与保存 cache 2,048/2,048 完全一致。
+- 交付图像中 EXIF orientation 为正常/未设置的有 19,666 张，旋转 orientation 6/8 仅 6 张；EXIF 不是批量
+  shape 错位的解释。审计脚本通过 `ruff` 与 Python compile 检查。
+
+### 后续防线
+
+- 所有外部推理任务必须同时记录任务预 resize、checkpoint processor resize 与训练 pixel budget；只写
+  `max_pixels` 不足以证明输入合同一致。
+- canary 必须按目标短边/占图比例分层，不能用大目标成功推断 tiny target 可用；发布 summary 必须包含
+  geometry-vs-proposal/bbox 指标和 bad-case contact sheet。
+- 坐标问题要分开报告：padding/crop 覆盖、量化 round-trip、schema 嵌套映射、模型目标选择和预览绘制，
+  不得把模型错选相邻对象笼统归因于“坐标转换”。
+
+## 2026-08-24：real_v2 发布结果的 pixel budget 与 reconstruction padding 合同未形成可审计真源
+
+### 现象
+
+- 四个历史 `real_v2` 结果曾使用不一致或不可追溯的图像输入设置，无法证明 detection 与 reconstruction 都遵循
+  既定的 `1M–4M` pixel budget；reconstruction 也缺少对训练 medium 状态 `padding_ratio=0.65` 的逐 crop 验证。
+- 这会把输入分辨率、context crop 和模型能力混在一起。由于 `real_v2` 本地没有 GT，本轮不能用分数反推旧结果
+  是否正确，必须重新推理并从输入合同和产物 provenance 直接验收。
+
+### 根因
+
+- 旧发布流程主要依赖启动命令和汇总数量，没有把每个请求的 resize metadata、prompt ID、crop box、生成终止状态
+  和 fallback 策略作为发布门禁；“原生分辨率”“4M 上限”和“训练态 medium padding”因此容易在不同阶段漂移。
+- vLLM 本身不负责 Shaft 的 pixel budget 语义；真正的 resize 真源是统一 smart-resize helper。问题属于
+  infer/eval 输入合同和发布审计不足，不是 vLLM 不支持某个参数，也不能在没有新分数时归因于模型能力。
+
+### 影响范围
+
+- 影响四个已发布 `real_v2` 目录：v5.8 4B checkpoint-10000/12000、v5.7 4B checkpoint-14000、v5.7
+  retrain 27B checkpoint-8000。`real_v1` 不在本次替换范围内。
+- 旧 `real_v2` 当前树已被完整替换；平台 `pred` 目录只保留新生成的 250 个 JSON，不上传
+  `score.json/method.json/methods.json`。
+
+### 修复方式
+
+- detection 和 reconstruction 统一使用 Shaft smart resize 的 `min_pixels=1_000_000`、
+  `max_pixels=4_000_000`、factor 32 对齐；reconstruction 统一使用 `padding_ratio=0.65` 和
+  `minimum_crop_size=256`。
+- 固定 greedy generation：`temperature=0`、`top_p=1`、`max_tokens=8000`、
+  `enable_thinking=false`，并使用 `--generation-config vllm` 避免 checkpoint sampling 配置覆盖。
+- 四模型先跑两阶段 canary，通过后才删除旧 task-local work 和本地 `real_v2` payload；正式结果分别包含
+  16,921、16,831、17,190、16,223 个 reconstruction 请求。确定性失败单独快照后才做受约束恢复：
+  detection fallback 数为 1/0/9/0，reconstruction fallback 数为 2/1/21/7，最终均为零残留错误。
+- Hugging Face 上传使用目标 `pred/*` 先删除再写入；最终 revision
+  `37e1d7fc1c8d09b05015a015cb15be3eb90c66c8` 下载回全部 1,000 个 JSON，与本地逐文件 SHA-256 完全一致。
+
+### 回归测试
+
+- `tests/test_run_layout_recognition_eval.py` 与 `tests/test_pixel_budget.py` 共 15 条 focused tests 通过；四模型
+  4 图两阶段 canary 均通过，canary reconstruction 请求数为 168、168、155、158，错误均为 0。
+- 正式审计逐请求验证目标面积在 `1M–4M`、factor 32 对齐、`finish_reason=stop`、prompt ID 正确；逐 manifest
+  重新计算 `padding_ratio=0.65` crop box，并验证 detection/raw、reconstruction/raw/parsed、final/package ID 集
+  完全一致、`gt_read=false`、`contract_issue_records=0`。
+- 四组均生成 12 个 shape、12 个 line 的 crop review sheet，并单独生成全部 reconstruction fallback contact
+  sheet；抽查确认 proposal、重建几何和属性摘要可读。
+
+### 后续防线
+
+- layout 发布必须以逐请求 audit artifact 为真源，不能只凭 CLI 参数或 summary 推断 pixel budget/padding 已生效；
+  detection 与 reconstruction 两阶段都必须记录并验证 resize metadata。
+- 删除旧结果只能发生在所有模型 canary 通过之后；远端替换后必须验证精确文件名集合和内容 hash，不能只检查
+  文件数量。
+- bad case 要保留 sample/request ID、crop、错误类型、恢复策略和恢复后输出；共同失败样本（例如两个 v5.8
+  checkpoint 都在 `prod_003998__det_0001_shape` 产生未闭合 JSON）应优先用于后续训练与解码稳定性回归。
+
+## 2026-08-24：layout reconstruction 只校验 JSON 外壳，review renderer 又自行猜测字段语义
+
+### 现象
+
+- `parse_reconstruction()` 只检查 JSON 完整、顶层 label 和 `parameters` 为对象；非法 `shape_type`、card
+  fill/split 数量不一致、callout 缺 body/tail、曲线点数错误以及 line marker/style 冲突都会被当作成功结果。
+- 首版全量 review 又把所有 shape 当作同一种角点折线：oval 没有几何，round corner 没有曲线，card 没有分区
+  fill，callout oval body 没消费 `body_bbox`，`other` 甚至被臆造为实心矩形。
+- 27B real_v2 的 16,223 个 reconstruction 输出按 v5.7 prompt contract 重新审计后，有 88 条至少命中一项
+  schema/semantic violation；旧 summary 的 `contract_issue_records=0` 只覆盖坐标越界，不能代表 schema 合法。
+
+### 根因
+
+- eval runner 把通用 `json_any` codec 的“语法可解析”误当成 task reconstruction contract 的“语义合法”，
+  `geometry_issues()` 又只检查映射后坐标是否越界，遗漏了枚举、必填字段和跨字段约束。
+- review 页面没有消费 parser 的单一合同，而是在 JavaScript 中临时推断 shape 结构；fill 范围还使用 detection bbox，
+  没有使用预测几何的外接范围。问题属于 parser/render/eval 工具误判，不应归因于模型能力。
+
+### 影响范围
+
+- 影响 `scripts/tasks/run_layout_recognition_eval.py` 的 reconstruction 接收门禁，以及本轮 27B real_v2
+  reconstruction review。已发布 prediction JSON 本轮不改写，88 条异常在 review 中显式标记，便于保留 bad case。
+- 不影响 detection、pixel budget、crop/proposal provenance，也不改变已经上传到 Hugging Face 的文件集合。
+
+### 修复方式
+
+- 为 shape/line 增加字段级 contract validator：覆盖枚举、颜色、border/fill/effect、sharp/round corner、card
+  fill/split/corner、callout body/tail、line segments、curved 四点、is_single、marker/style 和坐标范围。
+- `parse_reconstruction()` 在坐标映射前执行严格验证；不合约输出进入原有 retry/error 路径，避免 clamp 或 merge
+  把结构错误伪装成成功。
+- review 直接复用同一个 parser 标记 `parser_error`，增加 `contract invalid only` 筛选；renderer 按 shape_type
+  分派，card 使用预测角点范围和 split 方向分区填充，callout 分开 body/tail，`other` 只显示“geometry
+  unspecified”占位，不再伪造预测几何。
+
+### 回归测试
+
+- `tests/test_run_layout_recognition_eval.py` 17/17 通过；新增默认推理合同、完整 card、非法 shape_type、card
+  fill/split 数量冲突、line curved segment 与 marker contract 用例。
+- review 使用 50 进程重建 16,223 条记录，shape/line 数量仍为 9,245/6,978；JavaScript syntax check 通过。
+- card、oval、callout、line、other 五类代表样本使用 mock canvas 执行 render/overlay canary，均产生对应的
+  curve/ellipse/fill/split/tail/arrow/placeholder 绘制操作且无运行时异常。
+
+### 后续防线
+
+- reconstruction 的合法性必须区分三层：JSON codec 语法、task schema/跨字段约束、映射后 geometry/proposal
+  语义；任何一层都不能用另一层的零错误代替。
+- review renderer 只能消费 parser 已定义的合同；新增 shape_type 或字段时必须同时补 parser fixture 和 renderer
+  canary，禁止在页面里用 detection bbox 静默补造模型没有输出的几何。
+- 发布 summary 必须分别报告 parser contract violation、geometry violation、fallback 和模型生成错误，并保留每类
+  bad case；不能再把它们合并成一个模糊的“解析成功率”。

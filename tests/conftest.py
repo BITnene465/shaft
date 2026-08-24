@@ -113,6 +113,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_prelabel_line_reconstruction.py",
         "test_prepare_gt_standard_v5_7.py",
         "test_recover_v5_8_real_tasks.py",
+        "test_run_layout_recognition_eval.py",
     ),
     "visual": ("test_prediction_visualization.py",),
 }
