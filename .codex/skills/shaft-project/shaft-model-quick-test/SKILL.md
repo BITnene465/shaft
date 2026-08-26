@@ -35,7 +35,8 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
 3. 如果任务包含真实模型推理、layout recognition detection/reconstruction、结果 review 或 render/overlay，
    必须先完整读取
    [references/reconstruction-review.md](references/reconstruction-review.md)，并在首次真实请求前执行其中的
-   “推理前确认门禁”。
+   “推理前确认门禁”。该 reference 同时是临时 reconstruction renderer 的可迁移视觉合同；一次性脚本、
+   历史 HTML 和生产编辑器源码都只能作为实现或交叉核验材料，不能替代该合同。
 4. 只在需要更具体结构时再读 [references/layout.md](references/layout.md)。
 
 ## 固定结构
@@ -106,6 +107,8 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
 - 不跑真实大模型推理，除非用户明确要求。
 - 不修改 `src/shaft` 正式内核，除非用户明确要求集成。
 - 如果引入了 vendored 上游源码，确认导入路径稳定，不依赖临时目录或未记录的 shell 状态。
+- reconstruction renderer 在全量重建前必须通过 reference 规定的 marker matrix、旋转箭头、card 分区和
+  坐标空间 canary；只验证脚本可运行或图片可解码不算视觉验收。
 
 ## GPU Runtime 排障
 - 如果 `nvidia-smi` 显示 `[Not Found]`、残留 PID，或者 `kill <pid>` 返回 `No such process`，不要直接尝试 GPU reset、重启容器或宿主机介入。

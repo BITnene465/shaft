@@ -33,6 +33,14 @@ detection 1M–4M、reconstruction 0.5M–4M，但不得因为它是推荐值就
 推理前确认门禁和完整参数清单的唯一流程文档是
 `.codex/skills/shaft-project/shaft-model-quick-test/references/reconstruction-review.md`；本任务文档不重复维护。
 
+## Reconstruction review 可迁移性
+
+review/overlay/render 属于 task-local 产物，不由 `run_layout_recognition_eval.py` 持有一套长期 renderer。
+但视觉语义不能因此只存在于一次性代码中：shape/card/line 的可迁移合同统一维护在上述
+`reconstruction-review.md`，其中包含箭头 marker 表、filled-body 内缩、斜向 bbox 厚度反解、非法
+style-marker 组合和 canary matrix。每次新建或替换临时 renderer 都必须先读取该 reference，并在全量生成前
+完成其视觉 canary；历史 `temp/` 脚本和页面不构成规范真源。
+
 查看完整参数：
 
 ```bash

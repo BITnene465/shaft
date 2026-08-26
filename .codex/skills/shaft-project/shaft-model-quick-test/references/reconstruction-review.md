@@ -121,6 +121,67 @@ detection；detection 的默认下限独立保持 1M，除非用户在本次推�
   具体比例可以是 review 近似，但不能全部退化成同一种三角箭头。
 - 多段 line (`is_single=false`) 要逐段渲染，不要只取第一段。
 
+### Line endpoint marker 可迁移合同
+
+本节是 reconstruction review 的规范真源。临时 renderer 可以删除或重写，后续实现仍必须仅凭本节恢复相同
+视觉语义，不能依赖某个 `temp/` 脚本、历史 HTML、固定仓库外路径或未追踪的生产 bundle。
+
+实现前按以下顺序确认合同：
+
+1. 读取本次 checkpoint 对应的 line prompt、parser/validator 和当前完整 prediction JSON。
+2. 统计 `line_style × begin_arrow × end_arrow` 值域及非法组合数量，不能只看 schema 枚举。
+3. 如果当前生产编辑器有独立视觉实现，用它做交叉核验；冲突时先确认 schema 版本，不把生产代码路径写成
+   renderer 的运行时依赖。
+
+端点使用 path 的有向顺序。begin 的 `tip=p[0], neighbor=p[1]`，end 的
+`tip=p[-1], neighbor=p[-2]`。令单位方向 `u=(tip-neighbor)/|tip-neighbor|`，法向量
+`n=(-u_y,u_x)`。各枚举必须产生可区分的形状：
+
+| marker | 合法 line_style | 可迁移视觉语义 |
+| --- | --- | --- |
+| `none` | path / shape | 不画端点。 |
+| `line` | path | 以 tip 为尖端的开口 V；只描边，不闭合、不填充。 |
+| `triangle` | path / shape | 以 tip 为尖端、后缘平直的实心三角形。 |
+| `stealth` | path / shape | `tip → left → rear-notch → right` 的实心凹尾箭头；不得退化成 triangle。 |
+| `pointy` | shape | filled shape 的锥形端点；它表示主体逐渐收窄到 tip，不是 path marker。其横向半宽应明显窄于同尺度 triangle，可用 `0.72 × triangle_half_span` 近似。 |
+| `tee` | path / shape | 以 tip 为中心、沿法向量 `n` 的垂直端帽。 |
+| `circle` | path / shape | 以 tip 为圆心的空心圆；主体路径应到达圆心。 |
+
+filled polygon marker（`triangle / stealth / pointy`）会取代路径末端的一段主体。绘制主体时先沿 neighbor 方向
+把端点内缩，推荐内缩约 `0.72 × marker_length`，再拼接 marker；否则粗 body 会穿到 tip，pointy 看起来仍是
+平头。`line / tee / circle` 以标注端点为中心，主体不内缩。shape 的 border 必须同时覆盖 body 与 marker；
+两色 fill 的 begin/end marker 分别使用对应端颜色。
+
+marker 尺寸优先读取显式 body width、marker width/length。字段不存在时才允许从中心线和轴对齐 bbox 近似：
+
+- 设 bbox 宽高为 `W,H`，中心线首尾横纵跨度为 `dx,dy`，`L=hypot(dx,dy)`。
+- 当 `|dy|/L > ε` 时得到候选横向厚度 `T_x=(W-dx)/(|dy|/L)`；当 `|dx|/L > ε` 时得到
+  `T_y=(H-dy)/(|dx|/L)`。
+- 只保留正候选并取较小值；无正候选时才 fallback 到 `min(W,H)`。body width 与 marker 总横宽要分别估计，
+  不得相等复用。
+- 禁止直接把轴对齐 bbox 四角投影到法向量后当横向厚度；斜线的路径长度会混入该投影，使箭头头部异常放大。
+- path marker 尺寸只跟 stroke width 和可见性下限相关，不使用整个 bbox 的法向跨度。
+
+非法组合必须显式处理，不能静默伪装成模型预测正确：
+
+- `path + pointy`：标为 contract violation；如页面要与生产编辑器预览一致，可仅在视觉层归一为
+  `triangle`。
+- `shape + line`：标为 contract violation；可仅在视觉层归一为 `triangle`。
+- raw prediction、右侧 JSON 和统计必须保留原值，视觉归一不得写回 prediction 或改变指标。
+- 未知 marker 使用明确 unsupported/warning，不默认画成 triangle。
+
+全量重建前必须生成或抽取以下 canary：
+
+- 合法 marker matrix：七种 marker 至少覆盖 begin/end；`line` 覆盖 path，`pointy` 覆盖 shape，其余覆盖实际
+  出现的 style。
+- 旋转矩阵：至少检查 `0° / 30° / 45° / 90°` 的 triangle、stealth、pointy，防止 bbox 估宽只在水平线正确。
+- straight / curved / rounded polyline / multi-segment 各一例，确认切线方向与端点顺序。
+- 有 border、dash、两色 fill 的 shape arrow 各一例，确认 marker 与 body 的 paint 一致。
+- 浏览器 canvas 和静态导出若同时存在，必须对同一 canary 使用相同枚举语义、非法组合策略和尺寸公式。
+
+验收记录至少包含值域统计、非法组合计数、canary 列表、人工抽查结论、图片解码检查和页面脚本检查。图片能
+生成、JPEG 能解码或没有 JavaScript 异常，只能证明程序可运行，不能证明 marker 语义正确。
+
 ### P1 风格字段清单
 
 临时 renderer 写之前先从当前 JSON 统计字段值域，再按下面入口消费。没有出现在当前
@@ -170,4 +231,5 @@ P1 风格的目标是让 reviewer 能判断模型是否预测对了风格类别�
 - 先读当前完整 JSON，确认预测字段值域，再写临时 renderer。
 - 坐标系要先验证：常见为 0-1000 归一化坐标映射到 crop 像素。
 - 重建 HTML 时给新 overlay/render URL 加 cache-busting query，避免浏览器缓存旧图。
-- 一次性代码可以直接在当前 turn 执行，不保留到长期脚本目录。
+- 一次性代码可以直接在当前 turn 执行，不保留到长期脚本目录；可迁移规则必须回写本 reference，不能只留在
+  临时脚本或聊天记录中。

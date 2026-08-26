@@ -4391,3 +4391,50 @@
   canary，禁止在页面里用 detection bbox 静默补造模型没有输出的几何。
 - 发布 summary 必须分别报告 parser contract violation、geometry violation、fallback 和模型生成错误，并保留每类
   bad case；不能再把它们合并成一个模糊的“解析成功率”。
+
+## 2026-08-26：Reconstruction review 将不同箭头端点退化为同一种三角箭头
+
+### 现象
+
+- 临时 reconstruction review renderer 将 `line / pointy / tee / circle` 等端点大多画成同一种三角形或开口
+  V，无法据图复核模型预测的端点类别。
+- 斜向 filled-shape arrow 直接使用轴对齐 bbox 的法向投影估宽，路径长度会混入宽度，导致部分箭头头部异常
+  放大并越过画布主体。
+
+### 根因
+
+- renderer 没有先读取 prompt contract 和编辑器的 `lineVisualSemantics.ts`/`registerLineNode.ts` 真源，箭头
+  分支只区分“填充三角形”和“开口折线”。
+- filled shape 的宽度估计错误地把轴对齐 bbox 当成旋转后的紧致 bbox；这属于 review/render 误画，不是模型、
+  codec、metric 或坐标回映射错误。
+
+### 影响范围
+
+- 影响 v5.8 27B ckpt4000/8000、v5.8 4B ckpt10000/12000 和 v5.7 27B retrain ckpt8000 的临时 review
+  页面及最终复原对比图；冻结 prediction JSON 和评测分数未修改。
+- 七组结果中另有 31 个 `path+pointy`、40 个 `shape+line` 的模型输出违反 style-marker 合同；renderer 按编辑器
+  真源分别归一为 `triangle`，但这些仍是模型合同问题。
+
+### 修复方式
+
+- 分别实现 `none / line / stealth / triangle / pointy / tee / circle`：开口 V、后凹 stealth、实心 triangle、
+  filled-shape 锥形 pointy、垂直端帽和空心圆不再共用形状。
+- `pointy` 仅用于 filled shape，`line` 仅用于 path；filled marker 会缩短 body 后再拼接，避免主体穿过端点。
+- 用中心线在 bbox 的横纵占用反解横向厚度，替代轴对齐 bbox 法向投影；静态 renderer 和 HTML canvas 使用
+  同一几何规则。
+
+### 回归测试
+
+- 7 个 review 页面通过 JavaScript 语法检查；Python compile 与 Ruff 通过。
+- 使用 50 进程重建 1,600 张最终复原对比图；连同 1,600 张 detection 图共 3,200 张 JPEG 全部解码通过。
+- 抽查包含 pointy/triangle、stealth、open-line、tee、circle、card 和斜向 filled arrow 的真实样本，端点形状
+  可区分且未再出现 bbox 投影导致的异常放大。
+
+### 后续防线
+
+- 临时 renderer 开发前必须统计当前 JSON 值域，并同时读取 prompt schema 与生产编辑器的视觉语义实现；禁止
+  仅按枚举名称猜测几何。
+- 对旋转/斜向线体，轴对齐 bbox 不可直接当作横向厚度；必须结合中心线解算或使用显式 width 字段。
+- review 中发现 style-marker 非法组合时必须单独计数并注明归一规则，不能把 renderer fallback 误写成模型能力。
+- 可迁移端点语义、斜向厚度反解、非法组合策略和 marker/rotation canary 已写入 tracked
+  `shaft-model-quick-test/references/reconstruction-review.md`；后续不得以本轮 `temp/` renderer 作为唯一依据。
