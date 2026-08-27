@@ -1,0 +1,54 @@
+# Banana v5.9 is a grounding-only increment over the frozen v5.8 snapshot.
+# All non-grounding sources intentionally continue to reference their v5.8 artifacts.
+datasets:
+  grounding_layout:
+    source_type: jsonl_sft
+    train_path: ../../data/banana_v5_9/grounding_layout/sft/train.jsonl
+    val_path: ../../data/banana_v5_9/grounding_layout/sft/val.jsonl
+    weight: 4.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.9 / v5.8 layout grounding plus reviewed paper increment
+    tags: [banana, v5.9, grounding, layout, real, augmented, sft]
+
+  background:
+    source_type: jsonl_sft
+    train_path: ../../data/background/sft/train.jsonl
+    val_path: ../../data/background/sft/val.jsonl
+    weight: 1.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.8 / reviewed full-image background classification
+    tags: [banana, v5.8, background, reconstruction, real, reviewed, sft]
+
+  shape_context_reconstruction:
+    source_type: jsonl_sft
+    weight: 5.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.8 / V9 shape appearance, geometry, and reconstruction
+    tags: [banana, v5.8, shape, synthetic, v9, formulations, sft]
+
+  line_context_reconstruction:
+    source_type: jsonl_sft
+    weight: 6.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.8 / V9 line appearance, points, and reconstruction
+    tags: [banana, v5.8, line, synthetic, v9, formulations, sft]
+
+  line_context_points:
+    source_type: jsonl_sft
+    weight: 2.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.8 / points-only cohort using the shared line reconstruction pool
+    tags: [banana, v5.8, line, reconstruction, points_only, real, synthetic, formulations, sft]
+
+  image_context_reconstruction:
+    source_type: jsonl_sft
+    weight: 1.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.8 / reviewed real 13-class image type
+    tags: [banana, v5.8, image, classification, real, formulations, sft]

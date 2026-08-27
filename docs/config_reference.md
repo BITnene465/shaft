@@ -1973,3 +1973,9 @@ train 0.25% ╸───────── 25/10k 6.54s/it eta 18h07m loss 7.9 l
 - 用 CLI 覆盖多层嵌套且语义不清的配置对象
 
 `--max-steps` 与 `--epochs` 互斥；任一参数都会完整替换 `train.duration` 的 unit/value。
+
+## 14. Banana 版本化数据 catalog
+
+`configs/data/banana_v5_9.yaml` 是 v5.8 的 grounding-only 增量 catalog：只有 `grounding_layout` 指向
+`data/banana_v5_9/grounding_layout/sft`，其余数据源、权重和 PromptSource 继续复用 v5.8。完整 source
+门禁、增强和重建命令见 `scripts/tasks/banana_v5_9.md`。

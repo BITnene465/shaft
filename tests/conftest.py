@@ -112,6 +112,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_build_grounding_layout_sync_structured.py",
         "test_prelabel_line_reconstruction.py",
         "test_prepare_gt_standard_v5_7.py",
+        "test_prepare_banana_v5_9_grounding.py",
         "test_recover_v5_8_real_tasks.py",
         "test_run_layout_recognition_eval.py",
     ),

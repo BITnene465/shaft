@@ -7,6 +7,8 @@
 
 - [banana_v5_7.md](banana_v5_7.md)：Banana v5.7 的数据、prompt、训练配置、构建顺序与完整性基线。
 - [banana_v5_8.md](banana_v5_8.md)：Banana v5.8 的 source/structured/SFT、人工 formulation 与在线随机合同。
+- [banana_v5_9.md](banana_v5_9.md)：Banana v5.9 的 grounding-only 增量、ID 测试门禁与多尺度增强流程。
+- `prepare_banana_v5_9_grounding.py`：复用 v5.8 grounding train ID，清洗 v5.9 新标注并冻结独立 raw snapshot。
 - `recover_v5_8_real_tasks.py`：从显式历史来源恢复 v5.8 `background` 与
   `image_context_reconstruction`，完成测试集排除、target 对账和全量媒体校验后原子发布。
 - `prepare_gt_standard_v5_7.py --selection-profile v5.8`：审计 V9 后生成稀有 shape 全保留、
