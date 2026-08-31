@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from PIL import Image
+import pytest
 from safetensors.torch import save_file
 import torch
 
@@ -20,7 +21,20 @@ from shaft.opd.input_abi import build_opd_input_abi
 from shaft.pipeline import run_offline_kd
 
 
-def test_offline_kd_cpu_smoke_runs_without_teacher_or_rollout(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("grouping", "cardinality"),
+    [("none", "fixed"), ("length", "fixed"), ("bounded_cost", "token_budget")],
+)
+def test_offline_kd_cpu_smoke_runs_without_teacher_or_rollout(
+    tmp_path: Path,
+    grouping: str,
+    cardinality: str,
+) -> None:
+    planning_fields = ""
+    if grouping != "none":
+        planning_fields = "    buffer_size: 8"
+    if grouping == "bounded_cost":
+        planning_fields += "\n    max_tokens_per_microbatch: 64"
     image_path = tmp_path / "image.png"
     Image.new("RGB", (8, 8), color=(11, 23, 47)).save(image_path)
     train_path = tmp_path / "train.jsonl"
@@ -42,10 +56,11 @@ algorithm: {{name: offline_kd}}
 data:
   max_length: 64
   batching:
-    grouping: none
-    cardinality: fixed
+    grouping: {grouping}
+    cardinality: {cardinality}
     packing: {{mode: none}}
     layout: padded
+{planning_fields}
   datasets:
     - dataset_name: kd
       source_type: jsonl_offline_kd

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -24,6 +25,7 @@ from shaft.offline_kd.artifact import (
     build_offline_kd_input_contract,
     clear_media_fingerprint_cache,
     media_content_fingerprint,
+    merge_offline_kd_artifacts,
     offline_kd_artifact_identity,
 )
 from shaft.offline_kd.producer import (
@@ -33,13 +35,22 @@ from shaft.offline_kd.producer import (
     OfflineKDDistributionSpec,
     OfflineKDScoringBatch,
     ShaftOfflineKDVLLMScoringCollator,
+    VLLMOfflineKDAsyncGreedyGenerator,
+    VLLMOfflineKDGreedyGenerator,
     VLLMOfflineKDTeacherScorer,
     prepare_offline_kd_scoring_items,
+    validate_detection_pseudo_label,
 )
 from shaft.offline_kd.data import load_jsonl_offline_kd_records
+from shaft.offline_kd.media_plan import deterministic_detection_media_plan
 from shaft.offline_kd.trainer import ShaftOfflineKDTrainer
 from shaft.opd.input_abi import ShaftOPDInputABI
-from shaft.template import ShaftTemplateSupervisedRow, ShaftTemplateSupervisionPlan
+from shaft.template import (
+    ShaftTemplatePromptPlan,
+    ShaftTemplatePromptRow,
+    ShaftTemplateSupervisedRow,
+    ShaftTemplateSupervisionPlan,
+)
 from shaft.training.distribution_loss import DistributionLossComponents, TeacherDistribution
 from shaft.training.sft_trainer import ShaftSFTTrainer
 
@@ -85,6 +96,21 @@ def test_qwen38_checkpoint4000_to_qwen35_4b_configs_share_input_contract() -> No
     assert build_offline_kd_input_contract(teacher) == build_offline_kd_input_contract(
         student
     )
+
+
+def test_detection_pseudo_kd_teacher_config_freezes_prompt_only_contract() -> None:
+    config = load_config(
+        "configs/train/banana_detection_pseudo_kd_teacher_qwen38_ckpt4000_v5_8.yaml"
+    )
+
+    assert config.algorithm.name == "sft"
+    assert config.model.model_type == "qwen38vl"
+    assert config.model.model_name_or_path.endswith("checkpoint-4000")
+    assert config.data.schedule.shuffle is False
+    assert config.data.max_length == 16_384
+    assert config.data.min_pixels == 500_000
+    assert config.data.max_pixels == 4_000_000
+    assert len(config.data.datasets) == 1
 
 
 def _write_artifact(
@@ -192,6 +218,53 @@ def test_artifact_store_fails_closed_on_tokenizer_abi_drift(tmp_path: Path) -> N
             student_input_abi=_abi(token_fingerprint="3" * 64),
             student_input_contract=_input_contract(),
         )
+
+
+def test_merge_offline_kd_artifacts_rewrites_references_and_keeps_rows(tmp_path: Path) -> None:
+    input_dirs = [tmp_path / "rank0", tmp_path / "rank1"]
+    references = []
+    for index, input_dir in enumerate(input_dirs):
+        input_dir.mkdir()
+        _manifest, reference = _write_artifact(input_dir, mode="topk_tail")
+        references.append(reference)
+        (input_dir / "train.jsonl").write_text(
+            json.dumps(
+                {
+                    "image_path": f"/images/{index}.png",
+                    "sample_id": f"sample-{index}",
+                    "target_text": "[]",
+                    "distillation_ref": {
+                        "artifact_id": reference.artifact_id,
+                        "shard": reference.shard,
+                        "row": reference.row,
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    output = merge_offline_kd_artifacts(input_dirs, output_dir=tmp_path / "merged")
+
+    rows = [json.loads(line) for line in (output / "train.jsonl").read_text().splitlines()]
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert len(rows) == 2
+    assert all(row["distillation_ref"]["artifact_id"] == manifest["artifact_id"] for row in rows)
+    assert len(manifest["shards"]) == 2
+    assert all((output / name).is_file() for name in manifest["shards"])
+
+
+def test_merge_offline_kd_artifacts_rejects_spoofed_manifest_identity(tmp_path: Path) -> None:
+    input_dir = tmp_path / "rank0"
+    input_dir.mkdir()
+    _write_artifact(input_dir, mode="topk_tail")
+    manifest_path = input_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifact_id"] = "b" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="canonical semantic identity"):
+        merge_offline_kd_artifacts([input_dir], output_dir=tmp_path / "merged")
 
 
 def test_artifact_store_fails_before_collation_on_input_contract_drift(
@@ -943,6 +1016,26 @@ class _OfflineKDResizeTemplate:
             rendered_prefix_token_ids=self._rendered_prefix(len(item["images"])),
         )
 
+    def build_prompt_plan(self, *, item, renderer):
+        _ = renderer
+        return ShaftTemplatePromptPlan(
+            prompt_text="unused",
+            rendered_prefix_token_ids=self._rendered_prefix(len(item["images"])),
+        )
+
+    @staticmethod
+    def build_prompt_row(
+        *, plan, tokenizer, processed_batch, row_index, prefix_token_layout, max_length
+    ):
+        _ = plan, tokenizer, prefix_token_layout, max_length
+        mask = processed_batch.model_inputs["attention_mask"][row_index].bool()
+        prefix = processed_batch.model_inputs["input_ids"][row_index][mask]
+        return ShaftTemplatePromptRow(
+            input_ids=prefix,
+            attention_mask=torch.ones_like(prefix),
+            processed_prefix_indices=tuple(range(prefix.numel())),
+        )
+
     @staticmethod
     def build_supervised_row(
         *,
@@ -1023,6 +1116,22 @@ def test_offline_kd_vllm_single_image_uses_same_smart_resized_pil() -> None:
     assert collation.prompt_token_ids == ((10, 99, 20, 30, 2),)
 
 
+def test_offline_kd_vllm_prompt_only_collation_excludes_target() -> None:
+    processor = _OfflineKDResizeProcessor()
+    adapter, collator = _offline_kd_vllm_collator(processor)
+    prepared = prepare_offline_kd_scoring_items(
+        [_offline_kd_resize_item((Image.new("RGB", (100, 50)),))],
+        model_adapter=adapter,
+        min_pixels=None,
+        max_pixels=2_048,
+    )
+
+    collation = collator.collate_prompts_for_vllm(prepared)
+
+    assert collation.prompt_token_ids == ((10, 99, 20),)
+    assert collation.expanded_prompt_token_ids[0].tolist() == [10, 99, 99, 20]
+
+
 def test_offline_kd_vllm_multi_image_keeps_one_placeholder_per_resized_pil() -> None:
     processor = _OfflineKDResizeProcessor()
     adapter, collator = _offline_kd_vllm_collator(processor)
@@ -1063,6 +1172,158 @@ def test_offline_kd_local_processor_does_not_receive_pixel_budget_after_resize()
 
     assert processor.received_kwargs == {}
     assert prepared[0]["images"][0].size == (64, 32)
+
+
+def test_offline_kd_scoring_uses_frozen_per_row_media_plan() -> None:
+    processor = _OfflineKDResizeProcessor()
+    adapter, _collator = _offline_kd_vllm_collator(processor)
+    item = _offline_kd_resize_item((Image.new("RGB", (100, 50)),))
+    item["extra"] = {
+        "offline_kd_media_plan": deterministic_detection_media_plan(
+            sample_id="raw:1", width=100, height=50, seed=465
+        ).to_dict()
+    }
+
+    prepared = prepare_offline_kd_scoring_items(
+        [item],
+        model_adapter=adapter,
+        min_pixels=1,
+        max_pixels=2,
+    )
+
+    plan = item["extra"]["offline_kd_media_plan"]
+    assert prepared[0]["images"][0].size == (
+        plan["target_width"],
+        plan["target_height"],
+    )
+
+
+def test_detection_pseudo_label_validator_is_strict_and_keeps_raw_order() -> None:
+    raw = '[{"bbox_2d":[1,2,30,40],"label":"shape"}]'
+
+    assert validate_detection_pseudo_label(raw) == [
+        {"bbox_2d": [1, 2, 30, 40], "label": "shape"}
+    ]
+    with pytest.raises(ValueError, match="exactly bbox_2d and label"):
+        validate_detection_pseudo_label(
+            '[{"bbox_2d":[1,2,30,40],"label":"shape","score":1}]'
+        )
+    with pytest.raises(ValueError, match="exact JSON"):
+        validate_detection_pseudo_label("```json\n[]\n```")
+
+
+def test_vllm_greedy_generator_returns_same_pass_tokens_and_topk_tail() -> None:
+    image = Image.new("RGB", (32, 32))
+
+    def value(probability: float):
+        return SimpleNamespace(logprob=float(torch.log(torch.tensor(probability))))
+
+    class Engine:
+        def generate(self, prompts, params, use_tqdm):
+            assert use_tqdm is False
+            assert prompts[0]["prompt_token_ids"] == [10, 99, 20]
+            assert prompts[0]["multi_modal_data"]["image"] == [image]
+            assert params.temperature == 0.0
+            assert params.top_p == 1.0
+            assert params.top_k == 0
+            assert params.logprobs == 2
+            return [
+                SimpleNamespace(
+                    prompt_token_ids=[10, 99, 20],
+                    outputs=[
+                        SimpleNamespace(
+                            text="[]",
+                            token_ids=[3, 4],
+                            logprobs=(
+                                {3: value(0.6), 1: value(0.2)},
+                                {4: value(0.5), 2: value(0.25)},
+                            ),
+                            finish_reason="stop",
+                        )
+                    ],
+                )
+            ]
+
+    generator = VLLMOfflineKDGreedyGenerator(
+        model_name_or_path="unused",
+        vocab_size=5,
+        trust_remote_code=False,
+        revision=None,
+        dtype="float32",
+        top_k=2,
+        engine=Engine(),
+    )
+
+    generated = generator.generate(
+        prompt_token_ids=((10, 99, 20),),
+        expanded_prompt_token_ids=(torch.tensor([10, 99, 20]),),
+        images=((image,),),
+    )[0]
+
+    assert generated.raw_text == "[]"
+    assert generated.completion_token_ids.tolist() == [3, 4]
+    assert generated.distribution.topk_token_ids.tolist() == [[3, 1], [4, 2]]
+    assert torch.allclose(
+        generated.distribution.tail_log_probs.exp(), torch.tensor([0.2, 0.25])
+    )
+
+
+def test_vllm_async_greedy_generator_returns_final_topk_tail() -> None:
+    image = Image.new("RGB", (32, 32))
+
+    def value(probability: float):
+        return SimpleNamespace(logprob=float(torch.log(torch.tensor(probability))))
+
+    class Engine:
+        shutdown_called = False
+
+        async def generate(self, prompt, params, request_id):
+            assert request_id == "request-7"
+            assert prompt["prompt_token_ids"] == [10, 99, 20]
+            assert prompt["multi_modal_data"]["image"] == [image]
+            assert params.logprobs == 2
+            assert str(params.output_kind).endswith("FINAL_ONLY")
+            yield SimpleNamespace(
+                prompt_token_ids=[10, 99, 20],
+                outputs=[
+                    SimpleNamespace(
+                        text="[]",
+                        token_ids=[3, 4],
+                        logprobs=(
+                            {3: value(0.6), 1: value(0.2)},
+                            {4: value(0.5), 2: value(0.25)},
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+            )
+
+        def shutdown(self):
+            self.shutdown_called = True
+
+    engine = Engine()
+    generator = VLLMOfflineKDAsyncGreedyGenerator(
+        model_name_or_path="unused",
+        vocab_size=5,
+        trust_remote_code=False,
+        revision=None,
+        dtype="float32",
+        top_k=2,
+        engine=engine,
+    )
+    generated = asyncio.run(
+        generator.generate_one(
+            request_id="request-7",
+            prompt_token_ids=(10, 99, 20),
+            expanded_prompt_token_ids=torch.tensor([10, 99, 20]),
+            images=(image,),
+        )
+    )
+    generator.shutdown()
+
+    assert generated.raw_text == "[]"
+    assert generated.distribution.topk_token_ids.tolist() == [[3, 1], [4, 2]]
+    assert engine.shutdown_called is True
 
 
 def test_vllm_scorer_uses_prompt_logprobs_and_preserves_exact_tail_mass() -> None:

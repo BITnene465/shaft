@@ -82,8 +82,8 @@ def _write_jsonl_atomic(path: Path, rows: list[dict[str, Any]]) -> None:
     _atomic_write_text(path, body)
 
 
-def _load_prompt_config(path: Path) -> PromptConfig:
-    prompt = load_prompt_template(path, variant_id="main")
+def _load_prompt_config(path: Path, *, variant_id: str = "main") -> PromptConfig:
+    prompt = load_prompt_template(path, variant_id=variant_id)
     return PromptConfig(
         prompt_id=prompt.prompt_id,
         system_prompt=prompt.system_prompt,
@@ -552,13 +552,38 @@ def _apply_prompt_overrides(
     ]
 
 
+def _parse_prompt_variants(
+    tasks: list[TaskSpec],
+    values: list[str] | None,
+) -> dict[str, str]:
+    selected = {task.name for task in tasks}
+    variants: dict[str, str] = {}
+    for value in values or []:
+        task_name, separator, variant_id = value.partition("=")
+        if not separator or not task_name or not variant_id:
+            raise ValueError(
+                f"Invalid --prompt-variant {value!r}; expected TASK=VARIANT"
+            )
+        if task_name not in selected:
+            raise ValueError(f"Prompt variant targets an unselected task: {task_name}")
+        if task_name in variants:
+            raise ValueError(f"Duplicate prompt variant override for task: {task_name}")
+        variants[task_name] = variant_id
+    return variants
+
+
 def _preflight_conversion(
     tasks: list[TaskSpec],
     data_root: Path,
+    prompt_variants: dict[str, str] | None = None,
 ) -> dict[str, PromptConfig]:
+    prompt_variants = prompt_variants or {}
     prompts: dict[str, PromptConfig] = {}
     for task in tasks:
-        prompts[task.name] = _load_prompt_config(Path(task.prompt_config))
+        prompts[task.name] = _load_prompt_config(
+            Path(task.prompt_config),
+            variant_id=prompt_variants.get(task.name, "main"),
+        )
         for split in ("train", "val"):
             structured_path = data_root / task.name / "structured" / f"{split}.jsonl"
             if not structured_path.is_file():
@@ -576,6 +601,12 @@ def main() -> None:
         metavar="TASK=PATH",
         help="Override the prompt pool for one selected task without changing repository defaults.",
     )
+    parser.add_argument(
+        "--prompt-variant",
+        action="append",
+        metavar="TASK=VARIANT",
+        help="Select the pool variant used for conversion metadata (default: main).",
+    )
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--num-bins", type=int, default=1000)
     parser.add_argument("--clean", action="store_true")
@@ -585,13 +616,14 @@ def main() -> None:
     tasks = _task_by_name(args.task)
     try:
         tasks = _apply_prompt_overrides(tasks, args.prompt_config)
+        prompt_variants = _parse_prompt_variants(tasks, args.prompt_variant)
     except ValueError as exc:
         parser.error(str(exc))
     if args.workers <= 0:
         parser.error("workers must be positive")
     if args.num_bins <= 1:
         parser.error("num-bins must be greater than 1")
-    prompts = _preflight_conversion(tasks, data_root)
+    prompts = _preflight_conversion(tasks, data_root, prompt_variants)
     if args.clean:
         _clean_outputs(tasks, data_root)
 

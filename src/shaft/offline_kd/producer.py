@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+import asyncio
+from collections import deque
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import json
 import math
@@ -14,7 +16,8 @@ from safetensors.torch import save_file
 import torch
 
 from shaft.config import RuntimeConfig
-from shaft.data import SFTCollator, SFTDataset, ShaftDataCenter
+from shaft.codec import decode_qwen_bbox_2d_list
+from shaft.data import SFTCollator, SFTDataset, SFTRecord, ShaftDataCenter
 from shaft.model import (
     ShaftProcessedBatch,
     ShaftProcessorTokenLayout,
@@ -35,6 +38,7 @@ from .artifact import (
     media_content_fingerprint,
     offline_kd_artifact_identity,
 )
+from .media_plan import media_plan_from_item
 
 
 DENYLIST_VERSION = "shaft-offline-kd-denylist-v1"
@@ -170,6 +174,13 @@ class ShaftOfflineKDVLLMCollation:
 
 
 @dataclass(frozen=True, slots=True)
+class ShaftOfflineKDVLLMPromptCollation:
+    expanded_prompt_token_ids: tuple[torch.Tensor, ...]
+    prompt_token_ids: tuple[tuple[int, ...], ...]
+    images: tuple[tuple[Any, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _OfflineKDOutputHeadABIAdapter:
     out_features: int
 
@@ -230,12 +241,19 @@ def prepare_offline_kd_scoring_items(
     image_rows = SFTCollator._processor_image_rows(items)
     prepared: list[dict[str, Any]] = []
     for item, raw_row in zip(items, image_rows, strict=True):
+        media_plan = media_plan_from_item(item)
+        row_min_pixels = min_pixels if media_plan is None else media_plan.min_pixels
+        row_max_pixels = max_pixels if media_plan is None else media_plan.max_pixels
         images = tuple(raw_row) if isinstance(raw_row, (list, tuple)) else (raw_row,)
+        if media_plan is not None and len(images) != 1:
+            raise ValueError("Offline KD per-row media plans currently require exactly one image.")
+        if media_plan is not None:
+            media_plan.validate_image_size(images[0])
         resized_images = tuple(
             model_adapter.prepare_rollout_image(
                 image,
-                min_pixels=min_pixels,
-                max_pixels=max_pixels,
+                min_pixels=row_min_pixels,
+                max_pixels=row_max_pixels,
             )
             for image in images
         )
@@ -387,6 +405,62 @@ class ShaftOfflineKDVLLMScoringCollator(SFTCollator):
             prompt_rows.append((*prefix, *target_ids))
         return ShaftOfflineKDVLLMCollation(
             model_inputs=model_inputs,
+            prompt_token_ids=tuple(prompt_rows),
+            images=self._captured_images,
+        )
+
+    def collate_prompts_for_vllm(
+        self,
+        items: list[dict[str, Any]],
+    ) -> ShaftOfflineKDVLLMPromptCollation:
+        self._captured_processed_batch = None
+        self._captured_plans = ()
+        self._captured_layouts = ()
+        self._captured_images = ()
+        plans = [
+            self.template.build_prompt_plan(item=item, renderer=self.chat_renderer)
+            for item in items
+        ]
+        images = self._processor_image_rows(items)
+        processed_batch = self._run_processor(
+            [plan.prompt_text for plan in plans],
+            images,
+            dataset_names=[item.get("dataset_name") for item in items],
+        )
+        layouts = self._build_prefix_token_layouts(
+            plans=plans,
+            processed_batch=processed_batch,
+        )
+        rows = tuple(
+            self.template.build_prompt_row(
+                plan=plan,
+                tokenizer=self.tokenizer,
+                processed_batch=processed_batch,
+                row_index=row_index,
+                prefix_token_layout=layout,
+                max_length=self.max_length,
+            )
+            for row_index, (plan, layout) in enumerate(zip(plans, layouts, strict=True))
+        )
+        prompt_rows: list[tuple[int, ...]] = []
+        for row_index, (plan, layout, row) in enumerate(
+            zip(plans, layouts, rows, strict=True)
+        ):
+            prefix = self._retained_rendered_prefix(
+                plan=plan,
+                layout=layout,
+                processed_prefix_indices=row.processed_prefix_indices,
+            )
+            if self.image_token_id is not None:
+                image_count = len(self._captured_images[row_index])
+                if prefix.count(int(self.image_token_id)) != image_count:
+                    raise ValueError(
+                        "Offline KD vLLM prompt must contain one unexpanded image placeholder "
+                        "per image."
+                    )
+            prompt_rows.append(prefix)
+        return ShaftOfflineKDVLLMPromptCollation(
+            expanded_prompt_token_ids=tuple(row.input_ids for row in rows),
             prompt_token_ids=tuple(prompt_rows),
             images=self._captured_images,
         )
@@ -643,6 +717,282 @@ class VLLMOfflineKDTeacherScorer:
                 )
             )
         return tuple(distributions)
+
+
+@dataclass(frozen=True, slots=True)
+class OfflineKDPseudoLabelGeneration:
+    raw_text: str
+    request_prompt_token_ids: tuple[int, ...]
+    expanded_prompt_token_ids: tuple[int, ...]
+    completion_token_ids: torch.Tensor
+    distribution: TeacherDistribution
+    finish_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DetectionPseudoKDRequest:
+    source_index: int
+    source_item: dict[str, Any]
+    prepared_item: dict[str, Any]
+    prompt_token_ids: tuple[int, ...]
+    expanded_prompt_token_ids: torch.Tensor
+    images: tuple[Any, ...]
+
+
+def validate_detection_pseudo_label(raw_text: str) -> list[dict[str, Any]]:
+    """Strictly validate the v5.8 detection JSON without repairing or reserializing it."""
+
+    result = decode_qwen_bbox_2d_list(
+        raw_text,
+        allowed_labels={"shape", "icon", "image", "line"},
+    )
+    if not result.valid:
+        raise ValueError(
+            "Detection pseudo label must be exact JSON and match the strict schema: "
+            f"{result.error}"
+        )
+    assert isinstance(result.parsed, list)
+    return result.parsed
+
+
+class VLLMOfflineKDGreedyGenerator:
+    """One-pass greedy pseudo-label generator that keeps output top-k plus tail mass."""
+
+    def __init__(
+        self,
+        *,
+        model_name_or_path: str,
+        vocab_size: int,
+        trust_remote_code: bool,
+        revision: str | None,
+        dtype: str,
+        top_k: int = 64,
+        max_tokens: int = 8000,
+        tensor_parallel_size: int = 1,
+        gpu_memory_utilization: float = 0.9,
+        max_model_length: int | None = None,
+        enforce_eager: bool = False,
+        engine: Any | None = None,
+    ) -> None:
+        self.vocab_size = int(vocab_size)
+        self.top_k = int(top_k)
+        self.max_tokens = int(max_tokens)
+        if self.vocab_size <= 0 or not 0 < self.top_k <= self.vocab_size:
+            raise ValueError("Greedy Offline KD requires 0 < top_k <= vocab_size.")
+        if self.max_tokens <= 0:
+            raise ValueError("Greedy Offline KD max_tokens must be > 0.")
+        if engine is None:
+            try:
+                from vllm import LLM
+            except ImportError as exc:
+                raise ImportError("vLLM greedy Offline KD requires the serve extra.") from exc
+            kwargs: dict[str, Any] = {
+                "model": model_name_or_path,
+                "trust_remote_code": bool(trust_remote_code),
+                "revision": revision,
+                "dtype": dtype,
+                "tensor_parallel_size": int(tensor_parallel_size),
+                "gpu_memory_utilization": float(gpu_memory_utilization),
+                "enforce_eager": bool(enforce_eager),
+                "max_logprobs": self.top_k,
+                "logprobs_mode": "raw_logprobs",
+            }
+            if max_model_length is not None:
+                kwargs["max_model_len"] = int(max_model_length)
+            engine = LLM(**kwargs)
+        self.engine = engine
+
+    def _distribution(self, rows: Any) -> TeacherDistribution:
+        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)) or not rows:
+            raise ValueError("vLLM greedy output logprobs are missing.")
+        token_rows: list[torch.Tensor] = []
+        probability_rows: list[torch.Tensor] = []
+        tail_rows: list[torch.Tensor] = []
+        for value in rows:
+            observed = VLLMOfflineKDTeacherScorer._position_values(value)
+            ranked = sorted(observed.items(), key=lambda item: (-item[1], item[0]))
+            if len(ranked) < self.top_k:
+                raise ValueError("vLLM returned fewer generation logprobs than requested top_k.")
+            selected = ranked[: self.top_k]
+            token_ids = torch.tensor([item[0] for item in selected], dtype=torch.long)
+            log_probs = torch.tensor([item[1] for item in selected], dtype=torch.float32)
+            token_rows.append(token_ids)
+            probability_rows.append(log_probs)
+            if self.top_k < self.vocab_size:
+                epsilon = torch.finfo(torch.float32).eps
+                tail_rows.append(
+                    torch.log1p(-log_probs.exp().sum().clamp(max=1.0 - epsilon))
+                )
+        return TeacherDistribution(
+            kind="topk_tail",
+            vocab_size=self.vocab_size,
+            topk_token_ids=torch.stack(token_rows),
+            topk_log_probs=torch.stack(probability_rows),
+            tail_log_probs=None if self.top_k == self.vocab_size else torch.stack(tail_rows),
+            temperature=1.0,
+        )
+
+    def generate(
+        self,
+        *,
+        prompt_token_ids: tuple[tuple[int, ...], ...],
+        expanded_prompt_token_ids: tuple[torch.Tensor, ...],
+        images: tuple[tuple[Any, ...], ...],
+    ) -> tuple[OfflineKDPseudoLabelGeneration, ...]:
+        try:
+            from vllm import SamplingParams
+        except ImportError as exc:
+            raise ImportError("vLLM greedy Offline KD requires vllm.") from exc
+        prompts: list[dict[str, Any]] = []
+        for token_ids, image_row in zip(prompt_token_ids, images, strict=True):
+            prompt: dict[str, Any] = {"prompt_token_ids": list(token_ids)}
+            if image_row:
+                prompt["multi_modal_data"] = {"image": list(image_row)}
+            prompts.append(prompt)
+        params = SamplingParams(
+            temperature=0.0,
+            top_p=1.0,
+            top_k=0,
+            max_tokens=self.max_tokens,
+            logprobs=self.top_k,
+            flat_logprobs=True,
+            detokenize=True,
+        )
+        outputs = self.engine.generate(prompts, params, use_tqdm=False)
+        if len(outputs) != len(prompts):
+            raise ValueError("vLLM greedy output count differs from request count.")
+        generated: list[OfflineKDPseudoLabelGeneration] = []
+        for request, expected_expanded, output in zip(
+            prompts, expanded_prompt_token_ids, outputs, strict=True
+        ):
+            observed_prompt = tuple(int(value) for value in (output.prompt_token_ids or ()))
+            expected_prompt = tuple(int(value) for value in expected_expanded.tolist())
+            if observed_prompt != expected_prompt:
+                raise ValueError(
+                    "vLLM greedy expanded prompt token IDs drifted from Shaft collation."
+                )
+            if not getattr(output, "outputs", None) or len(output.outputs) != 1:
+                raise ValueError("vLLM greedy generation requires exactly one output sequence.")
+            candidate = output.outputs[0]
+            completion_ids = torch.tensor(candidate.token_ids, dtype=torch.long)
+            if completion_ids.numel() == 0 or len(candidate.logprobs or ()) != completion_ids.numel():
+                raise ValueError("vLLM greedy token IDs and output logprobs do not align.")
+            generated.append(
+                OfflineKDPseudoLabelGeneration(
+                    raw_text=str(candidate.text),
+                    request_prompt_token_ids=tuple(request["prompt_token_ids"]),
+                    expanded_prompt_token_ids=observed_prompt,
+                    completion_token_ids=completion_ids,
+                    distribution=self._distribution(candidate.logprobs),
+                    finish_reason=str(candidate.finish_reason or ""),
+                )
+            )
+        return tuple(generated)
+
+
+class VLLMOfflineKDAsyncGreedyGenerator(VLLMOfflineKDGreedyGenerator):
+    """Async vLLM generator that lets the caller continuously refill request slots."""
+
+    def __init__(
+        self,
+        *,
+        model_name_or_path: str,
+        vocab_size: int,
+        trust_remote_code: bool,
+        revision: str | None,
+        dtype: str,
+        top_k: int = 64,
+        max_tokens: int = 8000,
+        tensor_parallel_size: int = 1,
+        gpu_memory_utilization: float = 0.9,
+        max_model_length: int | None = None,
+        enforce_eager: bool = False,
+        engine: Any | None = None,
+    ) -> None:
+        self.vocab_size = int(vocab_size)
+        self.top_k = int(top_k)
+        self.max_tokens = int(max_tokens)
+        if self.vocab_size <= 0 or not 0 < self.top_k <= self.vocab_size:
+            raise ValueError("Greedy Offline KD requires 0 < top_k <= vocab_size.")
+        if self.max_tokens <= 0:
+            raise ValueError("Greedy Offline KD max_tokens must be > 0.")
+        if engine is None:
+            try:
+                from vllm.engine.arg_utils import AsyncEngineArgs
+                from vllm.v1.engine.async_llm import AsyncLLM
+            except ImportError as exc:
+                raise ImportError("Async vLLM greedy Offline KD requires the serve extra.") from exc
+            kwargs: dict[str, Any] = {
+                "model": model_name_or_path,
+                "trust_remote_code": bool(trust_remote_code),
+                "revision": revision,
+                "dtype": dtype,
+                "tensor_parallel_size": int(tensor_parallel_size),
+                "gpu_memory_utilization": float(gpu_memory_utilization),
+                "enforce_eager": bool(enforce_eager),
+                "max_logprobs": self.top_k,
+                "logprobs_mode": "raw_logprobs",
+                "disable_log_stats": True,
+            }
+            if max_model_length is not None:
+                kwargs["max_model_len"] = int(max_model_length)
+            engine = AsyncLLM.from_engine_args(AsyncEngineArgs(**kwargs))
+        self.engine = engine
+
+    async def generate_one(
+        self,
+        *,
+        request_id: str,
+        prompt_token_ids: tuple[int, ...],
+        expanded_prompt_token_ids: torch.Tensor,
+        images: tuple[Any, ...],
+    ) -> OfflineKDPseudoLabelGeneration:
+        try:
+            from vllm import SamplingParams
+            from vllm.sampling_params import RequestOutputKind
+        except ImportError as exc:
+            raise ImportError("Async vLLM greedy Offline KD requires vllm.") from exc
+        prompt: dict[str, Any] = {"prompt_token_ids": list(prompt_token_ids)}
+        if images:
+            prompt["multi_modal_data"] = {"image": list(images)}
+        params = SamplingParams(
+            temperature=0.0,
+            top_p=1.0,
+            top_k=0,
+            max_tokens=self.max_tokens,
+            logprobs=self.top_k,
+            flat_logprobs=True,
+            detokenize=True,
+            output_kind=RequestOutputKind.FINAL_ONLY,
+        )
+        output = None
+        async for candidate_output in self.engine.generate(prompt, params, request_id):
+            output = candidate_output
+        if output is None:
+            raise ValueError("Async vLLM greedy generation returned no final output.")
+        observed_prompt = tuple(int(value) for value in (output.prompt_token_ids or ()))
+        expected_prompt = tuple(int(value) for value in expanded_prompt_token_ids.tolist())
+        if observed_prompt != expected_prompt:
+            raise ValueError("vLLM greedy expanded prompt token IDs drifted from Shaft collation.")
+        if not getattr(output, "outputs", None) or len(output.outputs) != 1:
+            raise ValueError("vLLM greedy generation requires exactly one output sequence.")
+        candidate = output.outputs[0]
+        completion_ids = torch.tensor(candidate.token_ids, dtype=torch.long)
+        if completion_ids.numel() == 0 or len(candidate.logprobs or ()) != completion_ids.numel():
+            raise ValueError("vLLM greedy token IDs and output logprobs do not align.")
+        return OfflineKDPseudoLabelGeneration(
+            raw_text=str(candidate.text),
+            request_prompt_token_ids=prompt_token_ids,
+            expanded_prompt_token_ids=observed_prompt,
+            completion_token_ids=completion_ids,
+            distribution=self._distribution(candidate.logprobs),
+            finish_reason=str(candidate.finish_reason or ""),
+        )
+
+    def shutdown(self) -> None:
+        shutdown = getattr(self.engine, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1126,6 +1476,118 @@ def _validate_producer_config(config: RuntimeConfig) -> None:
             )
 
 
+def _build_prompt_only_selection_dataset(
+    config: RuntimeConfig,
+    *,
+    max_rows: int | None,
+    source_rank: int = 0,
+    source_world_size: int = 1,
+) -> tuple[SFTDataset, str]:
+    if (
+        type(source_rank) is not int
+        or type(source_world_size) is not int
+        or source_world_size <= 0
+        or source_rank < 0
+        or source_rank >= source_world_size
+    ):
+        raise ValueError("Prompt-only source rank must satisfy 0 <= rank < world_size.")
+    datasets = [dataset for dataset in config.data.datasets if dataset.enabled]
+    if len(datasets) != 1:
+        raise ValueError("Prompt-only Offline KD currently requires exactly one dataset.")
+    source = datasets[0]
+    if source.source_type != "jsonl_sft" or len(source.train_paths) != 1:
+        raise ValueError(
+            "Prompt-only Offline KD requires one explicit jsonl_sft train path."
+        )
+    if source.offline_transforms or source.online_transforms:
+        raise ValueError("Prompt-only Offline KD does not accept data transforms.")
+    if config.data.schedule.shuffle:
+        raise ValueError("Prompt-only Offline KD selection must set data.schedule.shuffle=false.")
+    path = Path(source.train_paths[0]).resolve()
+    records: list[SFTRecord] = []
+    with path.open(encoding="utf-8") as handle:
+        for line_no, line in enumerate(handle, start=1):
+            source_index = line_no - 1
+            if max_rows is not None and source_index >= max_rows:
+                break
+            if source_index % source_world_size != source_rank:
+                continue
+            raw = json.loads(line)
+            if not isinstance(raw, dict):
+                raise TypeError(f"Prompt-only selection row must be an object: {path}:{line_no}")
+            if raw.get("target_text") != "":
+                raise ValueError(
+                    "Prompt-only selection target_text must be exactly empty: "
+                    f"{path}:{line_no}"
+                )
+            raw_images = raw.get("images")
+            if raw_images is None:
+                raw_images = [raw.get("image_path", raw.get("image"))]
+            if isinstance(raw_images, (str, Path)):
+                raw_images = [raw_images]
+            if not isinstance(raw_images, list) or not raw_images or any(
+                not isinstance(value, (str, Path)) or not str(value).strip()
+                for value in raw_images
+            ):
+                raise ValueError(f"Prompt-only selection requires image paths: {path}:{line_no}")
+            image_paths = tuple(
+                str(
+                    Path(value).resolve()
+                    if Path(value).is_absolute()
+                    else (path.parent / Path(value)).resolve()
+                )
+                for value in raw_images
+            )
+            reserved = {
+                "images",
+                "image_path",
+                "image",
+                "target_text",
+                "messages",
+                "system_prompt",
+                "user_prompt",
+                "prompt_args",
+                "sample_id",
+                "dataset_name",
+            }
+            records.append(
+                SFTRecord(
+                    image_paths=image_paths,
+                    target_text="",
+                    dataset_name=source.dataset_name,
+                    sample_id=str(raw.get("sample_id", "")).strip() or None,
+                    messages=raw.get("messages"),
+                    system_prompt=str(raw.get("system_prompt", "")),
+                    user_prompt=str(raw.get("user_prompt", "")),
+                    prompt_args=dict(raw.get("prompt_args") or {}),
+                    extra={key: value for key, value in raw.items() if key not in reserved},
+                )
+            )
+    if not records:
+        raise ValueError("Prompt-only Offline KD selection contains no rows.")
+    source_fingerprint = canonical_sha256(
+        {
+            "kind": "prompt_only_selection",
+            "path": str(path),
+            "sha256": file_sha256(path),
+            "selected_rows": len(records),
+            "max_rows": max_rows,
+            "source_rank": source_rank,
+            "source_world_size": source_world_size,
+            "dataset_name": source.dataset_name,
+        }
+    )
+    return (
+        SFTDataset(
+            records,
+            split="train",
+            media_snapshot_id=config.data.media_snapshot_id,
+            suppress_decompression_bomb_warning=True,
+        ),
+        source_fingerprint,
+    )
+
+
 def produce_offline_kd_artifact(
     config: RuntimeConfig,
     *,
@@ -1335,3 +1797,312 @@ def produce_offline_kd_artifact(
                 flush_items()
         flush_items()
         return writer.finalize()
+
+
+def produce_detection_pseudo_kd_artifact(
+    config: RuntimeConfig,
+    *,
+    output_dir: str | Path,
+    denylist_path: str | Path,
+    top_k: int = 64,
+    max_tokens: int = 8000,
+    shard_rows: int = 128,
+    shard_max_bytes: int = 512 * 1024 * 1024,
+    scoring_batch_size: int = 1,
+    max_rows: int | None = None,
+    source_rank: int = 0,
+    source_world_size: int = 1,
+    vllm_engine: Any | None = None,
+    vllm_options: Mapping[str, Any] | None = None,
+    resume: bool = False,
+    expected_teacher_checkpoint_fingerprint: str | None = None,
+) -> Path:
+    """Greedily generate detection pseudo labels and top-k distributions in one pass."""
+
+    _validate_producer_config(config)
+    if type(scoring_batch_size) is not int or scoring_batch_size <= 0:
+        raise ValueError("Offline KD scoring_batch_size must be a positive integer.")
+    if max_rows is not None and (type(max_rows) is not int or max_rows <= 0):
+        raise ValueError("Offline KD max_rows must be a positive integer when provided.")
+    distribution_spec = OfflineKDDistributionSpec(
+        mode="topk_tail", temperature=1.0, top_k=top_k
+    )
+    denylist = OfflineKDDenylist.load(denylist_path)
+    dataset, source_fingerprint = _build_prompt_only_selection_dataset(
+        config,
+        max_rows=max_rows,
+        source_rank=source_rank,
+        source_world_size=source_world_size,
+    )
+    _require_digest(source_fingerprint, role="train execution fingerprint")
+    model_plan = materialize_resolved_model_artifact_identity(
+        resolve_model_plan(config, require_immutable_artifact=False)
+    )
+    if not model_plan.artifact_identity.complete:
+        raise ValueError(
+            "Offline KD producer requires a complete immutable teacher artifact identity; "
+            f"reasons={list(model_plan.artifact_identity.incomplete_reasons)}."
+        )
+    teacher_checkpoint_fingerprint = model_plan.artifact_identity.fingerprint
+    if expected_teacher_checkpoint_fingerprint is not None and (
+        _require_digest(
+            expected_teacher_checkpoint_fingerprint,
+            role="expected_teacher_checkpoint_fingerprint",
+        )
+        != teacher_checkpoint_fingerprint
+    ):
+        raise ValueError(
+            "Expected teacher checkpoint fingerprint differs from Shaft's resolved immutable "
+            "model artifact identity."
+        )
+    artifacts = build_model_input_artifacts(config, resolved_model_plan=model_plan)
+    raw_image_token_id = getattr(artifacts.processor, "image_token_id", None)
+    if raw_image_token_id is None:
+        image_token = getattr(artifacts.processor, "image_token", None)
+        if image_token is not None:
+            raw_image_token_id = artifacts.tokenizer.convert_tokens_to_ids(image_token)
+    if raw_image_token_id is None and model_plan.model_meta.family == "qwen":
+        raise ValueError("Qwen greedy Offline KD requires a processor image token ID.")
+    image_token_id = None if raw_image_token_id is None else int(raw_image_token_id)
+    options = dict(vllm_options or {})
+    generator = VLLMOfflineKDAsyncGreedyGenerator(
+        model_name_or_path=model_plan.effective_model_name_or_path,
+        vocab_size=artifacts.logits_vocab_size,
+        trust_remote_code=model_plan.trust_remote_code,
+        revision=model_plan.resolved_revision,
+        dtype=str(config.model.torch_dtype),
+        top_k=top_k,
+        max_tokens=max_tokens,
+        engine=vllm_engine,
+        **options,
+    )
+    collator = ShaftOfflineKDVLLMScoringCollator(
+        image_token_id=image_token_id,
+        model_adapter=artifacts.model_adapter,
+        template=artifacts.template,
+        processor=artifacts.processor,
+        tokenizer=artifacts.tokenizer,
+        min_pixels=None,
+        max_pixels=None,
+        max_length=config.data.max_length,
+        add_eos_token=config.data.add_eos_token,
+        include_targets_in_inputs=True,
+        include_metadata=False,
+        loss_scale_name="default",
+        layout="padded",
+        packing_mode="none",
+        collect_stats=False,
+    )
+    bad_case_path = Path(f"{Path(output_dir).resolve()}.bad_cases.jsonl")
+    bad_case_path.parent.mkdir(parents=True, exist_ok=True)
+    bad_mode = "a" if resume else "w"
+    input_abi = _build_offline_kd_input_abi(artifacts)
+    with bad_case_path.open(bad_mode, encoding="utf-8") as bad_cases, OfflineKDArtifactWriter(
+        output_dir,
+        teacher_model=model_plan.model_meta.model_type,
+        teacher_checkpoint_fingerprint=teacher_checkpoint_fingerprint,
+        input_abi=input_abi,
+        input_contract=build_offline_kd_input_contract(config),
+        distribution_spec=distribution_spec,
+        source_fingerprint=source_fingerprint,
+        denylist_fingerprint=denylist.fingerprint,
+        shard_rows=shard_rows,
+        shard_max_bytes=shard_max_bytes,
+        storage_dtype=torch.float16,
+        resume=resume,
+    ) as writer:
+        def write_bad_case(
+            source_index: int,
+            item: Mapping[str, Any],
+            generation: OfflineKDPseudoLabelGeneration,
+            error: Exception,
+        ) -> None:
+            bad_cases.write(
+                json.dumps(
+                    {
+                        "source_index": source_index,
+                        "sample_id": item.get("sample_id"),
+                        "image_paths": list(item.get("image_paths") or ()),
+                        "raw_text": generation.raw_text,
+                        "completion_token_ids": generation.completion_token_ids.tolist(),
+                        "finish_reason": generation.finish_reason,
+                        "error_type": type(error).__name__,
+                        "error": str(error),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+            bad_cases.flush()
+
+        def prepare_request(
+            source_index: int,
+            item: dict[str, Any],
+        ) -> _DetectionPseudoKDRequest:
+            prepared = prepare_offline_kd_scoring_items(
+                [item],
+                model_adapter=artifacts.model_adapter,
+                min_pixels=config.data.min_pixels,
+                max_pixels=config.data.max_pixels,
+            )
+            prompt_collation = collator.collate_prompts_for_vllm(prepared)
+            return _DetectionPseudoKDRequest(
+                source_index=source_index,
+                source_item=item,
+                prepared_item=prepared[0],
+                prompt_token_ids=prompt_collation.prompt_token_ids[0],
+                expanded_prompt_token_ids=prompt_collation.expanded_prompt_token_ids[0],
+                images=prompt_collation.images[0],
+            )
+
+        def materialize_row(
+            request: _DetectionPseudoKDRequest,
+            generation: OfflineKDPseudoLabelGeneration,
+        ) -> OfflineKDArtifactRow:
+            supervised = dict(request.prepared_item)
+            supervised["target_text"] = generation.raw_text
+            full = collator.collate_for_vllm([supervised])
+            labels = full.model_inputs["labels"]
+            attention_mask = full.model_inputs["attention_mask"]
+            completion_mask = labels.ne(-100)
+            full_vllm_ids = full.prompt_token_ids[0]
+            expected_vllm_ids = (
+                *generation.request_prompt_token_ids,
+                *generation.completion_token_ids.tolist(),
+            )
+            if full_vllm_ids != expected_vllm_ids:
+                raise ValueError(
+                    "Greedy output token IDs do not round-trip through the student SFT "
+                    f"template for sample_id={request.source_item.get('sample_id')!r}."
+                )
+            row_attention = attention_mask[0].bool()
+            input_token_ids = full.model_inputs["input_ids"][0][row_attention]
+            completion_token_ids = labels[0][completion_mask[0]]
+            expected_expanded_ids = torch.tensor(
+                (
+                    *generation.expanded_prompt_token_ids,
+                    *generation.completion_token_ids.tolist(),
+                ),
+                dtype=torch.long,
+                device=input_token_ids.device,
+            )
+            if not torch.equal(input_token_ids, expected_expanded_ids):
+                raise ValueError(
+                    "Greedy expanded prompt+completion IDs differ from local SFT collation "
+                    f"for sample_id={request.source_item.get('sample_id')!r}."
+                )
+            if not torch.equal(completion_token_ids.cpu(), generation.completion_token_ids):
+                raise ValueError(
+                    "Greedy completion IDs differ from local SFT supervision IDs for "
+                    f"sample_id={request.source_item.get('sample_id')!r}."
+                )
+            return OfflineKDArtifactRow(
+                source_payload=_source_payload(supervised),
+                input_token_ids=input_token_ids,
+                completion_token_ids=completion_token_ids,
+                media_sha256=media_content_fingerprint(
+                    tuple(
+                        str(path)
+                        for path in request.source_item.get("image_paths") or ()
+                    )
+                ),
+                distribution=generation.distribution,
+                source_index=request.source_index,
+            )
+
+        async def run_pipeline() -> None:
+            active: dict[asyncio.Task[OfflineKDPseudoLabelGeneration], _DetectionPseudoKDRequest] = {}
+            submitted_order: deque[int] = deque()
+            completed: dict[int, OfflineKDArtifactRow | None] = {}
+            next_source_index = writer.resume_source_index
+            source_exhausted = False
+            reorder_limit = max(scoring_batch_size * 32, scoring_batch_size)
+
+            async def submit_next() -> bool:
+                nonlocal next_source_index, source_exhausted
+                while next_source_index < len(dataset):
+                    source_index = next_source_index
+                    next_source_index += 1
+                    item = dataset[source_index]
+                    if denylist.excludes(item):
+                        continue
+                    request = await asyncio.to_thread(prepare_request, source_index, item)
+                    task = asyncio.create_task(
+                        generator.generate_one(
+                            request_id=f"offline-kd-{source_rank}-{source_index}",
+                            prompt_token_ids=request.prompt_token_ids,
+                            expanded_prompt_token_ids=request.expanded_prompt_token_ids,
+                            images=request.images,
+                        )
+                    )
+                    active[task] = request
+                    submitted_order.append(source_index)
+                    return True
+                source_exhausted = True
+                return False
+
+            def commit_ready() -> None:
+                while submitted_order and submitted_order[0] in completed:
+                    source_index = submitted_order.popleft()
+                    row = completed.pop(source_index)
+                    if row is not None:
+                        writer.add(row)
+
+            async def refill() -> None:
+                while (
+                    not source_exhausted
+                    and len(active) < scoring_batch_size
+                    and len(active) + len(completed) < reorder_limit
+                ):
+                    if not await submit_next():
+                        break
+
+            await refill()
+            try:
+                while active:
+                    done, _ = await asyncio.wait(
+                        active,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in done:
+                        request = active.pop(task)
+                        generation = task.result()
+                        try:
+                            if generation.finish_reason != "stop":
+                                raise ValueError(
+                                    "Detection pseudo label did not finish with "
+                                    "finish_reason='stop'."
+                                )
+                            validate_detection_pseudo_label(generation.raw_text)
+                        except ValueError as exc:
+                            write_bad_case(
+                                request.source_index,
+                                request.source_item,
+                                generation,
+                                exc,
+                            )
+                            completed[request.source_index] = None
+                        else:
+                            completed[request.source_index] = await asyncio.to_thread(
+                                materialize_row,
+                                request,
+                                generation,
+                            )
+                    commit_ready()
+                    await refill()
+                commit_ready()
+                if submitted_order or completed:
+                    raise RuntimeError("Async Offline KD pipeline did not drain in source order.")
+            finally:
+                for task in active:
+                    task.cancel()
+                if active:
+                    await asyncio.gather(*active, return_exceptions=True)
+
+        try:
+            asyncio.run(run_pipeline())
+            result = writer.finalize()
+            bad_cases.flush()
+            return result
+        finally:
+            generator.shutdown()

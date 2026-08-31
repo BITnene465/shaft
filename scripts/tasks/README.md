@@ -19,6 +19,10 @@
   formulations；合成 crop 使用 `synthetic_realism_v1`，真实 points crop 保持干净像素。
 - [layout_recognition_eval.md](layout_recognition_eval.md)：两阶段 layout recognition 推理、断点续跑、
   本地评估与 prediction-only HF 打包合同。
+- `build_detection_distill_selection.py`：冻结 detection-only 无标注 selection；排除已标注/test 内容泄漏与
+  精确重复，写入 v5.8 detailed prompt 和确定性 0.5M–4M 像素计划，只引用原图、不复制媒体。
+- [banana_v5_8_detection_distillation.md](banana_v5_8_detection_distillation.md)：checkpoint-4000 的
+  detection 伪标签 + top-64/tail 一遍式生成合同，以及 worker-0 八卡 TP1 map-reduce 入口。
 
 ## 边界
 

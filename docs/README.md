@@ -25,7 +25,6 @@
 - [testing.md](testing.md)：suite 真源、CI、CPU/GPU/manual gate 与测试责任。
 - [extension_guide.md](extension_guide.md)：开发收口流程与正式扩展规范。
 - [scripts.md](scripts.md)：正式 CLI 与 task 脚本使用说明。
-- [../docker/inference/README.md](../docker/inference/README.md)：推理镜像和服务契约 smoke。
 
 ## 唯一总 TODO
 

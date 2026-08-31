@@ -271,10 +271,25 @@ class ShaftSFTSampleCostProvider:
         self._image_sizes: OrderedDict[str, tuple[int, int]] = OrderedDict()
         self._sample_costs: OrderedDict[tuple[str, int, int, int], ShaftSampleCost] = OrderedDict()
         self._large_image_warning_count = 0
-        processor_cost_semantics = model_adapter.processor_cost_semantics_signature(
-            processor=processor,
-            min_pixels=self.min_pixels,
-            max_pixels=self.max_pixels,
+        prepared_media_policy = getattr(
+            dataset,
+            "planning_image_cost_policy_signature",
+            lambda: None,
+        )()
+        processor_cost_semantics = (
+            model_adapter.processor_cost_semantics_signature(
+                processor=processor,
+                min_pixels=self.min_pixels,
+                max_pixels=self.max_pixels,
+            ),
+            None
+            if prepared_media_policy is None
+            else model_adapter.processor_cost_semantics_signature(
+                processor=processor,
+                min_pixels=None,
+                max_pixels=None,
+            ),
+            prepared_media_policy,
         )
         fingerprint_payload = (
             "shaft-sft-runtime-cost-v10-structured-truncation",
@@ -331,15 +346,32 @@ class ShaftSFTSampleCostProvider:
         rendered_ids = supervision_plan.rendered_prefix_token_ids or self.renderer.tokenize(
             supervision_plan.prompt_text
         )
-        image_estimates = tuple(
-            self.model_adapter.estimate_processor_image_cost(
-                processor=self.processor,
-                image_sizes=(self._get_image_size(image_path),),
-                min_pixels=self.min_pixels,
-                max_pixels=self.max_pixels,
+        prepared_sizes = self.dataset.planning_preprocessed_image_sizes(item)
+        if prepared_sizes is not None:
+            if len(prepared_sizes) != len(image_paths):
+                raise ValueError(
+                    "Dataset planning image sizes must match ordered image_paths: "
+                    f"sizes={len(prepared_sizes)}, paths={len(image_paths)}."
+                )
+            image_estimates = tuple(
+                self.model_adapter.estimate_processor_image_cost(
+                    processor=self.processor,
+                    image_sizes=(tuple(image_size),),
+                    min_pixels=None,
+                    max_pixels=None,
+                )
+                for image_size in prepared_sizes
             )
-            for image_path in image_paths
-        )
+        else:
+            image_estimates = tuple(
+                self.model_adapter.estimate_processor_image_cost(
+                    processor=self.processor,
+                    image_sizes=(self._get_image_size(image_path),),
+                    min_pixels=self.min_pixels,
+                    max_pixels=self.max_pixels,
+                )
+                for image_path in image_paths
+            )
         prefix_token_layout = self.model_adapter.estimate_processor_token_layout(
             processor=self.processor,
             tokenizer=self.tokenizer,

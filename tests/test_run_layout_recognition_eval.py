@@ -50,10 +50,102 @@ def test_cli_defaults_match_layout_inference_contract() -> None:
             "/tmp/line.yaml",
         ]
     )
+    merge = parser.parse_args(
+        ["merge", "--work-dir", "/tmp/work", "--image-dir", "/tmp/images"]
+    )
+    evaluation = parser.parse_args(
+        [
+            "evaluate",
+            "--work-dir",
+            "/tmp/work",
+            "--image-dir",
+            "/tmp/images",
+            "--evaluator",
+            "/tmp/eval.py",
+            "--run-name",
+            "run",
+            "--checkpoint",
+            "/tmp/checkpoint",
+            "--gt-revision",
+            "revision",
+        ]
+    )
 
-    assert (detection.min_pixels, detection.max_pixels) == (1_000_000, 4_000_000)
+    assert (detection.min_pixels, detection.max_pixels) == (500_000, 4_000_000)
+    assert detection.endpoint_max_inflight == 4
+    assert detection.allow_invalid_output is False
     assert prepare.padding_ratio == 0.65
+    assert prepare.allow_missing_detection is False
     assert (reconstruction.min_pixels, reconstruction.max_pixels) == (500_000, 4_000_000)
+    assert reconstruction.allow_invalid_output is False
+    assert merge.allow_missing_detection is False
+    assert merge.allow_missing_reconstruction is False
+    assert (evaluation.detection_min_pixels, evaluation.detection_max_pixels) == (
+        500_000,
+        4_000_000,
+    )
+
+
+def test_checkpoint_weight_artifact_supports_sharded_and_single_file_hf_weights(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    single_file = checkpoint / "model.safetensors"
+    single_file.write_bytes(b"single")
+
+    assert MODULE.checkpoint_weight_artifact(checkpoint) == single_file
+
+    index = checkpoint / "model.safetensors.index.json"
+    index.write_text('{"weight_map": {}}', encoding="utf-8")
+
+    assert MODULE.checkpoint_weight_artifact(checkpoint) == index
+
+
+def test_checkpoint_weight_artifact_rejects_missing_hf_weights(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+
+    with pytest.raises(FileNotFoundError, match="neither sharded index nor single-file"):
+        MODULE.checkpoint_weight_artifact(checkpoint)
+
+
+def test_prepare_reconstruction_can_explicitly_skip_missing_detection(tmp_path: Path) -> None:
+    image_dir = tmp_path / "images"
+    pred_dir = tmp_path / "work/detection/pred"
+    image_dir.mkdir()
+    pred_dir.mkdir(parents=True)
+    for stem in ("complete", "missing"):
+        Image.new("RGB", (320, 240), "white").save(image_dir / f"{stem}.png")
+    (pred_dir / "complete.json").write_text(
+        MODULE.json.dumps(
+            {
+                "size": [320, 240],
+                "layout": [
+                    {"type": "shape", "bbox": [10, 20, 110, 120], "parameters": {}}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    args = MODULE.argparse.Namespace(
+        image_dir=image_dir,
+        work_dir=tmp_path / "work",
+        padding_ratio=0.65,
+        minimum_crop_size=256,
+        force=False,
+        allow_missing_detection=True,
+    )
+    MODULE.prepare_reconstruction(args)
+
+    summary = MODULE.json.loads(
+        (tmp_path / "work/reconstruction/prepare_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["requests"] == 1
+    assert summary["missing_detection_count"] == 1
+    assert summary["missing_detection_stems"] == ["missing"]
+    assert summary["allow_missing_detection"] is True
 
 
 def test_main_prompt_supports_v58_default_and_reconstruction_formulations() -> None:
@@ -100,6 +192,13 @@ def test_context_crop_contains_detection_and_respects_bounds() -> None:
     assert crop[3] >= 30
     assert crop[2] - crop[0] >= 256
     assert crop[3] - crop[1] >= 256
+
+
+def test_quantize_bbox_in_crop_matches_training_coordinate_contract() -> None:
+    bbox = [179, 42, 301, 103]
+    crop_box = (99, 0, 381, 256)
+
+    assert MODULE.quantize_bbox_in_crop(bbox, crop_box) == [284, 165, 718, 404]
 
 
 def test_convert_geometry_maps_nested_line_points_to_full_image() -> None:
@@ -282,14 +381,28 @@ def test_select_images_filters_requested_stems_and_rejects_missing(tmp_path: Pat
         MODULE.select_images(tmp_path, "00003")
 
 
-def test_select_endpoint_is_stable_and_uses_all_replicas() -> None:
-    endpoints = ["http://one", "http://two"]
-    assigned = [MODULE.select_endpoint(endpoints, f"request-{index}") for index in range(32)]
+def test_endpoint_slot_pool_reuses_the_first_released_replica() -> None:
+    pool = MODULE.EndpointSlotPool(
+        ["http://one", "http://two"], max_inflight_per_endpoint=1
+    )
+    first_lease = pool.acquire()
+    second_lease = pool.acquire()
+    assert first_lease.__enter__() == "http://one"
+    assert second_lease.__enter__() == "http://two"
 
-    assert assigned == [
-        MODULE.select_endpoint(endpoints, f"request-{index}") for index in range(32)
-    ]
-    assert set(assigned) == set(endpoints)
+    second_lease.__exit__(None, None, None)
+    with pool.acquire() as endpoint:
+        assert endpoint == "http://two"
+    first_lease.__exit__(None, None, None)
+
+
+def test_endpoint_slot_pool_initial_burst_reaches_every_replica() -> None:
+    pool = MODULE.EndpointSlotPool(
+        ["http://one", "http://two"], max_inflight_per_endpoint=2
+    )
+
+    with pool.acquire() as first, pool.acquire() as second:
+        assert [first, second] == ["http://one", "http://two"]
 
 
 def test_call_vllm_disables_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -321,7 +434,10 @@ def test_call_vllm_disables_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
         timeout_seconds=12.0,
     )
 
-    assert captured["body"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["body"]["chat_template_kwargs"] == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
 
 
 def test_call_vllm_rejects_length_finish(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -366,6 +482,190 @@ def test_artifact_state_is_scoped_to_expected_ids(tmp_path: Path) -> None:
     assert complete == {"expected"}
     assert unexpected == {"stale"}
     assert errors == {"missing"}
+
+
+def test_detect_can_reuse_a_recorded_invalid_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    Image.new("RGB", (8, 8)).save(image_dir / "sample.png")
+    work_dir = tmp_path / "work"
+    error_dir = work_dir / "detection" / "errors"
+    error_dir.mkdir(parents=True)
+    (error_dir / "sample.json").write_text(
+        MODULE.json.dumps({"sample_id": "sample", "error": "length"}),
+        encoding="utf-8",
+    )
+    prompt = type(
+        "Prompt",
+        (),
+        {
+            "prompt_id": "test.prompt",
+            "system_prompt": "system",
+            "user_prompt": "user",
+        },
+    )()
+    monkeypatch.setattr(MODULE, "main_prompt", lambda _: prompt)
+    monkeypatch.setattr(
+        MODULE,
+        "call_vllm",
+        lambda **_: pytest.fail("a recorded invalid output must not be generated again"),
+    )
+    args = MODULE.argparse.Namespace(
+        work_dir=work_dir,
+        image_dir=image_dir,
+        detection_prompt=tmp_path / "prompt.yaml",
+        endpoints=["http://unused"],
+        endpoint_max_inflight=1,
+        served_model="unused",
+        workers=1,
+        timeout_seconds=1.0,
+        retries=0,
+        min_pixels=500_000,
+        max_pixels=2_000_000,
+        max_tokens=8_000,
+        include_stems=None,
+        allow_invalid_output=True,
+        force=False,
+    )
+
+    MODULE.detect(args)
+
+    summary = MODULE.json.loads(
+        (work_dir / "detection/summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["complete"] == 0
+    assert summary["errors"] == 1
+    assert summary["endpoint_scheduling"] == "dynamic_available_slot"
+
+
+def test_reconstruct_can_reuse_a_recorded_invalid_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    work_dir = tmp_path / "work"
+    reconstruction = work_dir / "reconstruction"
+    reconstruction.mkdir(parents=True)
+    row = {
+        "request_id": "sample__det_0000_shape",
+        "sample_id": "sample",
+        "detection_index": 0,
+        "label": "shape",
+        "crop_path": str(tmp_path / "crop.png"),
+        "image_size": [8, 8],
+        "crop_box": [0, 0, 8, 8],
+        "proposal_bbox_2d": [0, 0, 999, 999],
+        "proposal_bbox_full": [0, 0, 7, 7],
+        "proposal_source": "detection",
+        "gt_read": False,
+    }
+    (reconstruction / "manifest.jsonl").write_text(
+        MODULE.json.dumps(row) + "\n", encoding="utf-8"
+    )
+    errors = reconstruction / "errors"
+    errors.mkdir()
+    (errors / "sample__det_0000_shape.json").write_text(
+        MODULE.json.dumps({**row, "error": "length"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(MODULE, "main_prompt", lambda _: object())
+    monkeypatch.setattr(
+        MODULE,
+        "call_vllm",
+        lambda **_: pytest.fail("a recorded invalid output must not be generated again"),
+    )
+    args = MODULE.argparse.Namespace(
+        work_dir=work_dir,
+        shape_prompt=tmp_path / "shape.yaml",
+        line_prompt=tmp_path / "line.yaml",
+        endpoints=["http://unused"],
+        endpoint_max_inflight=1,
+        served_model="unused",
+        workers=1,
+        timeout_seconds=1.0,
+        retries=0,
+        min_pixels=500_000,
+        max_pixels=4_000_000,
+        max_tokens=8_000,
+        allow_invalid_output=True,
+        force=False,
+    )
+
+    MODULE.reconstruct(args)
+
+    summary = MODULE.json.loads(
+        (reconstruction / "summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["complete"] == 0
+    assert summary["errors"] == 1
+
+
+def test_merge_can_drop_failed_reconstruction_when_explicitly_allowed(
+    tmp_path: Path,
+) -> None:
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    Image.new("RGB", (8, 8)).save(image_dir / "sample.png")
+    work_dir = tmp_path / "work"
+    detection_dir = work_dir / "detection" / "pred"
+    detection_dir.mkdir(parents=True)
+    (detection_dir / "sample.json").write_text(
+        MODULE.json.dumps(
+            {
+                "layout": [
+                    {"type": "shape", "bbox": [0, 0, 7, 7], "parameters": {}},
+                    {"type": "text", "bbox": [1, 1, 6, 6], "parameters": {}},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = MODULE.argparse.Namespace(
+        work_dir=work_dir,
+        image_dir=image_dir,
+        dataset_name="real_v1",
+        allow_missing_detection=False,
+        allow_missing_reconstruction=False,
+    )
+
+    with pytest.raises(FileNotFoundError):
+        MODULE.merge(args)
+    args.allow_missing_reconstruction = True
+
+    MODULE.merge(args)
+
+    result = MODULE.json.loads(
+        (work_dir / "final/real_v1/pred/sample.json").read_text(encoding="utf-8")
+    )
+    summary = MODULE.json.loads(
+        (work_dir / "final/summary.json").read_text(encoding="utf-8")
+    )
+    assert "parameters" not in result["layout"][0]
+    assert summary["installed_reconstructions"] == 0
+    assert summary["dropped_reconstructions"] == 1
+
+
+def test_merge_can_explicitly_omit_image_with_missing_detection(tmp_path: Path) -> None:
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    Image.new("RGB", (8, 8)).save(image_dir / "missing.png")
+    work_dir = tmp_path / "work"
+    args = MODULE.argparse.Namespace(
+        work_dir=work_dir,
+        image_dir=image_dir,
+        dataset_name="real_v1",
+        allow_missing_detection=True,
+        allow_missing_reconstruction=True,
+    )
+
+    MODULE.merge(args)
+
+    summary = MODULE.json.loads(
+        (work_dir / "final/summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["expected_images"] == 1
+    assert summary["images"] == 0
+    assert summary["missing_detection_count"] == 1
+    assert summary["missing_detection_stems"] == ["missing"]
 
 
 def test_package_uses_explicit_dataset_and_preserves_existing_method(tmp_path: Path) -> None:

@@ -339,10 +339,9 @@ model:
 
   `tiny validated` 只证明框架合同和上游架构行为，不等同于真实发布权重的生产验收。
 
-  业务推理环境不要自行拼装依赖版本，应使用 `docker/inference/` 中的推理镜像或用同一份
-  `uv.lock` 构建。推理效果对 prompt、pixel budget、generation 参数和 JSON 解析都敏感，
-  不能只对齐模型权重；镜像构建和 `shaft-contract-smoke` 验收见
-  `docker/inference/README.md`。
+  业务推理环境必须使用同一份 `uv.lock` 构建等价依赖，但生产镜像、vLLM launcher 和部署 smoke 由部署
+  系统在自身仓库维护。推理效果对 checkpoint/merge provenance、prompt、image-first 消息顺序、pixel
+  budget、thinking、generation 参数和 JSON parser 都敏感，不能只对齐模型权重。
 - 三个产品注册项分别默认使用 `qwen35vl`、`qwen36vl`、`qwen38vl` 非 thinking 模板，避免结构化
   JSON 任务无意训练或生成 `<think>` 内容。chat-template 选项由模板元数据统一提供给本地 processor 与
   vLLM/OpenAI-compatible backend，不再由推理 policy 根据模板名重复推导：
@@ -1276,7 +1275,9 @@ train:
 - `distributed.ddp.static_graph` 默认是 `false`。开启后透传 HF
   `TrainingArguments.ddp_static_graph`，声明每个训练 iteration 使用相同的参数图和稳定的 used/unused 参数集合；
   当前只对 `strategy=ddp + algorithm=sft` 开放，其它 strategy/algorithm 会在配置阶段拒绝。该字段属于 DDP
-  reducer 执行语义，并进入 exact-resume contract；它不是 batching、packing 或数据字段。
+  reducer 执行语义，并进入 exact-resume contract；它不是 batching、packing 或数据字段。由于 PyTorch DDP
+  首轮 `no_sync()` 与 static-graph reducer 的已知冲突，`gradient_accumulation_steps>1` 时禁止开启该字段，
+  无论是否启用 gradient checkpointing，配置加载阶段都会要求改用普通 DDP。
 - `distributed.fsdp` 只维护 FSDP 配置语义，不直接启动进程；训练入口仍由 CLI / torchrun 负责。关键字段：
   - `sharding_strategy`: `full_shard | shard_grad_op | no_shard | hybrid_shard`
   - `auto_wrap_policy`: `none | transformer | size`
@@ -1720,7 +1721,26 @@ python scripts/build_offline_kd_artifact.py \
   --shard-rows 128 --shard-max-bytes 536870912 --storage-dtype float16 --resume
 ```
 
-producer config 必须是 `algorithm.name=sft`、固定 target 的 `jsonl_sft`。weighted mixing、shuffle 与
+detection 伪标签与 KD 分布可在同一次贪心生成中完成：
+
+```bash
+python scripts/build_offline_kd_artifact.py \
+  --config configs/train/banana_detection_pseudo_kd_teacher_qwen38_ckpt4000_v5_8.yaml \
+  --output-dir /path/to/artifact \
+  --denylist configs/data/banana_detection_distill_denylist.v1.json \
+  --backend vllm --tensor-parallel-size 1 \
+  --mode topk_tail --temperature 1 --top-k 64 \
+  --pseudo-label-task detection --generation-max-tokens 8000
+```
+
+该模式的输入 JSONL 是固定 prompt、空 `target_text` 的 prompt-only selection，只允许一个未 shuffle 的
+`jsonl_sft` path；空 target 不进入常规 SFT loader，因此不会放宽训练数据合同。生成参数固定为 greedy
+`temperature=0/top_p=1/top_k=0`，thinking 由模型模板关闭。原始 completion 不经 parser 重写；只有严格满足
+v5.8 detection schema 的输出进入 artifact，失败输出保存在 `OUTPUT.bad_cases.jsonl`。每行可携带
+`offline_kd_media_plan`，producer/student 均按该计划重放 smart resize，并继续用原图内容 SHA 和完整
+token IDs fail closed。
+
+固定 target producer config 必须是 `algorithm.name=sft`、固定 target 的 `jsonl_sft`。weighted mixing、shuffle 与
 PromptSource 由现有 DataCenter 以 experiment seed 展开，并把最终 prompt/target 顺序物化进 artifact
 `train.jsonl`；online media transforms 因无法由不可变 source path 重放而拒绝。CLI 强制显式传入 denylist：
 
@@ -1757,10 +1777,13 @@ algorithm:
   name: offline_kd
 data:
   batching:
-    grouping: none
-    cardinality: fixed
+    grouping: bounded_cost
+    cardinality: token_budget
     packing: {mode: none}
     layout: padded
+    buffer_size: 128
+    cost_cache_size: 65536
+    max_tokens_per_microbatch: 36000  # 示例值；必须按 student/GPU canary 调整
   datasets:
     - dataset_name: teacher_dist
       source_type: jsonl_offline_kd
@@ -1802,9 +1825,13 @@ eval:
   FP32，避免 FP16 序列化破坏概率和为 1 的合同。
 - `--max-rows N` 用于确定性 canary；限制直接进入 DataCenter sample plan，因此 source fingerprint 与完整数据
   artifact 不同，不能把 canary staging 续写成全量 artifact。
-- 当前门禁是 `grouping=none/cardinality=fixed/packing=none/layout=padded`、`eval.enabled=false`、
-  `train.loss_name=auto`、`train.loss_scale=default`，且不允许运行时 offline/online transforms。`ce_weight` 和
-  `kd_weight` 必须非负且不能同时为零。
+- 当前仍要求 `packing=none/layout=padded`、`eval.enabled=false`、`train.loss_name=auto`、
+  `train.loss_scale=default`，且不允许运行时 offline/online transforms。Offline KD 可以使用
+  `grouping=none|length|bounded_cost`；`bounded_cost` 可配合 `cardinality=token_budget`，按图像展开后的
+  token cost 而非固定样本数均衡各 rank。`max_tokens_per_microbatch` 是设备相关的资源参数，必须用真实
+  student、真实 artifact 做短 canary 后确定，不能把上例的 36k 当成跨模型默认值。存在逐行
+  `offline_kd_media_plan` 时，planner 直接消费其中冻结的 target size，不再对原图执行第二次 pixel budget；
+  collator 仍会校验原始媒体尺寸与内容摘要。`ce_weight` 和 `kd_weight` 必须非负且不能同时为零。
 - teacher/student 不要求模型结构相同，但当前要求同一个 input ABI：token→ID、special IDs、processor contract
   与 logits vocab size 必须完全一致。因此“同一 tokenizer 文件名”不够；不同 vocab mapping 目前不支持，
   需要先设计显式 token projection/mass aggregation artifact，而不能静默按 ID 对齐。

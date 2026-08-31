@@ -5,6 +5,241 @@
 
 历史开发日志在 squash 前的仓库历史中仍可审计；本文件从当前 HF-first 主线继续维护。
 
+## 2026-08-28：v5.9 4B 确定性 invalid 导致 HF method 缺少 prediction JSON
+
+### 现象
+
+- v5.9 4B ckpt10000 上传前只有 real_v1=174/175、real_v2=248/250，ckpt12000 只有
+  real_v1=174/175；同步目录本身完整，但四个 method prediction 文件不存在。
+- ckpt10000 与 ckpt12000 在同一张 `real_v1/00011` 上都报 `invalid bbox`；ckpt10000 的
+  `real_v2/prod_007946`、`prod_024325` 均以 `finish_reason=length` 达到 8000-token 上限。
+
+### 根因
+
+- 这是 inference/parser contract failure，不是 HF 同步遗漏或 evaluator 误判。默认原子 invalid-skip 合同正确地
+  没有用空 prediction 伪造成功，但发布前没有针对少量 missing stems 执行隔离 recovery。
+- `00011` 在 4M 输入预算下对两个 checkpoint 都稳定地产生非法坐标；另外两张密集图的 detection 输出长度
+  超过 8000 tokens。
+
+### 影响范围
+
+- 仅影响 v5.9 4B ckpt10000/ckpt12000 的上述四个 prediction JSON；其余 prediction 和平台 evaluator
+  未受影响。
+- reconstruction 内部个别属性请求仍可按既有合同 invalid-skip，但只要 detection 成功，merge 仍会产生合法
+  的整图 prediction；不能把属性级缺字段与整图文件缺失混为一谈。
+
+### 修复方式
+
+- 只对四个 missing 请求使用隔离 fallback：v5.8 detailed prompt 增加 bbox clamp、严格顺序和退化框省略约束，
+  detection 改为 0.5M–2M、`max_tokens=12000`，继续关闭 thinking、greedy、image-first 且不读取 GT。
+- recovery detection 通过后，按原 v5.8 shape/line prompt、0.5M–4M、padding 0.65、minimum crop 256
+  完成 reconstruction 和 merge；原始失败 attempt 与 recovery artifact 分开保留。
+- 仅把四个新 prediction JSON 补入正式 final 目录和 HF method；没有上传本地 score/evaluator 产物。
+
+### 回归测试
+
+- 四个 detection fallback 均为 `complete=1, errors=0`，prompt/pixel/max-token/thinking/GT 隔离合同逐项断言
+  通过；四个 merge 均生成可解析整图 JSON。
+- 本地与 HF revision `94bc0cacae02b4f3d5d77df04f3f42c70e587a31` 的对应文件 SHA256 逐个一致；
+  ckpt10000、ckpt12000 远端均达到 real_v1=175、real_v2=250。
+- worker0 的八个 vLLM replica 在任务结束后全部退出，GPU 0–7 显存均回到 0 MiB。
+
+### 后续防线
+
+- 发布前必须同时核对 `expected image stems` 与 final prediction stems；invalid-skip 是评测合同，不等于允许在
+  未说明的情况下发布不完整 method。
+- 少量确定性 invalid 优先采用隔离、可审计的差异化 fallback；bbox contract failure 可尝试严格坐标 prompt 与
+  较低 resize 上限，length failure 优先提高 max tokens。fallback 成功后仍需重跑相应 reconstruction，不能只
+  补 detection JSON。
+- fallback 不得覆盖原始 error artifact，不读取 GT，不上传本地 score；平台 method 只消费最终 prediction。
+
+## 2026-08-28：HF GT 更新后沿用旧 score 导致 layout 横评口径错位
+
+### 现象
+
+- 从 `EditFigure/evaluation_and_results` 当前 HEAD 读取 BananaVLM `score.json` 后，横向比较 v5.9 4B 与
+  历史模型；人工复核发现结果可疑。
+- HF HEAD 在同日 07:38 UTC 连续更新 real_v1、real_v2 GT ignore 状态，但各历史模型目录中的
+  `score.json` 没有随 GT 提交重新生成。
+
+### 根因
+
+- 横评直接信任模型目录中的派生 `score.json`，只固定了 HF revision，没有验证 score 的 GT revision 或在
+  当前 GT/evaluator 上重算。
+- 同一 HF revision 因而同时包含“新 GT”和“按旧 GT 生成的 score”，revision 一致不等于评测合同一致。
+
+### 影响范围
+
+- 影响本轮 v5.9 4B ckpt8000/ckpt10000 与 HF v5.7/v5.8 BananaVLM 的首次横向结论。
+- 这是 `eval / metric artifact provenance` 误判，不是模型输出变化；prediction JSON 未损坏。
+
+### 修复方式
+
+- 强制同步 HF HEAD `2d4688a972c484abd582d0c40a781ab61033dce1` 的 175 个 real_v1 GT、250 个
+  real_v2 GT、69,683-byte evaluator 和七组历史模型 prediction。
+- 在隔离目录用同一份最新 GT/evaluator 重算历史模型，并把本地 v5.9 两个 checkpoint 的 final prediction
+  放入同一评测目录重算；不再消费远端旧 `score.json`。
+
+### 回归测试
+
+- 校验 GT 文件数为 real_v1=175、real_v2=250，所有同步 prediction JSON 非零字节且各数据集文件数符合
+  远端实际集合。
+- 九组方法均成功生成新版 `score.json`；抽查 v5.8 27B ckpt4000 的 real_v1 E2E weighted 从旧
+  0.673660 变为 0.677853，real_v2 从旧 0.611851 变为 0.606383，证明旧 score 不可复用。
+
+### 后续防线
+
+- HF 横评默认同步 `GT + evaluator + prediction` 后现场重算；只有 score 显式记录且匹配 GT revision、
+  evaluator hash 时才允许直接复用。
+- GT、ignore state 或 evaluator 任一发生更新后，现存 score 一律视为 stale；报告中明确区分远端原 score
+  与当前合同重算 score。
+
+## 2026-08-27：layout 多 replica 固定路由造成尾部单卡忙、其余卡空闲
+
+### 现象
+
+- v5.8 27B ckpt4000 在 real_v1 的 0.5M–2M detection canary 中，`00345` 发生长输出并连续达到
+  8000-token 上限；该请求绑定的 GPU 满载，其余已完成请求的 GPU 长时间为 0%。
+
+### 根因
+
+- task-local runner 用 sample ID 哈希固定选择独立 vLLM endpoint。vLLM 只能调度单进程内部请求，不能在
+  8 个独立 replica 之间迁移任务；runner 也没有把等待任务交给先空闲的 endpoint。
+- detection 缺少显式 invalid-skip/resume 合同，导致确定性失败被重复请求。
+
+### 影响范围
+
+- 影响 `scripts/tasks/run_layout_recognition_eval.py` 的 detection 和 reconstruction 多 endpoint 批量推理。
+- canary 门禁在全量前正确停止，尚未形成模型指标；这是推理调度与失败处理问题，不是 metric 误判。
+
+### 修复方式
+
+- 引入共享动态 endpoint-slot 队列，每 endpoint 的 in-flight 上限显式配置。
+- 增加 detection `--allow-invalid-output` 和 evaluate `--allow-missing-predictions`；失败项原子记录，resume
+  直接复用，缺失预测按 parse failure/FN 进入全量指标。
+
+### 回归测试
+
+- 覆盖初始请求分散到所有 replica、先释放 endpoint 优先复用、detection 已记录 invalid 不再生成。
+- worker1 真实全量验证中，8 个单卡 replica 在等待队列存在时持续 99–100% 利用率；ckpt4000 完成
+  174/175（`00345` 按授权复用 error 并跳过），ckpt8000 完成 175/175。全部 raw 均满足 0.5M–2M、
+  `finish_reason=stop`、thinking 关闭合同。
+- 相对 1M–4M 动态基线，ckpt4000 detection F1 从 0.825769 降到 0.801177，ckpt8000 从 0.817614
+  降到 0.807409；属于降低像素预算后的模型输出变化，不是 evaluator/metric 误判。
+
+### 后续防线
+
+- quick-test skill 和 inference reference 明确禁止高吞吐正式批次使用固定 sample-ID 路由。
+- 缺失预测必须计为 parse failure/FN 并记录 stems，禁止伪造成功 JSON。
+
+## 2026-08-27：v5.8 27B real_v1 detection 在 4M 推理上限下表现更好
+
+### 现象
+
+- v5.8 27B 的训练像素预算为动态 0.5M–2M，但 ckpt4000/ckpt8000 在 real_v1 detection 上把推理
+  上限从 2M 提高到 4M 后，micro F1 分别从 0.801177 提高到 0.826097、从 0.807409 提高到
+  0.820689。
+- 动态 0.5M–4M 与历史动态 1M–4M 的差异很小，不能据此证明 0.5M 或 1M 下限更优。
+
+### 根因
+
+- real_v1 的 175 张图中有 121 张原图超过 2M 像素；2M 上限会对大部分样本继续缩小，损失小目标和
+  局部边界信息。模型在 0.5M–2M 预算下训练，不代表推理时必须丢弃 2M 以上输入信息。
+- 配对 bootstrap 显示，高分辨率样本上 ckpt4000 的 0.5M–4M 相对 0.5M–2M F1 增益为
+  +0.037641（95% CI [0.017009, 0.060456]）；ckpt8000 为 +0.017055（95% CI
+  [-0.002223, 0.039764]）。这是模型输入预算造成的输出变化，不是 evaluator、codec 或 metric 误判。
+- 仅有 11 张图低于 1M，且同尺寸 greedy/BF16 连续批处理复跑也并非逐字节确定，因此当前样本不足以
+  可靠区分 0.5M 与 1M 下限。
+
+### 影响范围
+
+- 结论仅覆盖 v5.8 27B ckpt4000/ckpt8000、real_v1 detection 和当前详细 prompt；不能直接外推到
+  reconstruction、其他数据集或其他模型规模。
+- ckpt4000 的最高观测 F1 为 0.826097，略高于 ckpt8000 的 0.820689；该差距未单独做 checkpoint
+  间显著性检验，不能仅凭本实验宣布 ckpt4000 全面优于 ckpt8000。
+
+### 修复方式
+
+- 在 worker1 的 8 张 A800 上补跑动态 0.5M–4M arm，并与动态 0.5M–2M、动态 1M–4M 横向比较；
+  两个 checkpoint 均使用 8 个单卡 vLLM replica、共享动态 endpoint-slot 队列和相同 detection 合同。
+- 所有 0.5M–4M run 均完成 175/175、零 invalid，thinking 关闭，raw/prediction/final artifact 完整。
+- detection 默认预算建议采用动态 0.5M–4M：4M 上限有明确收益；0.5M 下限与训练合同一致、平均 token
+  略少，且目前未发现显著损失。
+
+### 回归测试
+
+- ckpt4000：0.5M–4M 相对 0.5M–2M 为 +0.024919 F1，配对 bootstrap 95% CI
+  [0.010052, 0.042323]；相对 1M–4M 为 +0.000327，95% CI [-0.006707, 0.007035]。
+- ckpt8000：0.5M–4M 相对 0.5M–2M 为 +0.013280 F1，配对 bootstrap 95% CI
+  [-0.000677, 0.029245]；相对 1M–4M 为 +0.003075，95% CI [-0.002572, 0.009057]。
+- 当前动态调度下，ckpt8000 的 0.5M–2M 与 0.5M–4M 全量 raw 文件时间跨度分别约 323 秒和
+  327 秒；在这组硬件与并发下，提高上限没有造成可见的端到端吞吐下降。
+
+### 后续防线
+
+- 报告像素预算必须同时写出 min/max，禁止把动态 1M–4M 简写为固定 4M。
+- 推理默认值不能只按训练上限机械设置；应按数据分辨率分桶，并用配对置信区间验证上限收益。
+- 小于 1% 的 arm 差异若缺少确定性复跑或置信区间，不作为默认参数选择的强证据。
+- 保留训练 processor 与 task-local resize 插值方式可能不同这一审计项；跨链路比较前需显式核对。
+
+## 2026-08-27：real_v2 GT 同步后，detection 像素预算收益呈 checkpoint 依赖
+
+### 现象
+
+- Hugging Face `EditFigure/evaluation_and_results` revision
+  `3356047b73649f18a21ea92db687fec9179bfc7d` 已包含 250 份 real_v2 GT；本地此前只有原图，无法对
+  已发布 prediction 做统一离线评分。
+- 同 revision 同步后，v5.8 27B ckpt4000 在动态 0.5M–2M、0.5M–4M、1M–4M 下的 detection F1
+  分别为 0.804294、0.816830、0.821583；ckpt8000 分别为 0.818772、0.821744、0.820873。
+- ckpt8000 0.5M–2M canary 的高密度样本产生允许的 length invalid；实验脚本最初错误要求 canary 4/4
+  成功，因而在正式扩量前安全停止。
+
+### 根因
+
+- real_v2 有 134/250 张图不低于 2M，4M 上限可以保留更多局部信息；但收益受 checkpoint 和长输出
+  稳定性影响，不像 real_v1 一样在两权重上都明显。
+- ckpt4000 的 1M–4M 相对 0.5M–2M 为 +0.017289 F1，配对 bootstrap 95% CI
+  [0.002397, 0.033311]；ckpt8000 三档差异的区间均跨 0，不能证明某一档更优。这是模型输入和生成
+  稳定性的真实变化，不是 evaluator、codec 或 metric 误判。
+- canary 门禁把“合同通过”错误等同于“所有样本成功”，没有遵循本轮已确认的 invalid-skip 合同。
+
+### 影响范围
+
+- 结论只覆盖 real_v2 detection、v5.8 detailed prompt、ckpt4000/8000；不能外推到 reconstruction。
+- 三档正式结果分别缺失 1–3 张预测，评测已将缺失样本计为 parse failure 和全部 GT 的 FN；不存在空 JSON
+  冒充成功的问题。
+- 同目标尺寸的 0.5M–4M 与 1M–4M 输出逐字节相同率不足 5%，说明 BF16 连续批处理的亚百分点差异
+  包含明显 run noise。历史 1M–4M 与本轮新鲜复跑也不应只凭小数点后差异比较。
+
+### 修复方式
+
+- 只同步远端 `layout_recognition/data/real_v2/gt/*.json`，排除 `json.zip`；校验 250 个 ID、图像尺寸、
+  bbox 边界和 20,312 个实例后原样安装到本地 real_v2 数据目录。
+- 两个 checkpoint 各新鲜运行三档动态预算；使用 8 个单卡 vLLM replica、每 endpoint 4 个动态 slot、
+  64 runner workers、thinking 关闭、greedy 和 8000-token 上限。
+- canary 判断改为 `expected == complete + errors == 4` 且至少一个成功样本；允许的 invalid 保留错误产物，
+  不能把模型允许失败误判为配置门禁失败。
+
+### 回归测试
+
+- 六组均满足 `complete + errors = 250`，raw/pred/final 数量与 complete 一致；每条成功 raw 均为
+  image-first、thinking 关闭、`finish_reason=stop`，并满足对应 min/max pixel contract。
+- ckpt4000 的 0.5M–4M 相对 0.5M–2M 为 +0.012537，95% CI
+  [-0.001753, 0.029349]；1M–4M 相对 0.5M–2M 为 +0.017289，95% CI
+  [0.002397, 0.033311]。
+- ckpt8000 的 0.5M–4M 相对 0.5M–2M 为 +0.002971，95% CI
+  [-0.010459, 0.016132]；相对 1M–4M 为 +0.000871，95% CI
+  [-0.004290, 0.006674]。
+- 8 卡主批次在等待队列充足时持续约 100%；全量结束后 vLLM 进程、端口和 GPU 显存均已释放。
+
+### 后续防线
+
+- detection 继续保留 4M 上限；0.5M 与 1M 下限目前按 checkpoint/data 呈差异。用户最终决定统一采用
+  0.5M–4M，并优先使用训练更充分、invalid 更稳定的 v5.8 27B ckpt8000；该决策是默认运行标准，不能
+  反写成下限已有跨 checkpoint 显著性结论。
+- canary 门禁必须验证“合同”和“失败记录完整性”，不能在允许 invalid 的任务里硬编码全成功。
+- 正式报告同时列出 missing stems、配对置信区间、目标尺寸相同但输出不同的非确定性证据。
+
 ## 2026-07-16：本地环境掩盖 clean-runner 测试依赖与布尔契约缺口
 
 ### 现象
@@ -3327,6 +3562,94 @@
   与可检查的 `forward` signature；任何一项无法证明时保持 fail closed。
 - HTTP identity schema 若再次变化必须升级 protocol，并让旧 client/server 明确拒绝，禁止把缺字段解释为兼容。
 
+## 2026-08-19：双机多副本批量推理被单一预处理调度器饿死
+
+### 现象
+
+- 16 个单卡 vLLM 副本全部健康，但双机批量两阶段推理时部分 GPU 长时间保持 0% 利用率，吞吐明显波动。
+- 提高 HTTP endpoint concurrency 后仍不能稳定喂满所有副本；检测阶段结束后，大量 shape/line reconstruction
+  小请求进一步放大了调度不均衡。
+
+### 根因
+
+- 单个中央 runner 同时负责图片读取、PIL 处理、context crop、请求构造和跨节点 HTTP 分发，CPU/NFS
+  预处理速度低于 16 个副本的消费能力。
+- endpoint pool 最初按固定顺序入队，启动阶段请求偏向前几个副本；只提高 vLLM 的并发上限不能产生尚未完成
+  预处理的请求，也不能消除跨节点馈送瓶颈。
+- 本次异常属于推理编排与资源利用率问题，不是模型能力下降，也不是 eval、codec、metric 或 data 标准误判。
+
+### 影响范围
+
+- 影响多节点、多单卡副本的离线两阶段推理吞吐与 wall time；模型输出合同及已完成 JSON 内容不受影响。
+- reconstruction 请求量远高于 detection，因而子属性阶段对预处理并发和 endpoint 公平调度更敏感。
+
+### 修复方式
+
+- 预处理显式进入独立 `ThreadPoolExecutor`，endpoint pool 采用 round-robin 初始顺序。
+- 两台 worker 各运行一个本地 shard runner，仅服务本机 8 个 vLLM endpoint；每个 endpoint concurrency 设为
+  64，图片调度与预处理 worker 分别提高到 512 和 128。
+- 推理任务保持在 `temp/task_gold_cand/`，未进入 `src/shaft` 正式推理主链；运行参数、原始响应、prompt hash、
+  timing 和最终验证报告均在任务目录内审计。
+
+### 回归测试
+
+- 高并发运行时观测到 16 个 endpoint 均有 running/waiting 请求，worker0/worker1 的 16 张 GPU 可同时达到
+  98%–100% 利用率。
+- 4B checkpoint 的主批次 4,993 个可见候选 wall time 为 54 分 30.251 秒；经 schema-guided retry 后模型失败
+  清零，4,993 份最终 JSON 全部通过尺寸与严格输出合同验证。
+- 临时 runner 通过 ruff、Python compile、内置 geometry/schema self-test；验证器以 64 线程复验完整可见集。
+
+### 后续防线
+
+- 多节点 replica 推理默认按节点拆 local shard；不能把“提高 vLLM `max-num-seqs`”等同于端到端并发已经足够。
+- 压测必须同时观察 endpoint running/waiting、GPU 利用率和预处理队列，不能只看服务健康或平均吞吐。
+- detection 与 reconstruction 分别记录请求量和耗时；大量小 crop 的子属性任务应独立配置预处理/HTTP 并发。
+- 长批次结束后按本任务记录的 PID/进程组停止服务，并用 `lsof /dev/nvidia*` 与 `nvidia-smi` 共同确认释放。
+
+## 2026-08-19：Qwen3.5 默认 thinking 使结构化评测请求耗尽输出预算
+
+### 现象
+
+- retrain 27B layout recognition canary 的首条 detection 请求持续生成到 8,000 tokens，以 `length` 结束；
+  本应只包含紧凑 bbox JSON 的 23 个对象无法作为完整预测落盘。
+- vLLM、TP4 和视觉输入均正常，关闭 thinking 后同一样本在 572 completion tokens、7.66 秒内以 `stop`
+  返回完整 JSON。
+
+### 根因
+
+- Qwen3.5 chat template 默认启用 thinking；仅在 system prompt 要求“只输出 JSON”不足以关闭内部推理输出。
+- 初版请求只依赖 codec 判断 JSON 是否完整，没有把 `finish_reason` 本身纳入结构化推理成功合同。
+- 该问题属于 infer/chat-template 与输出合同偏差，不是模型检测能力问题，也不是 eval、metric、codec 或 data
+  标准误判。
+
+### 影响范围
+
+- 影响使用 Qwen3.5/3.6 chat template 的 detection 和 reconstruction 离线结构化请求；会显著增加时延，并可能
+  产生被截断、不可解析或偶然完整但 finish reason 不可信的输出。
+- 已冻结的正式 175 图结果不受影响：修复后重新执行 canary，正式 detection 和 4,037 条 reconstruction 均为
+  clean stop，且错误为 0。
+
+### 修复方式
+
+- vLLM chat completion 请求统一传入 `chat_template_kwargs.enable_thinking=false`。
+- 只有 `finish_reason=stop` 的响应才进入 codec；`length`、`abort`、`error` 等状态直接按失败重试。
+- detection/reconstruction summary 改为从 expected 图片/manifest 与实际落盘文件重新聚合，断点恢复时不再只看
+  当前进程返回值；cached contract issue 也会进入最终 summary。
+
+### 回归测试
+
+- 单测检查请求体显式关闭 thinking，并验证 `finish_reason=length` 即使内容看似完整 JSON 也会被拒绝。
+- canary 覆盖普通与高密度样本 `00003`、`00345`、`pic_739`；三条均完整 stop，分别输出 23、58、130
+  个对象。
+- 正式运行完成 175/175 detection、4,037/4,037 reconstruction，0 inference error、0 contract issue；最终
+  175 个 prediction JSON 全部可解析且坐标合法。
+
+### 后续防线
+
+- Qwen 系结构化推理不能只靠 prompt 禁止解释文本；必须显式绑定 thinking 开关并检查 finish reason。
+- 长批次 canary 必须至少包含一个高元素密度样本，同时检查 completion tokens、latency、finish reason 和解析结果。
+- 断点续跑 summary 必须从持久产物和 expected identity 集合重算，不得把单次进程内结果当作完整运行真源。
+
 ## 2026-08-20：prompt 轮换缺少 task formulation 与原子监督真源
 
 ### 现象
@@ -4001,6 +4324,56 @@
 - 遇到 step 0 的裸 ENOENT 必须保留完整 traceback，先区分 input path 缺失与 compiler cache metadata 竞争，
   不能只依赖进度摘要中的异常字符串。
 
+## 2026-08-22：Qwen3.5 DDP static graph 在首个梯度累积窗口触发 reducer 断言
+
+### 现象
+
+- Banana v5.8 Qwen3.5-4B 八卡训练完成 data、model、batch plan 和 optimizer 装配后，在 step 0 的首次
+  backward 失败；全部 rank 报
+  `expect_autograd_hooks_ INTERNAL ASSERT FAILED ... distributed/c10d/reducer.cpp:1703`。
+- 2026-08-30，Qwen3.5-0.8B 在关闭 gradient checkpointing 后仍以 `GA=2 + static_graph=true` 于 step 0
+  复现相同断言，证明触发条件不是 gradient checkpointing，而是 static-graph reducer 与累积首轮
+  `no_sync()` 的组合。
+- 进度快照确认训练尚未完成任何 optimizer step；GPU 随 torchrun 退出后完全释放，没有 CUDA OOM、records
+  cache 缺失或 Triton metadata ENOENT。
+
+### 根因
+
+- 本次配置同时启用 `gradient_accumulation_steps=4`、gradient checkpointing 与
+  `train.distributed.ddp.static_graph=true`。
+- HF/Accelerate 在非同步的累积 microstep 使用 DDP `no_sync()`；因此第一次 backward 发生在 `no_sync()`
+  窗口。PyTorch static-graph reducer 在这一首轮组合下错误推进 autograd-hook 状态并触发内部断言。
+- 这是 PyTorch DDP static-graph/no-sync 运行时组合问题，与上一次共享 Triton cache 事故相互独立。
+
+### 影响范围
+
+- 当前确认影响 DDP static graph 且梯度累积大于 1 的 Qwen3.5 全参训练；普通 DDP 默认
+  `static_graph=false` 和 DeepSpeed ZeRO-3 不经过该路径。
+- hostname `err=-3`、数据 mixing、PromptSource formulation、token-average loss 与本次失败无关。
+
+### 修复方式
+
+- 4B 训练配置应删除 `distributed.ddp.static_graph: true` 或显式设为 `false`，继续保留
+  `ddp_find_unused_parameters=false`；无需改变梯度累积、数据或模型配置。
+- 框架配置门禁统一拒绝 `DDP static_graph + gradient_accumulation_steps>1`，不再错误地仅限于同时启用
+  gradient checkpointing 的子集；直至目标 PyTorch 版本对该组合有明确、经过真实模型验证的支持。
+
+### 回归测试
+
+- 已通过 rank 0 进度快照、8-rank 完整 traceback 和 batching resume contract 交叉确认实际生效参数；异常在
+  所有 rank 的同一首次 backward 路径复现。
+- 配置回归覆盖 `gradient_checkpointing=false + GA=2 + static_graph=true`，要求在加载 YAML 时直接拒绝，
+  不再消耗模型加载和八卡启动时间。
+- 配置修正后的真实 Qwen3.5 八卡 optimizer-step canary 尚待执行；完成前不把 static-graph 梯度累积声明为
+  生产支持。
+
+### 后续防线
+
+- 分布式 smoke 不能只覆盖 `static_graph=true, GA=1`；需要覆盖 GA 大于 1 时首个 microstep 的
+  `no_sync()` 路径。
+- step 0 reducer 内部断言应优先核对 `ddp_static_graph`、gradient accumulation 与 checkpointing，不与
+  hostname、数据缓存或 CUDA OOM 混淆。
+
 ## 2026-08-22：Qwen3.5-4B 长序列在加权交叉熵阶段触发显存峰值 OOM
 
 ### 现象
@@ -4052,6 +4425,158 @@
 - 单 rank CUDA OOM 后出现的 NCCL timeout 统一视为二次症状，排障先保留最早 rank traceback；batch planner
   skew 只能解释等待差异，不能解释 loss 内 6.85 GiB 的单次分配。
 - 调整 BS/GA 时必须保持显式 global batch 语义；allocator 配置只作为碎片防线，不能替代框架级有界 loss。
+
+## 2026-08-23：Qwen3.8-27B line reconstruction 长尾进入无界重复生成
+
+### 现象
+
+- Banana v5.8 Qwen3.8-27B checkpoint-2000 在 4,051 条 detection-derived reconstruction 请求中，
+  4,047 条首轮完成、1 条第二次完成；最后 3 条 line 请求持续生成数分钟且无法形成可解析的闭合 JSON。
+- 三个样本分别来自多条弯曲箭头重叠的医学图、包含嵌套框/连接线/装饰电路线的系统图，以及长 bracket/
+  container border 与插图边缘混杂的生物图。checkpoint-4000 的 4,172 条请求全部首轮完成。
+
+### 根因
+
+- 失败样本都是 compound-context line crop，proposal 附近同时存在多个相邻或交叠路径；模型在无约束
+  points 数组中进入重复扩展，直到接近 generation 上限。
+- 这是模型生成退化与临时 eval runner 缺少在线有限结构约束的共同问题，不是 GT 泄漏、crop 像素预算、
+  evaluator、codec 或 metric 误判。全部 crop 均来自当前 checkpoint 的 detection，`gt_read=false`。
+
+### 影响范围
+
+- 影响 checkpoint-2000 的 3/4,051 条 line reconstruction 请求；检测 175/175 和其余 reconstruction
+  结果不受影响。若只依赖 1,200 秒 HTTP timeout，极少数退化请求会长期占用单卡并拖慢全量评测。
+- checkpoint-4000 未复现同一问题，但当前证据不能证明后续 checkpoint 或其他 compound-context line
+  永久免疫。
+
+### 修复方式
+
+- 保留三条请求 ID、source、crop、raw recovery 与 parsed prediction；不删除或隐藏失败样本。
+- 对明确进入长循环的 line 请求使用既有 finite JSON Schema fallback，限制最多 8 个 segment、每段最多
+  16 个 point；三条均在 12--19 秒内以 `finish_reason=stop` 恢复。
+- raw 记录显式写入 `attempt=finite_line_json_schema_fallback`、fallback strategy 和结构上限，不把恢复结果
+  伪装成首轮自然生成。
+
+### 回归测试
+
+- checkpoint-2000 最终审计为 detection 175/175、reconstruction 4,051/4,051、0 error、0 contract issue；
+  4,051 条 provenance 均为 detection-only 且未读取 GT。
+- checkpoint-4000 审计为 detection 175/175、reconstruction 4,172/4,172、0 error、0 contract issue，且
+  全部 reconstruction 为 attempt 1。
+- 两个 run 的 reconstruction crop 均未触发 1,024--18M 预算边界，只发生 Qwen patch-grid 对齐。
+
+### 后续防线
+
+- 正式 line reconstruction eval 应在首次请求就使用与业务 schema 等价的有限 structured decoding，或至少
+  在线检测重复片段后立即切换 fallback；不能把长 HTTP timeout 当作退化控制。
+- 评测报告必须单独统计首轮成功率、fallback 数量与被限制的结构上限，并持续保留 compound-context bad
+  cases。训练侧应增加多连接线、交叉/分支路径、长 bracket 与邻接装饰线的 hard-context 样本。
+## 2026-08-23：Offline KD 与 OPD 共用分布损失并保持独立执行域
+
+- 现象：框架支持 SFT 的离线答案监督和 OPD 的在线 teacher distribution，但不能复用预计算 teacher logits；
+  若直接塞入 `SFTRecord.extra`，artifact、ABI、loss 与 resume 语义都会变成隐式分支。
+- 根因：缺少独立 `offline_kd` algorithm/domain、版本化分布 artifact 合同，以及 OPD 之外的共享 distribution
+  objective 边界。
+- 影响范围：需要反复复用大 teacher 分布的蒸馏训练无法在不常驻 teacher 的情况下运行；target/tokenizer/
+  processor 漂移也没有 fail-closed 门禁。
+- 修复方式：新增 `jsonl_offline_kd`、版本化 safetensors manifest/shard reader、独立 dataset/collator/trainer/
+  pipeline/CLI；将 dense/top-k-tail 的 KL/JSD 数学真源迁到 `training/distribution_loss.py`，OPD 保留兼容
+  facade。manifest 绑定 teacher checkpoint、完整 input ABI、objective 和 shard checksum，collator 再验证
+  completion token IDs。正式 producer 复用 SFT model/template/processor 做固定 target teacher forcing，按
+  safetensors 分片原子发布；CLI 强制显式 denylist，避免 canonical eval 样本靠任务硬编码或默认约定排除。
+  reader 从 producer 的同一 canonical identity 函数重算 `artifact_id`，拒绝只改 manifest 语义字段但保留旧
+  ID 的 artifact。媒体 SHA 缓存以 resolved path 和 dev/inode/size/mtime/ctime 为键，stat identity 改变即
+  重哈希；producer 写回的扩展字段按原 JSONL 层级平铺，不再形成嵌套 `extra.extra`。
+- 回归测试：新增 dense/top-k-tail artifact、checksum、token alignment、配置/domain、JSONL contract 单测，
+  canonical metadata 篡改拒绝、媒体缓存命中/失效测试，以及无 teacher/rollout 的单步 CPU pipeline smoke；
+  同时回归 OPD loss/import 与 SFT pipeline focused tests。
+- 后续防线：artifact producer 必须继续输出唯一 v1 合同；Offline KD→OPD 只允许通过
+  `train.init_from_checkpoint` 启动新 schedule，不声称跨算法 exact resume。同一步 hybrid 需先补联合 scheduler、
+  cursor、denominator、telemetry 与 resume contract，不能用临时 trainer 分支实现。当前 producer 仍是单进程、
+  逐样本 scorer，不声称具备生产级多 GPU/batched throughput；媒体一致性的最终前提是 immutable snapshot，
+  不能把 stat cache 当成允许原地静默改写媒体的版本系统。
+
+## 2026-08-23：Offline KD artifact 生产链收口与 Qwen3.8→Qwen3.5 ABI 验证
+
+- 现象：首版 Offline KD 能通过 tiny smoke，但默认 FP16 top-k 在归一化检查中会误失败；teacher fingerprint
+  由调用方手填，dense artifact 被运行时 divergence/temperature 绑死；reader 读取整 shard、writer 可长期持有
+  GPU tensor 且只有 row-count 分片；producer 只接受 concat/unshuffled/materialized 输入，也没有 batching、vLLM
+  scorer 或断点续产。由此不能据 CPU smoke 声称 27B teacher 的生产级离线蒸馏已经可用。
+- 根因：artifact 存储投影与训练 objective 没有分层；immutable model identity、producer input contract 与
+  canonical materialization 没有成为显式真源；I/O 实现按最小功能设计，未约束 dtype、内存和失败恢复；HF 与
+  OPD 各自解释 distribution mode，产生重复语义。该问题属于框架 artifact/eval-contract 误判与规模边界，
+  不是 teacher/student 模型能力不足。
+- 影响范围：top-k FP16 artifact 可能无法读取；手填 digest 不能证明 checkpoint bytes；同一个 dense artifact
+  无法安全复用于不同 divergence；大 shard 会放大 host/GPU 内存；长时间生产中断只能重算；PromptSource 和
+  weighted 数据不能复现成 student 的 canonical 输入；不同 tokenizer/vocab 可能被误认为可按 token ID 蒸馏。
+- 修复方式：artifact identity 收敛为 teacher/input ABI/input contract/distribution/build；teacher identity 从
+  resolved local/HF artifact bytes 自动物化，可选 expected digest 只作断言。新增 max length、EOS、pixel budget、
+  media snapshot 的 exact input contract；dense 仅保存 logits，top-k 绑定 temperature/K，divergence 保持运行时
+  配置。top-k log probability/tail 固定 FP32；writer 立即转 CPU 并按 rows/bytes flush，reader 流式校验 SHA、
+  safetensors row slice 读取且限界缓存 shard index；writer 逐行确认实际 temperature/K 与 manifest 投影一致，
+  shard/manifest 提交前 fsync。producer 复用 DataCenter 物化 weighted/shuffle/
+  PromptSource，加入 batched HF/vLLM scorer和稳定 staging build-state resume。distribution objective 统一到
+  `training/distribution_loss.py`，零 CE/KD 权重分别短路对应计算。新增 Qwen3.8 checkpoint-4000 producer 与
+  Qwen3.5-VL-4B student 配置。
+- 回归测试：新增 FP16 top-k roundtrip、FP16 dense、byte-based sharding、禁止 `Path.read_bytes` shard、input
+  contract drift、自动/错误 teacher identity、dense/runtime-objective 解耦、top-k projection gate、零权重
+  短路、weighted/PromptSource canonical producer、vLLM top-k tail/full-vocab temperature projection、vLLM 不
+  加载 HF weights、断点续产不重复行测试；并回归 Offline KD pipeline、OPD shared loss、model/pipeline registry
+  与 CLI。真实 27B scorer 和 student 训练未在本轮自动启动。
+- 后续防线：不同模型只在完整 input ABI（token mapping、special IDs、processor contract、logits vocab）一致
+  时开放。不同词表必须先设计显式 token projection 与概率质量聚合合同，不得按 ID 猜测。vLLM T=1 top-k
+  允许 K+tail 快路径；dense 或 T!=1 为保持准确必须取全词表 raw logprobs。发布前仍必须执行真实 Qwen3.8
+  HF/vLLM 容差 parity、artifact 吞吐/容量、Qwen3.5 student fresh/resume/export release gate；这些门禁不能由
+  fake/CPU 测试替代。
+
+## 2026-08-24：Qwen3.8-27B Offline KD vLLM canary 暴露多模态 prompt 双重展开
+
+### 现象
+
+- 真实 checkpoint-4000 的 200 条 Offline KD canary 在首条样本连续暴露三类失败：7K vLLM runtime 上限小于
+  7,842-token 多模态 prompt；TP2/batch8 在 248,320 词表 prompt-logprobs 路径 OOM；降到 TP2/batch1 后，
+  vLLM 返回 2,722 tokens，而 Shaft scoring 真值为 2,227 tokens。
+- 首个 token 差异位于 image placeholder 末端；vLLM 比 Shaft 多出 495 个视觉 token。失败时 artifact 保持
+  0 committed rows，所有失败日志均保留，没有发布半成品。
+
+### 根因
+
+- `data.max_length=7000` 是训练输入合同，不能直接当作包含 vLLM 多模态展开和运行时 headroom 的 engine
+  `max_model_len`。
+- vLLM 的 prompt-logprobs 内部仍会走大词表 log-softmax；过高 KV cache 预留与 batch8 共同耗尽显存。
+- Shaft collator 交给 producer 的 input IDs 已将一张图展开为 496 个 image tokens；vLLM 外部多模态接口要求
+  每张图一个未展开 placeholder，并自行按媒体展开。直接传已展开序列会再次把首个 token 展成 496 个，净增
+  495。仅同步 `min_pixels/max_pixels` 不能解决双重展开。这是 producer/runtime 输入 ABI 错误，不是模型能力
+  或训练数据覆盖问题。
+
+### 影响范围
+
+- 影响使用 vLLM backend 生产多模态 Offline KD artifact；HF scorer 和纯文本 vLLM 请求不受该双重展开影响。
+- 先前 fake-engine 单测只回显请求 token IDs，未模拟外部引擎的图片 placeholder 展开，因此不能替代真实 27B
+  GPU canary。
+
+### 修复方式
+
+- producer 为外部引擎单独构造 prompt IDs：把每个连续 image-token run 还原为一个 placeholder，同时校验 run
+  数量必须等于媒体数；Shaft 完整展开后的 input IDs 继续作为 scoring 真值。
+- vLLM 请求显式转发训练 input contract 的 `min_pixels/max_pixels`；返回后逐 token 比较长度、首差位置和窗口，
+  不允许静默接受 processor drift。
+- canary 采用 TP2、batch1、`gpu_memory_utilization=0.65`、`max_model_len=16384` 和 top64/T=1；新增
+  `--max-rows`，让 200 条限制进入确定性 sample plan/fingerprint。
+
+### 回归测试
+
+- 真实 Qwen3.8-27B checkpoint-4000 完成 200/200：4 shards 为 64/64/64/8，共 293,845 个 completion
+  positions；所有 shard SHA256、完整 input/completion/media 对齐与 fail-closed reader 检查通过。
+- top64+tail 概率和范围为 1.0000000–1.0000006，tail mass 范围约 `1.19e-7`–`2.89e-3`；Offline KD
+  focused suite 29/29 通过，并覆盖 contracted engine prompt、视觉预算转发和 expanded scoring truth。
+
+### 后续防线
+
+- 多模态外部引擎必须显式区分未展开 generation/engine prompt 与本地 processor 展开的 scoring prompt，不能用
+  一个 `prompt_token_ids` 字段混用两层语义。
+- 发布全量 artifact 前仍需完成 HF/vLLM 数值容差 parity、完整数据吞吐/容量和 Qwen3.5 student
+  fresh/resume/export；本次 200 条 canary 只解除真实 vLLM token ABI 门禁。
 
 ## 2026-08-24：Offline KD vLLM scorer 移除 token-run 折叠与双侧 resize
 
@@ -4121,8 +4646,8 @@
 
 ### 修复方式
 
-- 常规 layout recognition 的最终默认提案经用户校正为 detection 1M–4M、reconstruction 0.5M–4M；只有用户
-  在推理前明确确认时才偏离这两个分阶段预算。
+- 当时的常规 layout recognition 默认提案经用户校正为 detection 1M–4M、reconstruction 0.5M–4M；
+  该 detection 下限已由 2026-08-27 的最终决策更新为 0.5M，历史 run 仍按真实预算报告。
 - 评测文档新增门禁：任务脚本若请求 `max_pixels > 4M`，启动前必须报告预算和受影响图片数并获得确认。
 
 ### 回归测试
@@ -4392,6 +4917,221 @@
 - 发布 summary 必须分别报告 parser contract violation、geometry violation、fallback 和模型生成错误，并保留每类
   bad case；不能再把它们合并成一个模糊的“解析成功率”。
 
+## 2026-08-24：v5.8 checkpoint-6000 按新推理合同复评并显式丢弃无效子属性
+
+### 现象
+
+- 旧 checkpoint-6000 评测使用的 detection/reconstruction 像素口径与当前默认规则不一致，无法判断较低指标是
+  模型能力还是 eval 协议漂移；同时旧流程会对失败 reconstruction 安装空参数，丢弃策略没有显式 CLI 合同。
+- 新规则下 175 图得到 detection F1 `0.817481`、parameter F1 `0.487626`；4,047 条 reconstruction 中
+  4,030 条严格合法，17 条被丢弃。
+
+### 根因
+
+- 历史 checkpoint-6000 使用固定 4M detection 和较宽 reconstruction 预算；本条事故处理时使用 detection
+  1M–4M、reconstruction 0.5M–4M，随后 detection 最终默认下限在 2026-08-27 更新为 0.5M。跨协议分数
+  不能直接归因于 checkpoint。
+- 17 条失败中 12 条为 shape 合同冲突、4 条为 line 合同冲突、1 条 line 达到 8K 上限并以
+  `finish_reason=length` 结束。它们是模型输出失败，不是坐标转换、padding、codec 或 metric 误判。
+
+### 影响范围
+
+- 影响 `scripts/tasks/run_layout_recognition_eval.py` 的一次性离线评测错误处理和本次 `real_v1` 结果；默认严格
+  行为不变，只有同时显式启用 reconstruction/merge 两个开关才允许保留错误并丢弃对应 parameters。
+- 相比旧 checkpoint-6000，detection F1 提高 `0.003426`、parameter F1 提高 `0.006896`，因此没有证据表明
+  旧低分主要由 evaluator bug 导致。与旧 checkpoint-4000 的比较仍受像素预算协议差异限制。
+
+### 修复方式
+
+- 请求和 raw/summary 统一记录 image-first、greedy 参数、8K 上限及
+  `enable_thinking=false`、`preserve_thinking=false`，解码合同收敛到单一 helper。
+- 新增默认关闭的 `reconstruct --allow-invalid-output` 与 `merge --allow-missing-reconstruction`：前者保留
+  error，并对已返回 clean-stop payload 的合同失败保留 raw；后者只移除失败 detection 的 `parameters`，
+  不重试、不修补、不伪造成功输出。
+- 任务审计逐请求复算 pixel budget、factor-32、crop box、prompt/decoding、proposal provenance 和最终文件身份；
+  计分前冻结 175 个预测，之后才读取 GT。
+
+### 回归测试
+
+- `tests/test_run_layout_recognition_eval.py` 18/18 通过；覆盖 thinking 双开关、默认严格模式和显式丢弃模式。
+- 全量审计为 detection 175/175、reconstruction 4,030 valid + 17 dropped = 4,047 expected、0 accepted
+  contract issue、175 final JSON；evaluator SHA-256 与 GT revision 均写入 score provenance。
+- 八个单卡 vLLM replica 完成后全部停止，19000–19007 均不可连接，8 卡模型显存归零。
+
+### 后续防线
+
+- checkpoint 对比必须使用完全相同的 detection/reconstruction 像素预算、prompt、严格合同和失败策略；旧协议
+  结果只能作参考，不能写成严格训练步数结论。
+- “错误结果不要”必须是显式 fail-accounting 策略：parsed 与 error identity 并集等于 manifest，dropped 数写入
+  merge summary；禁止静默遗漏、机械重试或把空参数伪装成成功 reconstruction。
+- `finish_reason != stop` 的响应必须拒收；后续若要保留 length raw，应让 HTTP 层返回响应元数据后由任务层判定，
+  不能因此放宽成功合同。
+
+## 2026-08-25：real_v1 checkpoint 批量复评的 bbox 量化与失败断点语义不统一
+
+### 现象
+
+- reconstruction prompt 中的局部 `proposal_bbox_2d` 曾由评测脚本自行按 crop 宽高量化，与框架统一的
+  Qwen bbox 量化函数存在边界和最小宽高语义差异。
+- checkpoint-4000 全量 reconstruction 在一个确定性请求连续达到 8K 上限后中止；已有 parsed/error 产物齐全，
+  但重启 runner 仍会重新请求已记录的 error，无法只做断点汇总。
+
+### 根因
+
+- 一次性 eval runner 平行维护了 bbox 量化公式，没有复用正式数据链的单一真源。
+- runner 的缓存判断只识别成功 parsed artifact，没有把显式保留的 error artifact 视为已完成的失败终态。
+
+### 影响范围
+
+- bbox 差异影响 detection bbox 转为 reconstruction 文本提示词时的局部坐标；本轮正式推理前已修正，因此本轮
+  real_v1 结果不受旧公式影响。
+- 失败断点问题只影响 `--allow-invalid-output` 的恢复效率和重复生成风险，不改变严格成功合同或评分公式。
+
+### 修复方式
+
+- `quantize_bbox_in_crop()` 改为复用共享 `quantize_qwen_bbox()`，并显式设置最小 1 bin extent。
+- 当启用 `--allow-invalid-output` 且没有 `--force` 时，已有 error artifact 作为 `cached_error` 复用；summary 仍要求
+  parsed 与 error 身份并集覆盖 manifest，不把失败伪装成成功。
+
+### 回归测试
+
+- `tests/test_run_layout_recognition_eval.py` 20/20 通过，Ruff 通过。
+- 新增共享量化一致性测试和 recorded-invalid-output 断点复用测试；checkpoint-4000 的 4,057 个请求恢复后得到
+  4,033 parsed + 24 error、0 unexpected，未重新调用模型。
+
+### 后续防线
+
+- 任何注入多模态 prompt 的 bbox 都必须复用统一 smart-resize/quantization helper，禁止 task runner 自建公式。
+- 允许保留失败的批处理必须同时定义成功与失败终态的幂等恢复语义；重跑默认只补缺失身份，只有显式
+  `--force` 才覆盖已有结果。
+
+## 2026-08-25：v5.8-27B 在 checkpoint-4000 后出现 detection 泛化回落
+
+### 现象
+
+- 在同一套 real_v1 推理合同下，checkpoint-4000 detection F1 为 `0.825769`，checkpoint-6000/8000/10000
+  分别为 `0.817104`、`0.817614`、`0.813156`；训练窗口 loss 则从 step 2001–4000 的 `0.225926`
+  持续下降到 step 8001–10000 的 `0.189244`。
+- 对 175 张图做 20,000 次 paired bootstrap，三个后续 checkpoint 相对 4000 的 F1 差值均偏负，负向概率为
+  `0.908`、`0.888`、`0.948`，但 95% CI 都跨 0，因此只能判断为一致的轻度泛化回落，不能在当前样本量下
+  宣称统计显著或单一因果。
+
+### 根因
+
+- 没有证据支持“4000 step 后瞬时学习率仍过高并导致优化器失稳”：LM/aligner LR 在 4000/6000/8000
+  step 已降至约 `1.875e-6`、`1.033e-6`、`0.293e-6`，梯度范数中位数总体下降，训练 loss 也无发散。
+- 更可能的主因是训练时长、数据复用和多任务 mixing 的共同作用。按 8 卡、batch 1、累积 8 和权重调度估算，
+  grounding-layout 在 step 4000 已完成约 `0.936` 个逻辑数据周期，并约在 step `4272` 开始重复；到 step
+  10000 已暴露约 `2.341` 个周期。与此同时 reconstruction/points 占采样权重 `13/19`，后续更新对 detection
+  的边际收益不足，并可能造成任务干扰。
+- 回落集中在 icon、shape、domain 和 PPT 切片；line 基本稳定，image 反而提升，说明这是任务/切片特异的
+  generalization drift，而不是全局模型崩坏。当前配置关闭 eval，因此无法用独立验证集直接定位最佳停止点。
+
+### 影响范围
+
+- 影响本轮 v5.8-27B checkpoint 选择和后续训练时长/LR 判断；当前生产候选应优先 checkpoint-4000。
+- reconstruction parameter F1 在 4000/8000/6000 分别为 `0.489971`、`0.489199`、`0.486842`，后续训练
+  没有带来足以抵消 detection 回落的收益。
+- 本次退化不是 eval、codec、bbox 坐标或像素预算口径误判：四个 checkpoint 使用相同 prompt、generation、
+  pixel budget、parser 和 metric 合同。checkpoint-2000 因权重已被轮转且历史结果协议不同，不进入严格比较。
+
+### 修复方式
+
+- 当前不修改训练框架或直接归因于 LR；先把 checkpoint-4000 作为阶段最佳，并把下一轮训练上限收缩到
+  4.5k–5k，500 step 保存并在独立 validation set 上评测 detection 与 reconstruction。
+- 下一轮用同一初始权重做最小对照：一组保持现有 LR、缩短时长；一组把 LM/aligner peak LR 降到
+  `1.0e-6`–`1.5e-6`、vision 降到 `0.5e-6`；另设同 LR 的数据组，通过增加 grounding 多样性或避免进入
+  第二数据周期来隔离数据复用效应。不能只提高 grounding 权重，否则会更早重复。
+
+### 回归测试
+
+- 四个 checkpoint 均完成 real_v1 175/175 detection，零 inference/parser error；top-3 reconstruction 满足
+  `parsed ∪ errors == manifest` 且无 unexpected identity。
+- 复算 micro precision/recall/F1、类型/类别切片、checkpoint 配对 bootstrap、trainer-state LR/loss/grad-norm
+  轨迹，以及 weighted schedule 下各数据源的期望 draw/cycle；结论在不同证据链上相互一致。
+
+### 后续防线
+
+- 禁止只看 train loss 或固定总步数选择 checkpoint；训练配置必须启用独立 validation，真实测试集只做最终确认。
+- 每次生产训练前根据 source logical size、采样权重和 global batch 计算首个重复 step，并让保存/评测频率覆盖该拐点。
+- LR、数据重复和多任务干扰必须用单变量对照区分；在没有对照实验前，结论统一表述为“最可能解释”，不得写成
+  已证实因果。
+
+## 2026-08-26：Detection 离线蒸馏被过小同步请求窗口放大长尾
+
+### 现象
+
+- 27B teacher 的 8×TP1 蒸馏最初每卡只提交 4 张图；任一密集图生成到 8K token 上限时，同一次
+  `LLM.generate()` 中其余已完成请求无法让下一张图进入 scheduler，首轮 ETA 被拉长到数天。
+- 早期 32 张中已有 2 张达到 length 终止；它们按严格合同保留为 bad case，但完整 8K 解码成本已经发生。
+
+### 根因
+
+- `scoring_batch_size=4` 实际同时承担了 vLLM 的有界请求窗口语义。窗口过小，continuous batching 没有足够
+  的后备请求补充已释放 sequence slot；这是生产调度问题，不是模型 BF16、codec 或指标问题。
+
+### 影响范围
+
+- 只影响 detection 伪标签与 Top-64 logits 同次生产的吞吐；伪标签、概率分布、像素计划和严格解析合同未改变。
+- 达到 `finish_reason=length` 的输出仍只进入 bad-case sidecar，不进入训练 artifact。
+
+### 修复方式
+
+- 清理未完成的 8-rank 产物，改用 worker-0/worker-1 共 16 个 TP1 rank。
+- 首次把同步窗口直接扩大到 256，暴露了新的整窗 CPU 预处理阻塞：warmup 后 GPU 为 0%，每进程 RSS
+  升至 8–24GB，说明必须改成真正流水线而不是继续放大同步窗口；该轮产物已清理。
+- 最终改为 AsyncLLM，每卡保持 16 个活跃请求；CPU 单样本准备完成即提交，请求完成立即补位。异步结果经
+  有界重排缓冲按 source index 提交 writer；两台机器使用 global rank 0–15，worker-0 统一 merge。
+
+### 回归测试
+
+- `tests/test_offline_kd.py` 与 `tests/test_offline_kd_producer_smoke.py` 共 40 项通过，Ruff 通过；新增真实
+  AsyncLLM generator 合同的 fake-engine 单测，锁定 `FINAL_ONLY`、Top-K/tail 与 shutdown 行为。
+- 启动检查确认两台机器各 8 个进程，global rank 覆盖 0–15 且无重复，source world size 均为 16。
+
+### 后续防线
+
+- vLLM 批量生产参数在异步路径中只表示最大活跃请求数；禁止先预处理完整大窗口再同步提交。
+- 大规模生产需记录 length bad-case 比例、活跃队列吞吐和各 rank 完成进度；ETA 应在首批持续补位后更新。
+
+## 2026-08-26：Detection 蒸馏候选集未显式排除 real_v2
+
+### 现象
+
+- 已生成的 70,622 条 teacher 成功样本中，按图片内容 SHA256 检出 211 条与 real_v2 完全一致的样本；
+  real_v1 未检出完全一致样本。
+- 原有质量过滤后的 69,520 条保守候选仍包含这 211 条 real_v2 样本，因此不能直接用于蒸馏训练。
+
+### 根因
+
+- 候选构建器只排除了 `raw_data/json` 标注样本和 `raw_data/splits/*.test.json`，没有把
+  `subTasks/layout_recognition/data/real_v1`、`real_v2` 作为显式保护集。
+- 这是数据隔离规则缺失，不是模型、codec 或 metric 误判；仅按文件名或既有 split 不能覆盖跨目录复制的评测图。
+
+### 影响范围
+
+- 影响本轮 detection KD logits 与伪标签 artifact 的训练候选选择；teacher 原始产物及其 logits 未被修改。
+- 若不排除，会造成 real_v2 测试数据进入学生模型训练候选，污染后续统一评测。
+
+### 修复方式
+
+- 从原始 artifact 派生 `training_candidates_v1`，先排除 1,102 条空输出、重复框或非法框样本，再以
+  SHA256 精确匹配和 pHash Hamming 距离不大于 6 的近重复检查隔离 real_v1/real_v2。
+- 共排除 211 条精确重复、9 条多哈希确认近重复和 7 条待复核近重复，得到 69,293 条训练候选；不复制图片，
+  保留完整 `exclusions.jsonl` 与构建摘要以便审计。
+
+### 回归测试
+
+- 核验 `train.jsonl` 共 69,293 条且 sample id 全部唯一，图片路径缺失数为 0。
+- 与 real_v1/real_v2 的文件名交集为 0；所有候选仍引用同一个 teacher artifact 和 560 个原始 shard，
+  图片、target 与 distillation ref 修改数均为 0。
+
+### 后续防线
+
+- 所有训练候选构建都必须显式接收受保护 eval 图片目录，并以内容哈希而非仅文件名/split 做最终门禁。
+- 近重复默认采用 pHash 主判、aHash/wHash 辅助复核；辅助证据不一致的样本进入 quarantine，不直接进入训练。
+- 新增或更新 real 测试集后，必须重新生成候选清单，禁止复用旧的静态排除结果。
+
 ## 2026-08-26：Reconstruction review 将不同箭头端点退化为同一种三角箭头
 
 ### 现象
@@ -4438,3 +5178,835 @@
 - review 中发现 style-marker 非法组合时必须单独计数并注明归一规则，不能把 renderer fallback 误写成模型能力。
 - 可迁移端点语义、斜向厚度反解、非法组合策略和 marker/rotation canary 已写入 tracked
   `shaft-model-quick-test/references/reconstruction-review.md`；后续不得以本轮 `temp/` renderer 作为唯一依据。
+
+## 2026-08-26：蒸馏数据整理的输入枚举与单 writer 门禁缺失
+
+### 现象
+
+- 感知哈希清洗在末尾尝试用 Pillow 打开 `real_v2/img/readme.md`，导致已经完成的图片哈希未能发布。
+- 一次 compact 中断后旧子进程仍处于 I/O 等待，新的 resume writer 又开始追加，暂存 JSONL 行数超过应有的
+  65,163 条。
+
+### 根因
+
+- eval 目录枚举只检查 `is_file()`，没有执行图片后缀白名单；这是数据边界错误，不是模型或 metric 问题。
+- 断点恢复前只观察了前台 cell 状态，没有按完整命令行核验残留的 uv/python 父子进程，也没有对目标目录加
+  单 writer 锁和行数上界。
+
+### 影响范围
+
+- 首轮哈希计算需要重跑；模型推理、伪标签和 logits 未受影响。
+- 冲突 writer 仅污染新建 staging 下的 compact 副本；检测到行数越界后未发布，旧 artifact 保持完整，正确包
+  从零重建并通过校验后才替换。
+
+### 修复方式
+
+- eval 图片枚举改为仅接受 `.png/.jpg/.jpeg/.webp`。
+- 停止并核验全部残留 writer，将冲突产物隔离后从零 compact；发布前强制核对期望行数、唯一 sample id、
+  shard checksum 和新旧 tensor 抽样等价。
+
+### 回归测试
+
+- 正确包包含 70,960 张图片、65,163 条唯一 KD 行和 65,163 份 GT；90 个 shard 全量 SHA-256 通过，
+  随机 200 条的六类 tensor 与旧 artifact 完全一致。
+- 新增清洗脚本通过 Ruff 和编译检查，eval 目录中的非图片文件不再进入哈希队列。
+
+### 后续防线
+
+- 所有图片目录必须用统一后缀白名单枚举，不能假设目录中只有图片。
+- 任一 artifact writer 启动或 resume 前必须确认同一输出根不存在活跃 writer；最终发布必须校验行数上界和
+  sample id 唯一性，发现越界立即 fail closed。
+
+## 2026-08-27：v5.9 grounding 增量包含坏框和冲突重复图
+
+### 现象
+
+- 新增 3,519 份 paper layout 标注中存在低标注量、零面积 target bbox、完全重复 instance，以及同一图像
+  对应不同标注的精确重复组。
+- 新标注还携带 line points，但本轮需求只允许增量到 `grounding_layout`，不能顺带扩大 line reconstruction。
+
+### 根因
+
+- 新批次是独立新增标注，尚未经过 v5.8 source snapshot 的质量门禁；精确重复图中的标注又互相冲突，无法在
+  不引入人工决策的前提下安全选择一个版本。
+- 这是 source data 质量与任务范围问题，不是模型、codec 或 metric 的误判。
+
+### 影响范围
+
+- 只影响 v5.9 `grounding_layout` 新增来源；冻结的 v5.8 raw、五个非 grounding 任务和 PromptSource 均不修改。
+- 若直接合并，会让非法框或互相矛盾的同图标注进入增强视图并放大噪声。
+
+### 修复方式
+
+- 新增 `prepare_banana_v5_9_grounding.py`：从 v5.8 grounding train ID 构建独立 snapshot，对新增批次执行 compact
+  schema、bbox、重复 instance 和冲突图像组门禁，再做全量媒体尺寸验证后原子发布。
+- 按本轮数据合同只用 image stem 排除 real_v1/real_v2；line points 原样保留在 raw JSON，但不生成 line task。
+- 复用 `layout_multiscale_v1` 与 v5.8 grounding prompt，派生媒体写入 task-local v5.9 目录。
+
+### 回归测试
+
+- 单测覆盖 ID-only 测试排除、同像素不同 ID 保留、坏框拒绝、重复图整组隔离以及失败不覆盖旧输出。
+- 实际 snapshot 为 19,745 条 v5.8 基线 + 3,306 条新增，共 23,051 个 train source；real_v1/v2 共 425 个
+  ID，训练重叠为 0；23,051 张媒体全部解码且尺寸匹配。
+- 增强和 SFT 各生成 67,195 行，structured/SFT 行数一致。
+
+### 后续防线
+
+- grounding 增量必须先冻结 split 和 source snapshot，再做增强；禁止直接修改已有版本目录。
+- 测试隔离方式必须作为版本数据合同显式记录；不得把其他任务采用的内容哈希门禁自动套用到本任务。
+- 新增标注中的额外属性只有在任务范围明确扩展后才能激活，不能因为字段存在就隐式生成新训练数据。
+## 2026-08-28：invalid detection 被允许跳过后 reconstruction 准备仍致命退出
+
+### 现象
+
+- v5.9 4B 多 checkpoint 评测中，real_v1 detection 有 1 条 invalid，`detect --allow-invalid-output`
+  正确记录错误并继续；随后 `prepare-reconstruction` 因该 stem 没有 prediction JSON 抛出
+  `FileNotFoundError`，导致整个后台队列退出。
+
+### 根因
+
+- detection 和 evaluate 已支持“失败项保留、缺失计 FN”的合同，但 reconstruction proposal 准备和 merge
+  仍隐式假设每张图片都有 detection prediction，缺少与 invalid-skip 配套的显式入口。
+- 这是 eval 编排阶段之间的合同不一致，不是模型能力下降，也不是 codec、metric 或 data 标准误判。
+
+### 影响范围
+
+- 仅影响显式允许 invalid detection 的两阶段离线评测；严格默认行为仍应在缺失 prediction 时立即失败。
+- 已完成的 detection raw/pred/error 均原子落盘，不需要重跑；GPU runtime 由 launcher trap 正常释放。
+
+### 修复方式
+
+- `prepare-reconstruction` 与 `merge` 新增 opt-in `--allow-missing-detection`：跳过缺失 detection 的图片，
+  分别在 prepare/final summary 记录 missing count 和完整 stem 列表，不生成伪造的最终 JSON。
+- 正式 v5.9 评测 launcher 同时启用 detection invalid skip、prepare missing skip、merge missing
+  reconstruction 和 evaluate missing prediction，形成一致的端到端失败语义。
+
+### 回归测试
+
+- CLI 测试确认该开关默认关闭；focused 测试覆盖显式开启后只为现有 detection 生成 crop/manifest，并验证
+  missing stem 审计字段。
+
+### 后续防线
+
+- 任何阶段新增 `allow-invalid` 时，必须逐阶段核对下游对缺失 artifact 的消费语义；不能只修改生成阶段。
+- missing artifact 必须保留 ID 集，并由最终全量 GT 评测计入失败，不能伪造空 prediction。
+
+## 2026-08-29：Qwen3.5 多 vLLM replica 共享 Triton cache 导致随机启动失败
+
+### 现象
+
+- v5.9 2B 的八个单卡 vLLM replica 在 checkpoint-2000 正常完成后，切换 checkpoint-4000 时有一个
+  EngineCore 在 warmup 阶段退出，其余已启动服务随后由 launcher trap 正常关闭。
+- 失败日志同时出现 Triton cache 临时目录 `FileNotFoundError` 和 `Device or resource busy`；权重文件完整，
+  checkpoint-2000 已按同一合同完成 real_v1/real_v2。
+
+### 根因
+
+- task-local launcher 直接调用 `vllm serve`，没有经过 Shaft 训练 CLI 的 rank cache 派生逻辑；八个进程因此
+  同时使用共享 home 下的 `~/.triton/cache`。
+- Qwen3.5 FLA kernel 首次编译时，多个进程并发发布/清理相同 cache key 的临时 metadata，复现了此前训练侧
+  已处理的共享 Triton cache 竞争。这是推理 runtime 编排问题，不是模型、checkpoint、data、codec 或 metric
+  问题。
+
+### 影响范围
+
+- 仅影响需要首次 JIT warmup 的并发 vLLM replica 启动；已完成的 prediction、error artifact 和评分保持有效。
+- 队列在 checkpoint 边界 fail closed，没有产生半套 checkpoint-4000 预测，也不需要重算 checkpoint-2000。
+
+### 修复方式
+
+- launcher 为每个 checkpoint/GPU 显式设置节点本地且相互隔离的 `TRITON_CACHE_DIR` 和
+  `TORCHINDUCTOR_CACHE_DIR`，并允许通过 checkpoint override 从失败边界续跑。
+- 启动错误日志改用明确的 `tail -n 80 --`，避免故障摘要命令自身产生歧义错误。
+- 将剩余四个 checkpoint 改为每个 checkpoint 两张卡、四套同时运行；模型内部仍使用动态 endpoint-slot
+  队列，避免2B短任务被逐 checkpoint 的重复 warmup 主导。
+- 并行子任务结束时显式调用 server cleanup 后再移除 trap；不依赖函数局部 cleanup 名称在 subshell `EXIT`
+  阶段仍可解析，避免主脚本已完成但 vLLM 进程被 PID 1 接管。
+
+### 回归测试
+
+- launcher 通过 `bash -n`；续跑前确认 worker-0 GPU 0–7 显存归零且无残留 vLLM holder。
+- checkpoint-4000 的八个 replica 必须全部通过 `/v1/models` 门禁及 real_v1/real_v2 canary 后，才允许扩到
+  全量；后续 checkpoint 复用相同隔离合同。
+- 6000/8000/10000/12000 四套并行 detection 在约 8 分钟内完成；全部12套正式 summary 满足动态调度、
+  0.5M–4M、image-first、thinking off、GT 隔离和完整 ID accounting。人工清理旧脚本遗留服务后，GPU 0–7
+  显存均回到 0 MiB；并行脚本补上显式 cleanup。
+
+### 后续防线
+
+- Qwen3.5/FLA 的多进程训练和多 replica 推理都不得共享 home/NFS Triton cache；节点本地与进程级隔离缺一
+  不可。
+- 直接调用 `vllm serve` 的 task-local launcher 必须自行设置 JIT cache；不得假设 `.shaft.env` 或训练 CLI 会
+  自动覆盖外部服务进程。
+- 后台 subshell 中注册的 `EXIT` trap 不得只引用可能随函数返回而失效的局部函数；正常完成路径也必须显式
+  回收服务，并在验收时同时检查主进程、端口、`lsof /dev/nvidia*` 和显存。
+
+## 2026-08-30：reconstruction 串行 crop 准备导致八张驻留 GPU 全部空等
+
+### 现象
+
+- v5.9 2B 的 checkpoint-8000/10000/12000 reconstruction 在 real_v1 完成后，8 张 GPU 均保持约 75GB
+  显存但利用率长期为 0%；三个 vLLM checkpoint 和 8 个 endpoint 都仍然存活。
+- 阶段日志停在 `phase=prepare ... real_v2`，crop 文件持续缓慢增长，尚未产生 real_v2 reconstruction raw。
+
+### 根因
+
+- task-local launcher 在每个数据集开始时才调用 `prepare-reconstruction`；该入口按图片串行解码、裁剪并写
+  PNG。real_v2 每个 checkpoint 需要约 1.67 万个 shape/line crop，三个串行准备进程成为共同瓶颈。
+- vLLM 动态 endpoint 队列只负责已经进入生成阶段的请求，无法调度尚未完成的 CPU crop。这是离线 eval
+  编排和预处理流水线问题，不是模型、checkpoint、pixel budget、codec、metric 或 GPU 服务故障。
+
+### 影响范围
+
+- real_v1 reconstruction 和评分已完整落盘，不受影响；real_v2 尚未开始的请求也没有丢失或重复安装。
+- GPU 显存被模型占用但没有可消费请求，浪费计算资源并造成利用率误判。
+
+### 修复方式
+
+- 暂停三个串行 real_v2 prepare 进程，使用一个 50-process 共享池补齐三套 checkpoint 的缺失 crop；已有 PNG
+  先做可解码验证，缺失或损坏项通过临时文件原子写入后替换。
+- crop 补齐后恢复原入口，使其快速生成标准 manifest/summary；三个 checkpoint 的 32-request canary 均通过，
+  随即恢复 3/3/2 GPU 的 real_v2 动态异步生成。
+
+### 回归测试
+
+- 并行 helper 和恢复脚本通过 Python 编译及 `bash -n`；最终 crop 数分别为 16,790、16,696、16,726，与各自
+  detection proposal 计数完全一致。
+- checkpoint-10000、12000、8000 的 real_v2 canary 均为 expected=32、complete=32、errors=0，确认
+  image-first、0.5M--4M、thinking off、GT 隔离和动态 endpoint-slot 合同未改变。
+- 全量阶段再次观察到 GPU 0--7 同时收到请求；瞬时利用率会随图像尺寸变化，但不再整组等待 CPU prepare。
+
+### 后续防线
+
+- reconstruction launcher 必须在启动 GPU 前并发准备所有数据集 crop，或把下一数据集 prepare 与当前数据集
+  reconstruction 流水化；不得在模型驻留后执行长时间串行预处理。
+- 大批量 prepare 必须把 CPU worker 数、crop expected/complete/invalid 和原子发布写入运行合同与 canary；GPU
+  为 0% 时先区分 prepare/render/merge/evaluate 阶段与真正的 endpoint 饥饿。
+
+## 2026-08-30：HF GT 引入整图/区域 ignore 后旧分数不再可横向比较
+
+### 现象
+
+- `EditFigure/evaluation_and_results` 当前 GT 增加顶层 `state=valid|part|ignore` 与 `ignore[].bbox`；此前本地
+  2B/4B/27B 汇总使用的 evaluator/GT 不包含这套过滤语义。
+- 直接沿用旧 `score.json` 会把整张 ignore 样本和 ignore 区域内元素继续计入 GT/预测分母，导致 detection、
+  parameter 与 E2E 排名和平台当前规则不一致。
+
+### 根因
+
+- HF evaluator 已实现两级过滤：跳过 `state == ignore` 的整张样本，并从 GT 与 prediction 两侧移除 bbox 完全
+  包含在 `ignore[].bbox` 内的元素；本地 `subTasks/layout_recognition/eval.py` 尚未同步该版本。
+- 这是 eval/data 标准变化，不是模型能力突然变化，也不是 codec 或 inference 参数差异。
+
+### 影响范围
+
+- 当前 real_v1 有 5 张整图 ignore、13 张 part、19 个 ignore 区域；real_v2 有 10 张整图 ignore、85 张
+  part、184 个 ignore 区域。
+- 统一过滤后八个候选均跳过 15 张样本、使用 203 个区域，并从非整图 ignore 的 GT 中移除 1,601 个元素；
+  各模型被区域过滤的 prediction 数不同，属于其预测内容差异。
+- 所有基于旧 GT/evaluator 的绝对分数和排名只保留历史意义，不能与新表拼接。
+
+### 修复方式
+
+- 固定 HF revision `8fdaf15203c1e469dcb35bd2466daba7a49aea0d`，同步当前 real_v1/real_v2 GT 和
+  75,664 字节 evaluator；在隔离 workspace 中重新评测 v5.9 2B/4B 与 v5.8 27B 的全部候选。
+- 27B 远端 prediction 与已缓存副本逐文件核对路径和字节大小；2B/4B 使用各自已验收 final prediction，避免
+  重新推理引入变量。
+- 排名主指标改用平台 `overall.attribute_summary.end_to_end_macro_accuracy`，同时保留 dataset、detection、
+  parameter、Shape+Line、shape 和 line 子指标。
+
+### 回归测试
+
+- 八组 evaluator 均成功生成 `score.json` 与 `score_special.json`，失败数为 0；全部 score 的
+  `ignored_sample_count=15`、`ignore_region_count=203`、`region_ignored_gt_count=1601`。
+- 最新总体 E2E Macro 排名前三为 27B ckpt4000（0.421937）、27B ckpt8000（0.421498）、4B ckpt12000
+  （0.412593）；完整结果保存在
+  `temp/rank_2b_4b_27b_latest_ignore_20260830/ranking.json`。
+
+### 后续防线
+
+- 每次 HF GT revision、`state`/`ignore` 语义或 evaluator blob 变化后，必须固定 revision 并全量重评候选；禁止
+  复用或拼接旧 score。
+- 排名报告必须记录 GT revision、ignore 统计和 evaluator 版本；发现本地 evaluator 与 HF 不一致时应使用隔离
+  workspace fail closed，不得静默退回旧实现。
+
+## 2026-08-30：0.8B varlen BS4 关闭 gradient checkpointing 后激活峰值 OOM
+
+### 现象
+
+- Qwen3.5-0.8B 八卡 DDP varlen 训练运行到 optimizer step 4 后，GPU 0 申请 16.40 GiB 失败；设备仅余
+  15.96 GiB，进程已占用 63.27 GiB。
+
+### 根因
+
+- 为减少重计算而关闭 gradient checkpointing，使 `BS=4`、长尾 varlen batch 的层间激活同时保留；峰值超过
+  A800 80GB 容量。reserved-but-unallocated 仅 347 MiB，不是 allocator 碎片问题。
+
+### 影响范围
+
+- 影响当前 0.8B 的 `BS=4 / GA=2 / max_length=8000` varlen 全参训练；数据、DDP static graph 门禁和
+  FlashAttention/linear-attention 依赖均不是本次 OOM 根因。
+
+### 修复方式
+
+- 恢复 `gradient_checkpointing=true`，继续保持 `ddp.static_graph=false`；保留已经验证有效的 varlen、
+  worker 8 和 prefetch 4。
+
+### 回归测试
+
+- 修正后的 0.8B YAML 已通过严格配置加载；真实八卡长尾显存 canary 由下一次训练启动验证。
+
+### 后续防线
+
+- 小模型也不能只按参数量判断可关闭 checkpointing；多模态长序列应同时依据 batch、序列、词表 logits 与
+  实测长尾峰值。OOM 中 reserved 空间很小时，不应把 `expandable_segments` 当作主修复。
+
+## 2026-08-30：v5.9 27B 与 4B 使用不同训练曝光量导致规模对比误判
+
+### 现象
+
+- 最新 ignore-aware detection 汇总中，v5.9 27B checkpoint-8000 的 pooled F1 为 `0.863474`，低于
+  v5.9 4B checkpoint-12000 的 `0.865822`，表面上看成了“27B 打不过 4B”。
+- 27B precision 更高（`0.865365` vs `0.858247`），但 recall 更低（`0.861591` vs `0.873533`）；差异表现为
+  少报对象，而不是定位框质量或标签判别全面退化。
+
+### 根因
+
+- 这不是同训练预算的模型规模对照：27B 只训练 8,000 steps，4B 训练 12,000 steps；两者 global batch 都是
+  64，因此总样本曝光分别为 512,000 和 768,000。按 catalog 权重 `grounding_layout=4/19` 估算，detection
+  曝光分别约 107,789 和 161,684，相差 50%。
+- 同步数 checkpoint-8000 对照中，27B F1 `0.863474` 略高于 4B 的 `0.862935`。27B 对 4B checkpoint-12000
+  的 -0.002348 差值在 10,000 次 image-level paired bootstrap 中 95% 区间为 `[-0.010762, 0.005962]`，
+  不能证明模型存在真实能力倒挂。
+- 27B checkpoint-8000 另缺少 real_v2 的 `prod_023507` 一条预测；该样本含 64 个 GT，按现行规则全部计为
+  FN。剔除这条共同样本后，27B 与 4B checkpoint-12000 的差距缩小到 `-0.001137`。
+- 剩余差异主要集中在 real_v2 paper：27B F1 `0.877285`，4B `0.889062`；real_v1 上 27B 反而略高
+  (`0.839823` vs `0.838839`)。v5.9 新增 paper grounding 数据在 67,195 条 grounding SFT 中占 9,635 条，
+  27B 因总 steps 更少，对该增量的期望曝光也约少三分之一。
+- 27B 的 7K 与 4B 的 8K 长度差不是当前主因：对 grounding train 按固定间隔抽样 672 条并按训练像素预算
+  估算完整序列，仅 1 条超过 7K，且同一条也超过 8K，没有发现落在 7K--8K 的样本。
+
+### 影响范围
+
+- 当前数据只支持“27B 与最佳 4B detection 基本持平、27B 更偏 precision、4B 更偏 recall”，不支持
+  “27B 架构能力不如 4B”或“27B 训练失败”的结论。
+- 27B full-parameter 训练合同本身正常：27,356,728,560 参数全部可训练，8,000 update 全部应用，训练 loss
+  从首 1K steps 均值约 `0.3321` 下降到末 2K 的 `0.1997`，没有 non-finite loss/grad；问题在实验设计和
+  比较基线，而不是 ZeRO-3、冻结参数、thinking、codec 或 ignore metric。
+- v5.9 27B 同时相对 v5.8 改了总步数、三组 LR、warmup 和 weight decay，现有单次 run 不能因果归因到某个
+  超参数。
+
+### 修复方式
+
+- 先单独补齐缺失的 64-GT 样本再报告最终榜差；不需要重跑完整评测。
+- 后续规模对照必须固定相同 global batch、每任务样本曝光、训练/推理像素预算、PromptSource、GT revision 和
+  evaluator。至少同时报告 equal-step/equal-exposure checkpoint，而不是只比较各 run 的末 checkpoint。
+- 27B 下一轮优先从 checkpoint-8000 做低学习率、带 scheduler restart 的 2K--4K continuation canary，并提高
+  grounding/paper 的有效采样曝光；先用固定 stratified detection validation 选择方案，再决定是否跑完整训练。
+
+### 回归测试
+
+- 27B/4B score 均使用 `layout_recognition_score_v3`、同一 ignore protocol、410 张有效图和 24,536 个 GT；
+  同时复核 overall、real_v1、real_v2、type 和 real_v2 paper/basic 切片。
+- image-level paired bootstrap 固定 seed 465、10,000 次重采样；27B vs 4B checkpoint-8000 的差值
+  `+0.000539`，95% 区间 `[-0.008565, 0.010061]`；27B vs 4B checkpoint-12000 的区间同样跨 0。
+- 27B 训练 artifact 已核对 finetune、optimizer、batching、training-efficiency 和 trainer-state；确认 full
+  finetune、512,000 logical segments、8,000 applied updates、0 个 non-finite log record。
+
+### 后续防线
+
+- 模型规模榜必须新增 `optimizer_steps / global batch / total sample exposure / per-task expected exposure` 四项训练
+  预算元数据，并同时展示 precision/recall；禁止仅用模型参数量和最佳单点 F1 推断 scaling 结论。
+- detection 训练至少保留一个不参与训练的分层 validation（real_v1/real_v2 风格、basic/paper、稀疏/密集、
+  icon/shape 比例），每 1K--2K steps 评估 recall 和 parse/missing，避免 eval 完全关闭后盲选末 checkpoint。
+- 对小于约 0.5 F1 百分点的榜差，默认提供 paired bootstrap 区间和 missing-prediction 敏感性分析；区间跨 0
+  时不得表述为确定的模型能力倒挂。
+
+## 2026-08-30：layout recognition 计分元数据不支持单文件 HF 权重
+
+### 现象
+
+- v5.9 0.8B 的六个 checkpoint 已完成 real_v1 detection 推理，但统一评测脚本在写计分 provenance 时均报
+  `model.safetensors.index.json` 不存在。
+
+### 根因
+
+- 评测脚本把分片权重索引硬编码为唯一 checkpoint 指纹来源；0.8B checkpoint 使用合法的单文件
+  `model.safetensors`，不需要也不会生成 index。
+
+### 影响范围
+
+- 只影响单文件 HF safetensors checkpoint 的本地计分和 provenance 写入；模型加载、prompt、推理结果及
+  分片 checkpoint 的既有计分不受影响。
+
+### 修复方式
+
+- provenance 统一解析 canonical weight artifact：优先使用 `model.safetensors.index.json`，否则使用
+  `model.safetensors`；同时记录 artifact 文件名及 SHA256，不再使用带有分片假设的字段名。
+
+### 回归测试
+
+- 增加分片索引优先、单文件回退、两者都缺失时报错三种测试；focused pytest 通过后复用已有预测恢复计分。
+
+### 后续防线
+
+- 所有 checkpoint 元数据工具必须覆盖 HF 标准的单文件与分片 safetensors 两种布局，禁止以模型规模推断
+  权重文件名。
+
+## 2026-08-30：v5.9 0.8B 首次汇总误用不含 ignore protocol 的旧 evaluator
+
+### 现象
+
+- 0.8B 六个 checkpoint 的推理合同正确，但首次报告的 ckpt12000 pooled detection F1 为 `0.788164`；与
+  2B/4B/27B 横向对齐时发现其 score provenance 指向本地旧 evaluator，而最新冻结 evaluator 的 SHA256
+  应为 `5c39bd1f29ab9cabeb7f1f466c60b30fb6988ae65bcbf669c862c35eab19d1e9`。
+
+### 根因
+
+- task-local launcher 直接引用 `subTasks/layout_recognition/eval.py`；该副本尚未包含最新的 sample/region
+  ignore protocol。推理 summary 已固定 prompt、像素预算和 generation，却没有在跨模型汇总前强制 evaluator
+  与 GT 内容指纹一致。
+
+### 影响范围
+
+- 只影响 0.8B 首次本地 score 与聊天汇总，不影响 prediction。旧口径下 ckpt12000 F1 为 `0.788164`，统一
+  ignore-aware evaluator 后为 `0.821723`；2B/4B 的旧本地 detection score 同样不能直接用于横向榜。
+
+### 修复方式
+
+- 横向报告现场用同一冻结 evaluator 与同内容 real_v1/real_v2 GT 重算 0.8B、2B、4B、27B prediction；不复用
+  各 run 目录中 provenance 不一致的 score。
+
+### 回归测试
+
+- 统一口径确认四个规模均为 detailed prompt、0.5M--4M、greedy、thinking off、image-first、8000 tokens；
+  冻结 evaluator 文件哈希一致，两份冻结 GT 逐文件内容聚合哈希一致。
+
+### 后续防线
+
+- 横向榜生成前必须把 evaluator SHA256、GT 内容指纹、prompt ID、pixel budget、decoding 和 message order 作为
+  join key；任一不一致即拒绝合榜。聊天中发现 score 口径错误时必须明确撤回旧数值，不能只在新表中静默替换。
+
+## 2026-08-30：reconstruction 裁图中断后遗留半写入 PNG 导致续跑退出
+
+### 现象
+
+- v5.9 27B checkpoint-8000 的 reconstruction canary 正常，但 real_v1 全量在读取
+  `00139__det_0000_shape.png` 时触发 `PIL.UnidentifiedImageError`，driver 随即清理 vLLM 并退出。
+
+### 根因
+
+- 从单进程裁图切换到 50 进程准备器前终止了旧准备进程；旧实现直接写最终 PNG 路径，中断时留下了半写入文件。
+- 并行准备器最初只判断目标路径是否存在，错误地把半写入 PNG 当成可复用 artifact，直到推理线程真正解码时才失败。
+
+### 影响范围
+
+- 只影响本次 task-local reconstruction 派生 crops；原图、detection prediction、已有合法 reconstruction
+  prediction、模型权重和评测口径均未受影响。
+- checkpoint-8000 real_v1 已完成的合法 reconstruction artifact 可以直接续用，checkpoint-4000 尚未生成全量结果。
+
+### 修复方式
+
+- 准备阶段复用现有 crop 前先执行 PIL `verify()`；不可解码的文件自动由原图和相同 crop contract 重建。
+- 新 crop 先写入同目录、进程唯一的临时 PNG，完整保存后再用原子 `replace()` 安装到最终路径；异常时清理临时文件。
+
+### 回归测试
+
+- 已对原失败路径重新执行 PIL `verify()`，确认修复后可正常解码。
+- 续跑仍固定 `padding_ratio=0.65`、`minimum_crop_size=256`，manifest 请求数和 detection 缺失样本与修复前一致。
+
+### 后续防线
+
+- 所有可续跑的图片/JSON 派生产物必须采用“临时文件 + 原子替换”，不得直接写最终路径。
+- resume 的 cache hit 除了检查路径存在，还必须做与消费端等价的轻量完整性校验；批量推理开始前应在 CPU
+  prepare 阶段完成全量解码门禁，避免 GPU 加载后才发现坏输入。
+
+## 2026-08-30：高密度 detection 长度截断与背景排除产生缺失/空预测
+
+### 现象
+
+- v5.9 27B checkpoint-8000 的 real_v2 有 1 张、checkpoint-4000 的 real_v2 有 2 张高密度图在全图
+  detection 中以 `finish_reason=length` 结束，没有安装 prediction。
+- checkpoint-4000 real_v1 的 `ppt_0025` 虽然正常 `stop`，但六组常规/分类 prompt 在不同 resize 下都返回
+  `layout=[]`；原图实际包含覆盖整页的装饰性 raster artwork。
+
+### 根因
+
+- 两张 real_v2 论文图包含上百个非文本对象；仅缩小输入或换精简 prompt 不会减少输出对象数，模型仍可能在
+  token 上限前无法闭合 JSON。分类 prompt 也不能保证模型严格只输出指定类别，不能把单一成功类别直接当作完整结果。
+- `ppt_0025` 的可编辑目标是整页背景式图片，而默认 detection prompt 明确要求排除 background；空数组是 prompt
+  语义的稳定结果，不是 codec 解析失败。
+
+### 影响范围
+
+- 影响本次 v5.9 27B checkpoint-8000/4000 的 prediction 完整性以及由 detection 派生的 reconstruction manifest；
+  未补齐时会把整张图记为漏检，且该图没有任何子属性请求。
+- 不影响其余样本的模型输出、thinking-off 合同、GT、evaluator 或已有 reconstruction artifact。
+
+### 修复方式
+
+- 对普通长度截断先并发尝试两档 resize、精简 prompt 和分类 prompt；候选必须 `stop`、thinking off、image-first、
+  非空、bbox 合法且无精确重复，选择过程不读取 GT。
+- 对全图仍持续截断的高密度图，使用 4 个带 15% 重叠的横向 tile 独立检测，再按 bbox 中心所属 core 区间映射回
+  原图，避免重叠 tile 重复安装；两个样本分别恢复 233 和 133 个四类别对象。
+- 对稳定返回空的装饰背景图，先人工确认输入语义，再使用明确允许“整页装饰 raster artwork 作为 image”的 prompt；
+  两档 resize 均独立返回相同的全图 image bbox。
+- 补检安装后重新生成 reconstruction manifest，不复用缺失 detection 时的旧清单。
+
+### 回归测试
+
+- 两个 checkpoint 的 real_v1/real_v2 detection 均达到 `175/175`、`250/250`，错误数和空 `layout` 数均为 0。
+- 四套最终 gt_standard prediction 共 850 个 JSON，全部可解析、`layout` 非空、bbox 在原图范围内；高密度 tile
+  合并结果无精确重复、无越界框。
+- 重建后的 checkpoint-4000 real_v2 reconstruction manifest 为 16,441 条，`missing_detection_count=0`；canary
+  32/32 有效，合同仍为 0.5M--4M、greedy、thinking off、image-first。
+
+### 后续防线
+
+- detection 完成门禁必须同时检查“文件数等于数据集样本数、errors 为 0、每个 `layout` 非空”，不能只相信
+  runner 的 complete 计数。
+- 长度截断恢复应按“resize/精简 prompt -> 分类 prompt -> 带重叠 spatial tiles”的有界阶梯执行；高密度样本不能
+  无限重试同一全图请求，也不能用只含单一类别的候选冒充完整 detection。
+- 空预测需要区分真正无目标与 prompt 排除语义；只有确认图中存在被默认规则排除但业务要求保留的可见对象后，才允许
+  使用显式语义 prompt 重跑，禁止手工伪造 bbox。
+
+## 2026-08-31：0.8B 高密度 detection 的横向细条切片失效，最终产物还残留精确重复框
+
+### 现象
+
+- v5.9 0.8B 六个 checkpoint 在 real_v1/real_v2 的初始 detection 中共有 112 个 error/空结果；整图简洁
+  prompt 能恢复其中一部分，但 4 个横向细条 tile 常稳定返回空，不能恢复高密度论文图。
+- `ppt_0025` 在默认 prompt、背景 prompt 和横向 tile 下均为空；只要求 `image` 时，0.8B 又会输出
+  reconstruction 风格的 `{type, parameters}`，而不是 grounding bbox 数组。
+- 六组补齐并评分后，最终 prediction 仍有 20--58 个精确重复框/权重；若只检查文件数、非空和 bbox 范围，
+  这些重复会静默进入评分和上传。
+
+### 根因
+
+- 横向四等分会把高密度图中的完整 object/card/connector 切成缺少二维上下文的细条；该策略对曾经的个别 27B
+  样本有效，但不能作为跨模型通用 fallback。
+- 全画布 artwork 在默认 prompt 中属于 background；单类别措辞又触发了小模型的 reconstruction 子任务路由，
+  因此单纯重复换同义 prompt 不能产生合约内 bbox。
+- detection 完成门禁只检查 count/error/empty，没有把同类型同 bbox 的精确重复纳入最终全集校验。
+
+### 影响范围
+
+- 影响 v5.9 0.8B checkpoint-2000/4000/6000/8000/10000/12000 的 pooled detection 选择，以及入选
+  checkpoint-12000 的 reconstruction proposals 和 HF prediction payload。
+- 不影响 GT、ignore-aware evaluator、thinking-off 合同或已成功 reconstruction 的参数内容；重复框保留首个模型
+  输出后，其余完全相同元素可无损移除。
+
+### 修复方式
+
+- 高密度图按 bounded ladder 使用 2x2、3x3、4x4、必要时 5x5 的二维重叠网格；每块保留 15% overlap，按 bbox
+  中心所属 core cell 回映射并去重。已成功 block 缓存复用，只继续细分 length/contract 失败 block。
+- 对全画布 artwork 在原图四周增加 12% 中性 padding，继续使用原 v5.8 detailed detection prompt；模型将原图
+  识别为前景 image 后，再严格减去 padding 并 clip 回原图坐标。该流程保留 raw、resize 和 coordinate mapping，
+  不读取 GT、不手写 prediction bbox。
+- 六个 checkpoint 统一按模型输出顺序保留第一个精确重复元素，然后重新用冻结 ignore-aware evaluator 排名；
+  checkpoint-12000 仍为第一，pooled F1 从 `0.833920` 调整为 `0.834154`。
+- reconstruction 使用 50 进程预先准备全部 crop、8 个单卡动态 endpoint；19,929 个请求中成功 19,878 个，
+  51 个 deterministic invalid 按合同保留 error 并在 merge 中只丢弃对应 parameters。
+
+### 回归测试
+
+- 六个 checkpoint 的 real_v1/real_v2 detection 均为 175/250 个 JSON、0 error、0 empty、0 越界 bbox、
+  0 精确重复；parse rate 均为 1.0，checkpoint-12000 最终 pooled F1 `0.834154`。
+- checkpoint-12000 reconstruction canary 32/32 通过、0 contract issue；全量 real_v1 为 4,052 valid +
+  12 dropped，real_v2 为 15,826 valid + 39 dropped，所有成功 raw 均为 image-first、thinking off、
+  0.5M--4M。
+- HF revision `f2bf7a67fea4447760b67686292a4b2600ef3bd3` 回读 175+250 个 prediction JSON；文件名集合、
+  SHA256、非空、bbox 和零精确重复均与本地一致，远端 run 下没有 score/method 等额外 payload。
+
+### 后续防线
+
+- spatial fallback 必须根据 object 二维上下文选择网格；历史上某个样本成功的横向条带不能升级为通用规则。
+- 小模型出现子任务 schema 路由错误时，不得把 reconstruction 对象强行包装成 detection；应保持原 task prompt，
+  通过可逆输入 framing（例如可审计 padding）解决前景/背景歧义。
+- detection 发布门禁必须同时校验 exact duplicate；对所有候选统一应用同一去重策略后再排名，禁止只清理入选模型。
+
+## 2026-08-31：端到端复原图静默丢弃 `shape_type=other`
+
+### 现象
+
+- `very_important_test/test111.jpg` 的 v5.9 两阶段组图中，detection 已检出的蓝色标题栏在最终复原图中消失；
+  8 个 checkpoint 每个有 2--5 个 `shape_type=other`，但旧 renderer 全部输出透明区域。
+
+### 根因
+
+- renderer 把单对象 reconstruction review 与端到端最终合成共用同一 fallback。前者不能为没有几何字段的
+  `other` 虚构形状，输出透明/unsupported 是正确的；后者还要求保留完整的已检测视觉对象，透明输出会造成
+  错误的“模型漏检”观感。
+- card 的 `corners[].start/mid/end` 中，`mid` 是曲线必须经过的采样点；旧的静态和浏览器 renderer 却把它
+  直接当普通折线点或二次曲线控制点，导致 card 外框虽未丢失，但圆角轮廓与模型参数不完全一致。
+
+### 影响范围
+
+- 影响临时 review 的端到端最终复原图和横向组图，不影响模型 detection、reconstruction raw、gt_standard
+  prediction、评测分数或坐标回映射。
+
+### 修复方式
+
+- 单对象 review 继续把 `other` 标为 unsupported；端到端合成对 `shape_type=other` 使用模型 detection bbox
+  直接裁剪原图并贴回，与 icon/image 策略一致，同时在可视化 summary 记录 fallback 数量。
+- 静态和浏览器 renderer 对每段 card 圆角使用通过 `start/mid/end` 的二次曲线：
+  `control = 2 * mid - 0.5 * (start + end)`；card 的多 fill 仍以 `splits` 切区，`split.type=none` 只隐藏
+  分割线，不取消填充分区。
+- 将该双重语义写入 `shaft-model-quick-test` 的 reconstruction review reference，避免后续 renderer 再次把两种
+  输出目的混为一谈。
+
+### 回归测试
+
+- v5.9 的 8 组和 v5.8 的 4 组组图已全部重建并可解码；每组 `shape_other crop fallback` 均恢复可见，原始
+  prediction 与 reconstruction 成功结果未改变。另逐一核对 3 个真实 `shape_type=card`：2 个来自 v5.9
+  27B ckpt8000、1 个来自 v5.8 27B ckpt4000，外框、圆角、分区填充均可见。
+
+### 后续防线
+
+- renderer QA 不只检查“图片可生成”，还要核对 detection 类型计数与最终合成的对象去向；所有不能参数化渲染
+  的已检测类型必须显式计入 crop fallback 或 unsupported，禁止静默消失。
+- card QA 必须同时覆盖 outer corners、fill regions、split visibility 与 border；不能只凭外接 bbox 判定渲染成功。
+
+## 2026-08-31：real_v1/real_v2 与 active v5.9 训练源存在跨 ID 图像泄漏
+
+### 现象
+
+- v5.9 grounding snapshot 报告 real_v1/real_v2 的 train ID overlap 为 0，但把检查范围扩大到正式训练
+  配置的六个 active source 后，real_v1 有 12/175、real_v2 有 200/250 张图命中近重复门禁。
+- real_v2 的 200 张与 background 训练集不仅 SHA256 完全一致，image basename 也完全一致；因此
+  `ID overlap=0` 不能代表整个 active catalog，只代表 v5.9 grounding split。
+- real_v1 的 11 张和 real_v2 的 200 张为文件 SHA256 完全一致；real_v1 另 1 张是同尺寸重编码版本，
+  pHash/aHash/wHash 距离均为 0，RGB 平均绝对误差约 1.03。
+
+### 根因
+
+- v5.8 background snapshot 在 2026-08-21 构建时只记录了 canonical real_v1 gate；当前 real_v2 图像目录在
+  2026-08-23 才落地，GT 又在 2026-08-27 同步，因此 background 构建阶段不可能排除 real_v2。
+- 后续 `data/banana_v5_9/raw/splits/split_summary.json` 的 test gate 虽已纳入 real_v2，但它只作用于
+  grounding source，不能代表冻结复用的 v5.8 `background`、`image_context_reconstruction` 和
+  `line_context_points` selection。该 gate 仍为 `id_only`，不能识别改名、重编码或同内容副本。
+
+### 影响范围
+
+- real_v1 的 12 张泄漏图全部以其他 ID 进入 background 与 grounding，部分还进入 image/line
+  reconstruction；real_v2 的 200 张全部以同 ID 进入 background，其中 51 张还以其他重复 ID 进入
+  grounding，部分进入 reconstruction。
+- 因此这两套评测的 detection/reconstruction 指标都可能受到训练图像泄漏影响；这是 data split/eval protocol
+  问题，不能直接归因于模型能力。
+
+### 修复方式
+
+- 本轮先完成只读审计，不修改训练数据或 GT。审计以当前 v5.9 正式配置为真源，解析 active selection 的
+  `source_image`，对 159,242 张唯一训练原图与 425 张评测图计算 SHA256、pHash、aHash、wHash。
+- 使用项目默认 pHash 汉明距离 `<=6`，并以 aHash/wHash 同阈值作为强确认；结果保存在
+  `temp/data_leakage_audit_real_v1_v2_20260831/`。其中 `matched_eval_images.csv` 是 active catalog 的完整
+  命中清单（real_v1 12 张、real_v2 200 张），`grounding_overlap_confirmed.csv` 是 grounding 跨 ID 对照表
+  （real_v1 12 对、real_v2 51 对），`report.json` 保留完整路径、任务归属、哈希距离和审计汇总。
+
+### 回归测试
+
+- 159,667 张训练/评测图均成功解码；110 个旧 background source 引用缺少原始文件后，继续核对其 active
+  派生媒体，未发现额外 real_v1/real_v2 命中。
+- 除上述 212 张外，没有新增的唯一评测图命中 pHash `<=6`；real_v1 的两个 auxiliary disagreement 候选
+  指向一张已经由另一训练文件 exact 命中的评测图，不改变污染样本集合。
+- 使用本地缓存/上传 staging 中的 13 组 HF real_v2 prediction、HF revision
+  `8fdaf15203c1e469dcb35bd2466daba7a49aea0d` 的 ignore-aware GT 与 evaluator，排除 51 张 grounding
+  重合图后重算 detection：1 张重合图原本已是整图 ignore，有效评分样本从 240 降为 190，GT 从 17,844
+  降为 13,830。
+- 过滤后 real_v2 F1 前三为 v5.9 2B ckpt10000 `0.880230`、v5.9 27B ckpt4000
+  `0.876927`、v5.9 2B ckpt12000 `0.876842`；相对未过滤 F1 的变化范围为
+  `[-0.002702, +0.002984]`。这只能作为去重后 clean-subset 排名，不能据此估计泄漏收益：51 张图全部来自
+  frozen v5.8 grounding base，且在 v5.7/v5.8 共用的 `data/grounding_layout/sft/train.jsonl` 和 v5.9 合并后的
+  grounding train 中均为 51/51 命中，因此比较模型并不存在“只有 v5.9 接触过这些图”的对照组。2B
+  ckpt12000 的本地 HF payload 仍缺 `prod_010029`，按平台语义计为 parse failure/FN。
+- 将重复图的训练 grounding 标注按分辨率回映射，并直接作为 prediction 与当前 ignore-aware real_v2 GT 对标：
+  50 张有效图、4,014 个 GT 对 4,345 个训练目标，class-aware IoU@0.5 F1 为 `0.849623`；shape/line/image/icon
+  分别为 `0.870968/0.864058/0.818898/0.778990`。这确认训练标注与当前 GT 高度相关但并非同一标注合同，
+  进一步说明过滤前后差值不是可识别的泄漏因果效应。
+
+### 后续防线
+
+- 所有 train/eval split 发布门禁必须覆盖整个 active catalog，而不是只检查新增数据源；以原始图像内容指纹
+  为统一 identity，至少执行 SHA256 + pHash，并记录 aHash/wHash 辅助距离。
+- ID disjoint 只能作为第一层校验，不能作为图像多模态训练的防泄漏结论；冻结复用旧 selection 时也必须用
+  当前 eval 图库重新执行内容级门禁。
+- 泄漏影响分析必须先确认各候选模型的数据谱系和污染暴露是否存在干净对照；若所有模型共享污染 base，去重
+  子集可用于报告更可信的绝对排名，但禁止把 before/after delta 解读成某一版本从泄漏中获得的收益。
+
+## 2026-08-31：Offline-KD 固定组批造成 GPU 长尾，planned rank assignment 出现无界回溯
+
+### 现象
+
+- v5.9 0.8B 纯 KD 初始并行实验只使用六张卡，每卡约 28--34 GiB；改成八卡固定样本组批后，显存虽可升至
+  80.8 GiB，但部分 rank 已完成、其余 rank 仍运行数分钟，GPU 利用率出现明显长尾。
+- 切换 length grouping 后，第一次被 Offline-KD 能力门禁拒绝；放开门禁并提高资源 guard 后，所有 rank 在
+  planner 内长时间无进展。中断栈确认不是图像 header I/O，而是 rank assignment 的递归回溯没有搜索上限。
+- 初版 bounded-cost canary 的 planner 估计 1,264,136 个 vision patches，runtime 实际只有 510,944，说明
+  planner 又按全局 pixel budget 处理了已经带冻结 resize 计划的样本。
+
+### 根因
+
+- Offline-KD pipeline/dataset 已继承公共 batch planning 主链，但算法 profile 与 runtime normalizer 仍把
+  planned batching 禁用，属于能力声明滞后。
+- 高异质图文样本使用固定样本数不能约束每个 rank 的真实 token/vision cost；单纯追求显存占满会把最慢 rank
+  变成整个 DDP step 的关键路径。
+- `_assign_packs_to_ranks()` 对约束不可行的组合执行无界递归搜索；同时通用 cost provider 不知道
+  `offline_kd_media_plan` 已冻结 target size，planner/runtime 使用了两套图像处理语义。
+
+### 影响范围
+
+- 影响 Offline-KD 的启动可用性、吞吐、显存风险与 planned batching 成本精度；不影响 teacher artifact、
+  top-k logits、KD 数学公式或模型质量结论。此前资源 canary 不能作为模型效果实验比较。
+
+### 修复方式
+
+- 为 Offline-KD 开放公共 planned batching，并允许 `bounded_cost + token_budget`；继续保持 unpacked/padded 与
+  artifact/input ABI 门禁。
+- rank assignment 增加确定性的 100,000 node 搜索上限，不可行约束快速失败并返回专用异常。
+- `OfflineKDDataset` 向 cost provider 暴露冻结 target size 和 policy signature；provider 对该尺寸不再施加
+  min/max pixel budget，也不打开原始图像，collator 继续负责媒体内容和尺寸校验。
+
+### 回归测试
+
+- pipeline smoke 覆盖 `none/fixed`、`length/fixed`、`bounded_cost/token_budget` 三种合同；动态规划测试覆盖搜索
+  预算耗尽与普通可行分配；cost 测试使用不存在的 source image，验证只消费冻结尺寸且不读取 header。
+- 真实八卡 canary 从固定 batch 的 1,405.27 useful tokens/s 提升至 5,322.43 tokens/s；最终合同为每 rank
+  最多 8 样本、36k token budget，峰值 reserved 76.40 GiB、rank time skew 2.53%。planner/runtime 均记录
+  1,112,496 vision patches，成本语义精确一致。
+
+### 后续防线
+
+- 资源调优同时记录 useful-token throughput、rank skew、p50/p95 step time、padding 与 peak reserved memory；
+  不能用显存占用率单指标选择配置。
+- 新增冻结媒体计划时，必须同时定义 planner cost policy signature，并用 planner/runtime patch 总数相等作为
+  release gate。所有组合搜索都必须有确定性预算，固定样本数与 token budget 必须通过真实数据 canary 选择。
+- 若纯 KD 后续出现质量异常，先按相同 artifact/seed/eval 合同复现，并分别排除 prompt/input ABI、teacher
+  distribution、loss/temperature 实现和优化器问题；只有在实现与合同均通过后，才把稳定异常升级为算法研究问题。
+
+## 2026-08-31：纯 Offline-KD loss 下降但 detection F1 显著退化
+
+### 现象
+
+- v5.9 0.8B checkpoint-12000 分别以 `1e-6/2e-6/3e-6` 做 200 step、`CE=0/KD=1` 训练；KD loss 随
+  学习率升高依次下降，但 real_v1/real_v2 pooled detection F1 均低于原始 student。
+- 训练 loss 最低的 3e-6 并未在 real_v1 胜出；三个 KD arm 之间差异的 paired-bootstrap 区间均跨 0，说明
+  用训练 KD loss 排名会产生错误模型选择。
+
+### 根因
+
+- 不是 eval/codec/data contract 误判：1,238 个成功 raw 的 prompt、1M--4M、image-first、thinking-off、
+  greedy 和 GT 隔离审计均为零违规；冻结 evaluator hash 一致，去重后零精确重复。
+- 不是已知训练框架失配：artifact/input ABI、planner/runtime vision cost、样本流、BF16 梯度和 checkpoint
+  commit 均通过。本轮 200 step 只覆盖 76,537 条 artifact 中的 11,118 条，且纯 KD 去掉了 hard-label CE
+  anchor；teacher distribution agreement 与 detection F1、输出长度稳定性并不等价。
+- 因而当前根因定位为 objective/data supervision mismatch，而非代码实现错误。是否还存在 top-k-tail 投影、
+  teacher completion conditioning 或分辨率 curriculum 的算法上限，需要独立消融后才能升级为研究结论。
+
+### 影响范围
+
+- 原始 student pooled F1 为 `0.824912`；pure-KD 1e-6/2e-6/3e-6 分别为
+  `0.813334/0.812404/0.813440`，下降 1.15--1.25 个百分点。最佳 3e-6 相对 baseline 的 paired-bootstrap
+  95% CI 为 `[-0.02197, -0.00127]`，不是可忽略的 run noise。
+- invalid length 数从 baseline 的 8/425 增至 14/13/10；该变化属于模型输出稳定性退化，不是 parser
+  拒绝合法 JSON。结论仅覆盖 200-step 纯 KD、当前 teacher artifact 与 detection，不外推到 OPD 或完整训练。
+
+### 修复方式
+
+- 停止依据 KD loss 直接延长 3e-6；保留三个 checkpoint、raw、error、score 和 bootstrap 结果作为负结果。
+- 下一轮必须一次只验证一个假设：优先比较更短/更低强度 pure KD、带受控 hard-label anchor 的混合目标，或
+  teacher/student task-metric 过滤；在相同 evaluator 下通过后再扩大预算。
+
+### 回归测试
+
+- 三个 arm 共 1,275 请求全部由 success/error artifact 覆盖；最终成功 prediction 1,238 份，零 prompt/
+  pixel/decoding 合同违规、零精确重复。三个 arm 的 real_v1/real_v2 与 pooled score 均由同一冻结 evaluator
+  重算。
+- 10,000 次 paired bootstrap、seed 465：3e-6 vs baseline delta `-0.011472`，95% CI
+  `[-0.02197, -0.00127]`；3e-6 vs 1e-6 delta `+0.000106`，95% CI
+  `[-0.01253, 0.01299]`。
+
+### 后续防线
+
+- KD sweep 的 release gate 必须同时包含训练 loss、task metric、parse/length stability 和 baseline retention；
+  任何单一 surrogate loss 都不能决定 checkpoint。
+- bad case 必须保留 finish reason 和 sample ID；纯 KD 的异常需按 teacher entropy/top-k tail mass、completion
+  长度、图像分辨率和样本来源分桶。若合同正确且上述分桶呈稳定规律，可形成“多模态结构化生成中的
+  distribution distillation 与长度稳定性”研究问题，而不是继续盲调学习率。
+
+## 2026-08-31：删除漂移的仓库内生产部署入口
+
+### 现象
+
+- `docker/inference/` 被正式文档描述为当前业务部署入口，但其 smoke 仍使用 text-first、`200704--2000000`
+  像素预算、4096 tokens、旧 prompt 示例，且没有显式关闭 Qwen thinking；当前 task-local 验证合同已经是
+  image-first、两个阶段分别 `500000--4000000`、8000 tokens、thinking/preserve-thinking 均关闭。
+- 因而同一 checkpoint 在部署环境与本地评测中的差异可能被错误归因到模型或 KV cache。
+
+### 根因
+
+- 仓库同时维护框架推理合同和一套独立生产 Docker/launcher/smoke，部署 wrapper 没有消费正式 inference
+  policy 或 task prompt 真源，形成了第二套会独立漂移的推理语义。
+
+### 影响范围
+
+- 影响通过旧 `docker/inference` README、launcher 或 smoke 搭建的部署验证；不影响 `src/shaft/infer`、正式
+  codec、task-local checkpoint 评测产物或模型权重本身。
+
+### 修复方式
+
+- 删除 `docker/inference/` 的 Dockerfile、launcher、smoke 和 README；正式文档明确本仓库只维护推理合同，
+  生产镜像和服务生命周期归部署系统自身仓库。
+- 保留 `src/shaft/infer`、`configs/infer` 与 `scripts/tasks`：前两者是框架推理能力，后者是明确边界的本地任务，
+  都不是生产部署入口。
+
+### 回归测试
+
+- 全仓检索确认不再引用 `docker/inference`、`shaft-start-vllm`、`shaft-contract-smoke` 或 v4.1 默认部署模型；
+  文档只保留单一的 inference contract 与外部部署边界。
+
+### 后续防线
+
+- Shaft 仓库不得重新加入生产 Dockerfile、服务 launcher 或简化业务 smoke；部署验收必须直接复用正式请求合同，
+  并记录 checkpoint hash、prompt hash、resize 后尺寸、消息顺序、thinking、generation、parser 与 raw output。
+
+## 2026-08-31：Detection 蒸馏发布链存在伪 resume 与第二套 artifact writer
+
+### 现象
+
+- 多卡 map wrapper 的 `--resume` 只检查 `.rank-NN.building-*`，但正式 resumable writer 使用固定
+  `.rank-NN.building`；首次 map 又没有向 producer 传 `--resume`，因此中断后没有可恢复 build state。
+- bundle packaging 另写 `_CompactWriter`，只从已有 shard/JSONL 数量猜测进度，没有框架 writer 的 artifact
+  identity、source index、checksum 和原子 build-state 门禁；增量 finalizer 还会原地替换已发布 bundle。
+
+### 根因
+
+- task wrapper 把“允许复用 output root”和“producer 从第一步启用可恢复协议”混成一个开关；打包任务为追求
+  compact shard，绕过 `OfflineKDArtifactWriter` 又复制了一套 manifest/shard 状态机。
+- 增量发布把旧 bundle 当作工作目录，而不是不可变输入，违背数据派生只写新目录的边界。
+
+### 影响范围
+
+- 影响 detection pseudo-KD 长任务的中断恢复、filtered bundle 的 artifact 可验证性和增量发布失败时的原始
+  bundle 安全；不改变已经成功发布且通过 reader 校验的 teacher distribution 数值。
+
+### 修复方式
+
+- map worker 从首次启动起始终传入 producer `--resume`，使用固定 staging 和正式 build-state；wrapper 自身的
+  `--resume` 只控制已有 root/rank 的续跑与完成 rank 跳过。
+- packaging 删除 `_CompactWriter`，统一使用 `OfflineKDArtifactWriter`，并在读取父 artifact 时复用公共 manifest
+  校验、safe shard path 和 checksum 门禁。
+- incremental finalizer 改为显式 `--output`，先 hardlink/copy 到同级 staging，再以 replace-on-write 更新索引/
+  audit/artifact 并原子发布；source bundle 保持只读。filter/selection 派生输出也拒绝覆盖已有路径。
+
+### 回归测试
+
+- task 测试构造真实 top-k-tail artifact，执行自包含 package 后用 `OfflineKDArtifactStore` 重新读取，核对 artifact
+  identity、token distribution、media fingerprint 和 `gt_standard`。
+- merge 测试新增伪造 manifest identity 拒绝；所有新增 task CLI 通过 import/`--help` smoke，changed Python
+  通过 ruff 与 compileall。
+
+### 后续防线
+
+- 任何 task 脚本不得自行实现 Offline-KD manifest/shard writer；需要筛选或重排时仍由公共 writer 发布新
+  artifact。所谓 resume 必须从首次运行就产生可校验 build-state，不能靠目录 glob 或行数推断。
+- 已发布数据 bundle 一律作为不可变输入；增量、过滤和格式迁移必须写显式新 output，并在完整校验后原子发布。

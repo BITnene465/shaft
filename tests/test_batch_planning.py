@@ -18,6 +18,8 @@ from shaft.data import (
 )
 from shaft.data.transforms import planning_safe_online_transform
 from shaft.model.types import ShaftProcessorCostEstimate, ShaftProcessorTokenLayout
+from shaft.offline_kd import OfflineKDDataset, OfflineKDRecord
+from shaft.offline_kd.media_plan import deterministic_detection_media_plan
 from shaft.template.types import (
     ShaftLossScaleSpec,
     ShaftSupervisionCostEstimate,
@@ -314,6 +316,80 @@ def test_sft_cost_provider_estimates_every_ordered_image(tmp_path: Path) -> None
 
     assert adapter.image_sizes == [((32, 48),), ((64, 80),)]
     assert cost.vision_patches == 32
+
+
+def test_offline_kd_cost_provider_uses_frozen_media_plan_without_image_header(
+    tmp_path: Path,
+) -> None:
+    missing_image = tmp_path / "missing.png"
+    media_plan = deterministic_detection_media_plan(
+        sample_id="sample-1",
+        width=1000,
+        height=500,
+        seed=465,
+    )
+    sample_plan = ShaftSamplePlan(
+        {"dataset": 1},
+        {"dataset": 1.0},
+        strategy="concat",
+        num_samples=1,
+        shuffle=False,
+        seed=17,
+    )
+    dataset = OfflineKDDataset(
+        {
+            "dataset": [
+                OfflineKDRecord(
+                    image_path=str(missing_image),
+                    target_text="target",
+                    dataset_name="dataset",
+                    extra={"offline_kd_media_plan": media_plan.to_dict()},
+                    distillation_ref={
+                        "artifact_id": "a" * 64,
+                        "shard": "teacher-00001.safetensors",
+                        "row": 0,
+                    },
+                )
+            ]
+        },
+        sample_plan=sample_plan,
+        media_snapshot_id="offline-kd-media-v1",
+    )
+
+    class _FrozenMediaAdapter(_CostModelAdapter):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[dict[str, object]] = []
+
+        def estimate_processor_image_cost(self, **kwargs):
+            self.calls.append(dict(kwargs))
+            return ShaftProcessorCostEstimate(
+                processed_image_tokens=4,
+                vision_patches=16,
+                exact=True,
+            )
+
+    adapter = _FrozenMediaAdapter()
+    provider = ShaftSFTSampleCostProvider(
+        dataset=dataset,
+        model_adapter=adapter,
+        template=_CostTemplate(),
+        processor=_CostProcessor(),
+        tokenizer=_CostTokenizer(),
+        min_pixels=500_000,
+        max_pixels=4_000_000,
+        max_length=None,
+        add_eos_token=True,
+        loss_scale_name="default",
+    )
+
+    assert provider(sample_plan.ref_at(0)).exact is True
+    assert adapter.calls[0]["image_sizes"] == (
+        (media_plan.target_width, media_plan.target_height),
+    )
+    assert adapter.calls[0]["min_pixels"] is None
+    assert adapter.calls[0]["max_pixels"] is None
+    assert provider.cache_entry_counts == (1, 0)
 
 
 def test_sft_cost_fingerprint_ignores_model_artifact_locator(tmp_path: Path) -> None:

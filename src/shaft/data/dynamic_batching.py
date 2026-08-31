@@ -34,6 +34,7 @@ from .planned import ShaftPlannedSampleRef
 
 SHAFT_BATCH_PLANNING_VERSION = "shaft-batch-planning-v5"
 _FULL_PARTITION_SEARCH_NODE_LIMIT = 100_000
+_RANK_ASSIGNMENT_SEARCH_NODE_LIMIT = 100_000
 
 
 class ShaftPartitionSearchBudgetExceeded(RuntimeError):
@@ -884,8 +885,17 @@ class ShaftBatchPlanner:
             {name: 0 for name, _ in self.spec.resource_budgets}
             for _ in range(world_size)
         ]
+        visited_nodes = 0
 
         def place(index: int) -> bool:
+            nonlocal visited_nodes
+            visited_nodes += 1
+            if visited_nodes > _RANK_ASSIGNMENT_SEARCH_NODE_LIMIT:
+                raise ShaftPartitionSearchBudgetExceeded(
+                    "Rank-assignment search exceeded its deterministic node limit "
+                    f"({_RANK_ASSIGNMENT_SEARCH_NODE_LIMIT}). Increase the local "
+                    "token/resource budget or reduce the per-device batch size."
+                )
             if index == len(ordered):
                 return allow_partial or all(
                     len(items) == local_limit for items in rank_packs

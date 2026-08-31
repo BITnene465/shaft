@@ -92,14 +92,28 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
    - `manifest.jsonl`
    - `json/*.json`
    - 可选 `visualizations/*.jpg`
-10. 补最小测试：
+10. 多 GPU replica 的批量推理必须使用共享动态请求队列：endpoint 完成一个请求后立即领取下一条，不能按
+    sample ID 固定绑定 endpoint。每个 endpoint 的 in-flight 上限应与 vLLM `max_num_seqs` 和显存容量对齐；
+    canary 少于 replica 数时允许部分 GPU 空闲，正式批次则必须验证动态补位和尾部利用率。
+    多个 Qwen3.5/FLA replica 同时首次 warmup 时，还必须将 `TRITON_CACHE_DIR` 和
+    `TORCHINDUCTOR_CACHE_DIR` 放在节点本地盘并按 replica/GPU 隔离；禁止共享默认的
+    `~/.triton/cache`，否则并发 JIT 可能互相删除临时 metadata，表现为 EngineCore 启动期随机
+    `FileNotFoundError`/`Device or resource busy`。直接调用 `vllm serve` 不会自动继承 Shaft 训练 CLI 的
+    rank cache 派生逻辑，launcher 必须显式设置。
+11. reconstruction 的 crop/manifest 准备不能在模型已经驻留后按数据集串行阻塞 GPU。启动 vLLM 前应并发
+    完成全部数据集的 crop，或把下一数据集准备与当前数据集生成做成流水线；大批量 crop 必须显式设置并核验
+    CPU worker 数。看到全部 GPU 为 0% 时先检查 `prepare-reconstruction`、render、merge/evaluate 等 CPU
+    阶段及 artifact 增长，不能只提高 vLLM in-flight。已有 crop 必须验证可解码后复用，并使用临时文件原子发布。
+12. 用户明确要求 invalid 直接跳过时，失败请求原子记录到 error artifact，后续 resume 不再重复生成；summary
+    必须分别报告 complete/error，评测将缺失预测计为 parse failure/FN，并保留失败 ID，不能伪造空预测为模型成功。
+13. 补最小测试：
    - 类别/参数解析
    - 本地模型路径发现
    - vendored / fallback 导入路径
    - 图片扫描
    - batch 输出落盘
    - app smoke
-11. 如新增了新的根目录临时工具，在 `docs/module_reference.md` 附录补一句边界说明即可。
+14. 如新增了新的根目录临时工具，在 `docs/module_reference.md` 附录补一句边界说明即可。
 
 ## 验收
 - `.venv/bin/python -m compileall <model-slug>-test`

@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
 import math
 from pathlib import Path
+from queue import Queue
 import re
 import shutil
 import sys
@@ -23,7 +25,12 @@ from urllib import request
 
 from PIL import Image
 
-from shaft.codec import decode_with_codec, dequantize_qwen_bbox, dequantize_qwen_point
+from shaft.codec import (
+    decode_with_codec,
+    dequantize_qwen_bbox,
+    dequantize_qwen_point,
+    quantize_qwen_bbox,
+)
 from shaft.data.prompt_source import load_prompt_source_pool
 from shaft.prompting import ShaftPromptTemplate
 from shaft.utils.qwen_pixel_budget import image_to_data_url_with_qwen_pixel_budget
@@ -110,6 +117,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def checkpoint_weight_artifact(checkpoint: Path) -> Path:
+    """Return the canonical HF weight manifest or single-file weight artifact."""
+    index = checkpoint / "model.safetensors.index.json"
+    if index.is_file():
+        return index
+    single_file = checkpoint / "model.safetensors"
+    if single_file.is_file():
+        return single_file
+    raise FileNotFoundError(
+        f"Checkpoint has neither sharded index nor single-file safetensors: {checkpoint}"
+    )
+
+
 def main_prompt(path: Path) -> ShaftPromptTemplate:
     pool = load_prompt_source_pool(path)
     formulation_id = "reconstruction" if pool.explicit_formulations else "default"
@@ -185,7 +205,7 @@ def call_vllm(
         "max_tokens": int(max_tokens),
         "temperature": 0.0,
         "top_p": 1.0,
-        "chat_template_kwargs": {"enable_thinking": False},
+        "chat_template_kwargs": thinking_contract(),
     }
     url = endpoint.rstrip("/")
     if not url.endswith("/chat/completions"):
@@ -218,6 +238,20 @@ def call_vllm(
         "usage": response_payload.get("usage"),
         "latency_seconds": round(time.perf_counter() - started, 6),
         "response_id": response_payload.get("id"),
+    }
+
+
+def thinking_contract() -> dict[str, bool]:
+    return {"enable_thinking": False, "preserve_thinking": False}
+
+
+def decoding_contract(max_tokens: int) -> dict[str, Any]:
+    return {
+        "do_sample": False,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_tokens": max_tokens,
+        **thinking_contract(),
     }
 
 
@@ -311,13 +345,12 @@ def quantize_bbox_in_crop(bbox: list[int], crop_box: tuple[int, int, int, int]) 
     left, top, right, bottom = crop_box
     crop_width, crop_height = right - left, bottom - top
     values = [bbox[0] - left, bbox[1] - top, bbox[2] - left, bbox[3] - top]
-    result = [
-        round(values[0] / crop_width * 999),
-        round(values[1] / crop_height * 999),
-        round(values[2] / crop_width * 999),
-        round(values[3] / crop_height * 999),
-    ]
-    return [min(999, max(0, int(value))) for value in result]
+    return quantize_qwen_bbox(
+        values,
+        width=crop_width,
+        height=crop_height,
+        minimum_extent_bins=1,
+    )
 
 
 def _is_coordinate(value: Any, *, maximum: int) -> bool:
@@ -761,11 +794,28 @@ def run_parallel(items: list[Any], *, workers: int, function: Any) -> list[dict[
     return results
 
 
-def select_endpoint(endpoints: list[str], request_id: str) -> str:
-    if not endpoints:
-        raise ValueError("At least one vLLM endpoint is required")
-    digest = hashlib.sha256(str(request_id).encode("utf-8")).digest()
-    return endpoints[int.from_bytes(digest[:8], "big") % len(endpoints)]
+class EndpointSlotPool:
+    """Dynamically assign requests to the first available replica slot."""
+
+    def __init__(self, endpoints: list[str], *, max_inflight_per_endpoint: int) -> None:
+        if not endpoints:
+            raise ValueError("At least one vLLM endpoint is required")
+        if max_inflight_per_endpoint <= 0:
+            raise ValueError("max_inflight_per_endpoint must be positive")
+        self._slots: Queue[str] = Queue()
+        # Interleave replicas by slot layer so the initial burst reaches every GPU
+        # before a second request is assigned to the same replica.
+        for _slot in range(max_inflight_per_endpoint):
+            for endpoint in endpoints:
+                self._slots.put(endpoint)
+
+    @contextmanager
+    def acquire(self) -> Iterable[str]:
+        endpoint = self._slots.get()
+        try:
+            yield endpoint
+        finally:
+            self._slots.put(endpoint)
 
 
 def artifact_state(
@@ -791,11 +841,18 @@ def detect(args: argparse.Namespace) -> None:
     raw_dir = args.work_dir / "detection" / "raw"
     pred_dir = args.work_dir / "detection" / "pred"
     error_dir = args.work_dir / "detection" / "errors"
+    endpoint_pool = EndpointSlotPool(
+        args.endpoints,
+        max_inflight_per_endpoint=args.endpoint_max_inflight,
+    )
 
     def run_one(image_path: Path) -> dict[str, Any]:
         prediction_path = pred_dir / f"{image_path.stem}.json"
+        error_path = error_dir / f"{image_path.stem}.json"
         if prediction_path.is_file() and not args.force:
             return {"stem": image_path.stem, "status": "cached"}
+        if error_path.is_file() and args.allow_invalid_output and not args.force:
+            return {"stem": image_path.stem, "status": "cached_error"}
         with Image.open(image_path) as image:
             width, height = image.size
         image_url, budget = image_to_data_url_with_qwen_pixel_budget(
@@ -806,15 +863,16 @@ def detect(args: argparse.Namespace) -> None:
         last_error: Exception | None = None
         for attempt in range(1, args.retries + 2):
             try:
-                response_payload = call_vllm(
-                    endpoint=select_endpoint(args.endpoints, image_path.stem),
-                    served_model=args.served_model,
-                    image_url=image_url,
-                    system_prompt=prompt.system_prompt,
-                    user_prompt=prompt.user_prompt,
-                    max_tokens=args.max_tokens,
-                    timeout_seconds=args.timeout_seconds,
-                )
+                with endpoint_pool.acquire() as endpoint:
+                    response_payload = call_vllm(
+                        endpoint=endpoint,
+                        served_model=args.served_model,
+                        image_url=image_url,
+                        system_prompt=prompt.system_prompt,
+                        user_prompt=prompt.user_prompt,
+                        max_tokens=args.max_tokens,
+                        timeout_seconds=args.timeout_seconds,
+                    )
                 layout = parse_detection(response_payload["content"], width=width, height=height)
                 raw_payload = {
                     "sample_id": image_path.stem,
@@ -826,6 +884,8 @@ def detect(args: argparse.Namespace) -> None:
                         (prompt.system_prompt + "\n" + prompt.user_prompt).encode("utf-8")
                     ).hexdigest(),
                     "attempt": attempt,
+                    "message_order": "image_first",
+                    "decoding": decoding_contract(args.max_tokens),
                     **response_payload,
                 }
                 atomic_write_json(raw_dir / f"{image_path.stem}.json", raw_payload)
@@ -865,17 +925,24 @@ def detect(args: argparse.Namespace) -> None:
         "complete": len(complete),
         "errors": len(errors),
         "unexpected_predictions": len(unexpected),
+        "allow_invalid_output": args.allow_invalid_output,
+        "endpoint_scheduling": "dynamic_available_slot",
+        "endpoint_count": len(args.endpoints),
+        "endpoint_max_inflight": args.endpoint_max_inflight,
         "min_pixels": args.min_pixels,
         "max_pixels": args.max_pixels,
         "max_tokens": args.max_tokens,
         "prompt_id": prompt.prompt_id,
+        "message_order": "image_first",
+        "decoding": decoding_contract(args.max_tokens),
         "gt_read": False,
     }
     atomic_write_json(args.work_dir / "detection" / "summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False))
+    accounted = summary["complete"] + summary["errors"] == summary["expected"]
     if (
-        summary["complete"] != summary["expected"]
-        or summary["errors"]
+        not accounted
+        or (summary["errors"] and not args.allow_invalid_output)
         or summary["unexpected_predictions"]
     ):
         raise SystemExit(1)
@@ -886,9 +953,13 @@ def prepare_reconstruction(args: argparse.Namespace) -> None:
     pred_dir = args.work_dir / "detection" / "pred"
     crop_dir = args.work_dir / "reconstruction" / "crops"
     rows: list[dict[str, Any]] = []
+    missing_detection_stems: list[str] = []
     for stem, image_path in images.items():
         prediction_path = pred_dir / f"{stem}.json"
         if not prediction_path.is_file():
+            if args.allow_missing_detection:
+                missing_detection_stems.append(stem)
+                continue
             raise FileNotFoundError(prediction_path)
         prediction = json.loads(prediction_path.read_text(encoding="utf-8"))
         width, height = prediction["size"]
@@ -938,6 +1009,9 @@ def prepare_reconstruction(args: argparse.Namespace) -> None:
         "requests": len(rows),
         "shape": sum(row["label"] == "shape" for row in rows),
         "line": sum(row["label"] == "line" for row in rows),
+        "missing_detection_count": len(missing_detection_stems),
+        "missing_detection_stems": sorted(missing_detection_stems),
+        "allow_missing_detection": args.allow_missing_detection,
         "proposal_source": "detection",
         "gt_read": False,
     }
@@ -966,12 +1040,19 @@ def reconstruct(args: argparse.Namespace) -> None:
     raw_dir = args.work_dir / "reconstruction" / "raw"
     parsed_dir = args.work_dir / "reconstruction" / "parsed"
     error_dir = args.work_dir / "reconstruction" / "errors"
+    endpoint_pool = EndpointSlotPool(
+        args.endpoints,
+        max_inflight_per_endpoint=args.endpoint_max_inflight,
+    )
 
     def run_one(row: dict[str, Any]) -> dict[str, Any]:
         request_id = str(row["request_id"])
         parsed_path = parsed_dir / f"{request_id}.json"
+        error_path = error_dir / f"{request_id}.json"
         if parsed_path.is_file() and not args.force:
             return {"request_id": request_id, "status": "cached"}
+        if error_path.is_file() and args.allow_invalid_output and not args.force:
+            return {"request_id": request_id, "status": "cached_error"}
         label = str(row["label"])
         prompt = prompts[label]
         user_prompt = prompt.render({"proposal_bbox_2d": row["proposal_bbox_2d"]})
@@ -983,16 +1064,18 @@ def reconstruct(args: argparse.Namespace) -> None:
         )
         last_error: Exception | None = None
         for attempt in range(1, args.retries + 2):
+            response_payload: dict[str, Any] | None = None
             try:
-                response_payload = call_vllm(
-                    endpoint=select_endpoint(args.endpoints, request_id),
-                    served_model=args.served_model,
-                    image_url=image_url,
-                    system_prompt=prompt.system_prompt,
-                    user_prompt=user_prompt,
-                    max_tokens=args.max_tokens,
-                    timeout_seconds=args.timeout_seconds,
-                )
+                with endpoint_pool.acquire() as endpoint:
+                    response_payload = call_vllm(
+                        endpoint=endpoint,
+                        served_model=args.served_model,
+                        image_url=image_url,
+                        system_prompt=prompt.system_prompt,
+                        user_prompt=user_prompt,
+                        max_tokens=args.max_tokens,
+                        timeout_seconds=args.timeout_seconds,
+                    )
                 raw_parameters = parse_reconstruction(
                     response_payload["content"], expected_label=label
                 )
@@ -1016,6 +1099,8 @@ def reconstruct(args: argparse.Namespace) -> None:
                         "prompt_id": prompt.prompt_id,
                         "prompt_args": {"proposal_bbox_2d": row["proposal_bbox_2d"]},
                         "attempt": attempt,
+                        "message_order": "image_first",
+                        "decoding": decoding_contract(args.max_tokens),
                         **response_payload,
                     },
                 )
@@ -1043,9 +1128,24 @@ def reconstruct(args: argparse.Namespace) -> None:
                 }
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
+                if response_payload is not None:
+                    atomic_write_json(
+                        raw_dir / f"{request_id}.json",
+                        {
+                            **row,
+                            "pixel_budget": budget.to_dict(),
+                            "prompt_id": prompt.prompt_id,
+                            "prompt_args": {"proposal_bbox_2d": row["proposal_bbox_2d"]},
+                            "attempt": attempt,
+                            "message_order": "image_first",
+                            "decoding": decoding_contract(args.max_tokens),
+                            "validation_error": repr(exc),
+                            **response_payload,
+                        },
+                    )
                 if attempt <= args.retries:
                     time.sleep(min(30.0, 2.0**attempt))
-        atomic_write_json(error_dir / f"{request_id}.json", {**row, "error": repr(last_error)})
+        atomic_write_json(error_path, {**row, "error": repr(last_error)})
         return {"request_id": request_id, "status": "error", "error": repr(last_error)}
 
     run_parallel(rows, workers=args.workers, function=run_one)
@@ -1066,17 +1166,23 @@ def reconstruct(args: argparse.Namespace) -> None:
         "errors": len(error_ids),
         "unexpected_predictions": len(unexpected_ids),
         "contract_issue_records": contract_issue_records,
+        "endpoint_scheduling": "dynamic_available_slot",
+        "endpoint_count": len(args.endpoints),
+        "endpoint_max_inflight": args.endpoint_max_inflight,
         "min_pixels": args.min_pixels,
         "max_pixels": args.max_pixels,
         "max_tokens": args.max_tokens,
+        "message_order": "image_first",
+        "decoding": decoding_contract(args.max_tokens),
         "proposal_source": "detection",
         "gt_read": False,
     }
     atomic_write_json(args.work_dir / "reconstruction" / "summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False))
+    accounted = summary["complete"] + summary["errors"] == summary["expected"]
     if (
-        summary["complete"] != summary["expected"]
-        or summary["errors"]
+        not accounted
+        or (summary["errors"] and not args.allow_invalid_output)
         or summary["unexpected_predictions"]
     ):
         raise SystemExit(1)
@@ -1088,11 +1194,17 @@ def merge(args: argparse.Namespace) -> None:
     parsed_dir = args.work_dir / "reconstruction" / "parsed"
     final_dir = args.work_dir / "final" / args.dataset_name / "pred"
     installed = 0
+    dropped = 0
     contract_issue_records = 0
+    missing_detection_stems: list[str] = []
     for image_path in images:
-        detection = json.loads(
-            (detection_dir / f"{image_path.stem}.json").read_text(encoding="utf-8")
-        )
+        detection_path = detection_dir / f"{image_path.stem}.json"
+        if not detection_path.is_file():
+            if args.allow_missing_detection:
+                missing_detection_stems.append(image_path.stem)
+                continue
+            raise FileNotFoundError(detection_path)
+        detection = json.loads(detection_path.read_text(encoding="utf-8"))
         for index, element in enumerate(detection.get("layout", [])):
             label = element.get("type")
             if label not in RECONSTRUCTION_LABELS:
@@ -1100,7 +1212,11 @@ def merge(args: argparse.Namespace) -> None:
             request_id = f"{image_path.stem}__det_{index:04d}_{label}"
             parsed_path = parsed_dir / f"{request_id}.json"
             if not parsed_path.is_file():
-                raise FileNotFoundError(parsed_path)
+                if not args.allow_missing_reconstruction:
+                    raise FileNotFoundError(parsed_path)
+                element.pop("parameters", None)
+                dropped += 1
+                continue
             parsed = json.loads(parsed_path.read_text(encoding="utf-8"))
             if parsed.get("proposal_source") != "detection" or parsed.get("gt_read") is not False:
                 raise ValueError(f"Invalid reconstruction provenance: {request_id}")
@@ -1115,8 +1231,13 @@ def merge(args: argparse.Namespace) -> None:
     summary = {
         "phase": "merge",
         "dataset_name": args.dataset_name,
-        "images": len(images),
+        "expected_images": len(images),
+        "images": len(images) - len(missing_detection_stems),
+        "missing_detection_count": len(missing_detection_stems),
+        "missing_detection_stems": sorted(missing_detection_stems),
+        "allow_missing_detection": args.allow_missing_detection,
         "installed_reconstructions": installed,
+        "dropped_reconstructions": dropped,
         "contract_issue_records": contract_issue_records,
         "proposal_source": "detection",
         "gt_read": False,
@@ -1139,9 +1260,11 @@ def evaluate(args: argparse.Namespace) -> None:
     final_pred_dir = args.work_dir / "final" / args.dataset_name / "pred"
     expected = {path.stem for path in collect_images(args.image_dir)}
     actual = {path.stem for path in final_pred_dir.glob("*.json")}
-    if actual != expected:
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if extra or (missing and not args.allow_missing_predictions):
         raise ValueError(
-            f"Prediction stem mismatch: missing={sorted(expected-actual)}, extra={sorted(actual-expected)}"
+            f"Prediction stem mismatch: missing={missing}, extra={extra}"
         )
     internal_method = args.work_dir / "internal_eval" / args.run_name
     internal_pred = internal_method / args.dataset_name / "pred"
@@ -1152,6 +1275,7 @@ def evaluate(args: argparse.Namespace) -> None:
     atomic_write_json(internal_method / "method.json", {"group": "VLM"})
     evaluator = load_evaluator(args.evaluator)
     score = evaluator.eval_method(internal_method)
+    weight_artifact = checkpoint_weight_artifact(args.checkpoint)
     score["provenance"] = {
         "run_name": args.run_name,
         "dataset_name": args.dataset_name,
@@ -1159,9 +1283,12 @@ def evaluate(args: argparse.Namespace) -> None:
         "gt_instance_count": score["overall"]["gt_count"],
         "evaluator_sha256": sha256_file(args.evaluator),
         "checkpoint": str(args.checkpoint),
-        "checkpoint_index_sha256": sha256_file(args.checkpoint / "model.safetensors.index.json"),
+        "checkpoint_weight_artifact": weight_artifact.name,
+        "checkpoint_weight_artifact_sha256": sha256_file(weight_artifact),
         "detection_min_pixels": args.detection_min_pixels,
         "detection_max_pixels": args.detection_max_pixels,
+        "missing_prediction_count": len(missing),
+        "missing_prediction_stems": missing,
         "reconstruction_proposal_source": "detection",
         "gt_read_during_inference": False,
     }
@@ -1221,6 +1348,12 @@ def add_common_runtime(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--served-model", default="banana-v5.7-retrain-27b")
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--endpoint-max-inflight",
+        type=int,
+        default=4,
+        help="Dynamic request slots per endpoint; completed slots are immediately reused.",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=2400.0)
     parser.add_argument("--retries", type=int, default=2)
     parser.add_argument("--force", action="store_true")
@@ -1234,9 +1367,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_runtime(detection)
     detection.add_argument("--image-dir", type=Path, required=True)
     detection.add_argument("--detection-prompt", type=Path, required=True)
-    detection.add_argument("--min-pixels", type=int, default=1_000_000)
+    detection.add_argument("--min-pixels", type=int, default=500_000)
     detection.add_argument("--max-pixels", type=int, default=4_000_000)
     detection.add_argument("--max-tokens", type=int, default=8_000)
+    detection.add_argument(
+        "--allow-invalid-output",
+        action="store_true",
+        help="Record invalid generations as errors and continue without installing a prediction.",
+    )
     detection.add_argument(
         "--include-stems",
         help="Optional comma-separated image stems for a canary or partial run.",
@@ -1248,6 +1386,11 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--image-dir", type=Path, required=True)
     prepare.add_argument("--padding-ratio", type=float, default=0.65)
     prepare.add_argument("--minimum-crop-size", type=int, default=256)
+    prepare.add_argument(
+        "--allow-missing-detection",
+        action="store_true",
+        help="Skip images whose detection prediction is absent after an explicitly accepted error.",
+    )
     prepare.add_argument("--force", action="store_true")
     prepare.set_defaults(function=prepare_reconstruction)
 
@@ -1258,12 +1401,27 @@ def build_parser() -> argparse.ArgumentParser:
     reconstruction.add_argument("--min-pixels", type=int, default=500_000)
     reconstruction.add_argument("--max-pixels", type=int, default=4_000_000)
     reconstruction.add_argument("--max-tokens", type=int, default=8_000)
+    reconstruction.add_argument(
+        "--allow-invalid-output",
+        action="store_true",
+        help="Keep invalid model outputs as errors and continue without retrying or repairing them.",
+    )
     reconstruction.set_defaults(function=reconstruct)
 
     merge_parser = subparsers.add_parser("merge")
     merge_parser.add_argument("--work-dir", type=Path, required=True)
     merge_parser.add_argument("--image-dir", type=Path, required=True)
     merge_parser.add_argument("--dataset-name", default="real_v1")
+    merge_parser.add_argument(
+        "--allow-missing-detection",
+        action="store_true",
+        help="Omit final JSON for explicitly accepted missing detection predictions.",
+    )
+    merge_parser.add_argument(
+        "--allow-missing-reconstruction",
+        action="store_true",
+        help="Drop parameters for failed reconstruction requests instead of aborting merge.",
+    )
     merge_parser.set_defaults(function=merge)
 
     evaluation = subparsers.add_parser("evaluate")
@@ -1274,8 +1432,13 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation.add_argument("--dataset-name", default="real_v1")
     evaluation.add_argument("--checkpoint", type=Path, required=True)
     evaluation.add_argument("--gt-revision", required=True)
-    evaluation.add_argument("--detection-min-pixels", type=int, default=1_000_000)
+    evaluation.add_argument("--detection-min-pixels", type=int, default=500_000)
     evaluation.add_argument("--detection-max-pixels", type=int, default=4_000_000)
+    evaluation.add_argument(
+        "--allow-missing-predictions",
+        action="store_true",
+        help="Score missing predictions as parse failures/all false negatives and record their IDs.",
+    )
     evaluation.set_defaults(function=evaluate)
 
     package_parser = subparsers.add_parser("package")

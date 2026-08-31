@@ -6,7 +6,10 @@ from functools import lru_cache
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
+import shutil
+import tempfile
 from typing import Any, Mapping
 
 from safetensors import safe_open
@@ -86,6 +89,128 @@ def offline_kd_artifact_identity(
             "build": dict(build),
         }
     )
+
+
+def merge_offline_kd_artifacts(
+    artifact_dirs: list[str | Path],
+    *,
+    output_dir: str | Path,
+) -> Path:
+    """Atomically merge compatible map shards into one reader-compatible artifact."""
+
+    inputs = [Path(path).resolve() for path in artifact_dirs]
+    if not inputs:
+        raise ValueError("Offline KD merge requires at least one input artifact.")
+    if len(set(inputs)) != len(inputs):
+        raise ValueError("Offline KD merge input artifact directories must be unique.")
+    output = Path(output_dir).resolve()
+    if output.exists():
+        raise FileExistsError(f"Offline KD merge output already exists: {output}")
+    manifests = [json.loads((path / "manifest.json").read_text(encoding="utf-8")) for path in inputs]
+    first = manifests[0]
+    expected_input_abi = ShaftOPDInputABI.from_mapping(first["input_abi"])
+    expected_input_contract = ShaftOfflineKDInputContract.from_mapping(
+        first["input_contract"]
+    )
+    # Reuse the reader's fail-closed manifest validation rather than maintaining a
+    # second, weaker merge-only parser. Shard bytes are verified below before publication.
+    for input_dir in inputs:
+        OfflineKDArtifactStore(
+            input_dir / "manifest.json",
+            student_input_abi=expected_input_abi,
+            student_input_contract=expected_input_contract,
+            max_cached_shards=1,
+        )
+    shared_fields = ("version", "teacher", "input_abi", "input_contract", "distribution")
+    for index, manifest in enumerate(manifests):
+        if any(manifest.get(field) != first.get(field) for field in shared_fields):
+            raise ValueError(f"Offline KD input artifact {index} is not merge-compatible.")
+        if manifest.get("version") != ARTIFACT_VERSION:
+            raise ValueError(f"Unsupported Offline KD merge input {manifest.get('version')!r}.")
+        if manifest.get("build", {}).get("denylist_fingerprint") != first["build"][
+            "denylist_fingerprint"
+        ]:
+            raise ValueError("Offline KD merge inputs use different denylists.")
+    source_fingerprint = canonical_sha256(
+        {
+            "kind": "shaft-offline-kd-map-merge-v1",
+            "input_artifact_ids": [manifest["artifact_id"] for manifest in manifests],
+        }
+    )
+    build = {
+        "source_fingerprint": source_fingerprint,
+        "denylist_fingerprint": first["build"]["denylist_fingerprint"],
+    }
+    artifact_id = offline_kd_artifact_identity(
+        teacher=first["teacher"],
+        input_abi=first["input_abi"],
+        input_contract=first["input_contract"],
+        distribution=first["distribution"],
+        build=build,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=f".{output.name}.merge-", dir=output.parent))
+    merged_shards: dict[str, str] = {}
+    try:
+        with (temporary / "train.jsonl").open("w", encoding="utf-8") as target_jsonl:
+            for input_index, (input_dir, manifest) in enumerate(
+                zip(inputs, manifests, strict=True)
+            ):
+                shard_names = list(manifest.get("shards", {}))
+                shard_map: dict[str, str] = {}
+                for shard_index, old_name in enumerate(shard_names, start=1):
+                    new_name = f"teacher-{input_index + 1:03d}-{shard_index:05d}.safetensors"
+                    source_path = input_dir / old_name
+                    expected_digest = manifest["shards"][old_name]
+                    if file_sha256(source_path) != expected_digest:
+                        raise ValueError(f"Offline KD merge shard checksum mismatch: {source_path}")
+                    target_path = temporary / new_name
+                    try:
+                        os.link(source_path, target_path)
+                    except OSError:
+                        shutil.copy2(source_path, target_path)
+                    merged_shards[new_name] = expected_digest
+                    shard_map[old_name] = new_name
+                with (input_dir / "train.jsonl").open(encoding="utf-8") as source_jsonl:
+                    for line_no, line in enumerate(source_jsonl, start=1):
+                        row = json.loads(line)
+                        reference = OfflineKDArtifactReference.from_mapping(
+                            row.get("distillation_ref")
+                        )
+                        if reference.artifact_id != manifest["artifact_id"]:
+                            raise ValueError(
+                                f"Offline KD merge reference identity differs: "
+                                f"{input_dir}/train.jsonl:{line_no}"
+                            )
+                        if reference.shard not in shard_map:
+                            raise ValueError("Offline KD merge reference names an unknown shard.")
+                        row["distillation_ref"] = {
+                            "artifact_id": artifact_id,
+                            "shard": shard_map[reference.shard],
+                            "row": reference.row,
+                        }
+                        target_jsonl.write(json.dumps(row, ensure_ascii=False) + "\n")
+            target_jsonl.flush()
+            os.fsync(target_jsonl.fileno())
+        merged_manifest = {
+            "version": ARTIFACT_VERSION,
+            "artifact_id": artifact_id,
+            "teacher": first["teacher"],
+            "input_abi": first["input_abi"],
+            "input_contract": first["input_contract"],
+            "distribution": first["distribution"],
+            "build": build,
+            "shards": merged_shards,
+        }
+        (temporary / "manifest.json").write_text(
+            json.dumps(merged_manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, output)
+        return output
+    except Exception:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
 
 
 @lru_cache(maxsize=65536)

@@ -207,6 +207,38 @@ def test_missing_prompt_override_fails_before_cleaning_existing_sft(
     assert sentinel.read_text(encoding="utf-8") == "sentinel\n"
 
 
+def test_preflight_accepts_explicit_pool_variant(tmp_path: Path) -> None:
+    module = _load_module()
+    task_root = tmp_path / "grounding_layout" / "structured"
+    task_root.mkdir(parents=True)
+    for split in ("train", "val"):
+        (task_root / f"{split}.jsonl").write_text("", encoding="utf-8")
+    prompt_path = tmp_path / "grounding.v5.8.yaml"
+    prompt_path.write_text(
+        """
+metadata:
+  id: unit.grounding.v5.8
+  version: v5.8
+  output_schema: qwen_bbox_2d_list
+prompts:
+  - id: detailed
+    system_prompt: Return JSON.
+    user_prompt: Detect objects.
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    task = module.TaskSpec("grounding_layout", "grounding", str(prompt_path))
+
+    prompts = module._preflight_conversion(
+        [task],
+        tmp_path,
+        {"grounding_layout": "detailed"},
+    )
+
+    assert prompts["grounding_layout"].prompt_id == "unit.grounding.v5.8.detailed"
+
+
 def test_build_output_row_uses_qwen_point_line_schema(tmp_path: Path) -> None:
     module = _load_module()
 

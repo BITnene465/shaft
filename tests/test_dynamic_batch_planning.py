@@ -71,6 +71,7 @@ def _schedule() -> ShaftSampleSchedule:
 def _spec(
     provider: CountingCostProvider,
     *,
+    grouping: str = "bounded_cost",
     world_size: int = 2,
     buffer_size: int = 8,
     local_batch_size: int = 1,
@@ -80,6 +81,7 @@ def _spec(
 ) -> ShaftBatchPlanningSpec:
     schedule = _schedule()
     return ShaftBatchPlanningSpec(
+        grouping=grouping,
         data_world_size=world_size,
         buffer_size=buffer_size,
         cardinality=cardinality,
@@ -512,6 +514,24 @@ def test_full_partition_search_budget_is_a_safe_guard(
     assert plan.stats.sample_count == 3
     assert all(batch.padded_llm_tokens <= 10 for batch in plan.rank_microbatches)
     assert all(batch.vision_patches <= 10 for batch in plan.rank_microbatches)
+
+
+def test_length_rank_assignment_search_budget_is_a_safe_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dynamic_batching, "_RANK_ASSIGNMENT_SEARCH_NODE_LIMIT", 0)
+    provider = CountingCostProvider([4, 4, 4, 4])
+    planner = _planner(
+        provider,
+        grouping="length",
+        world_size=2,
+        buffer_size=4,
+        local_batch_size=2,
+        max_tokens=8,
+    )
+
+    with pytest.raises(ShaftPartitionSearchBudgetExceeded, match="Rank-assignment search"):
+        planner.next_global_microbatch()
 
 
 def test_refill_preserves_draw_multiset_without_loss_or_duplication() -> None:

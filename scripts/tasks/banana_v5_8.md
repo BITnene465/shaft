@@ -1,8 +1,7 @@
 # Banana v5.8 数据准备合同
 
 本文定义 Banana v5.8 的数据准备方式。当前数据 snapshot 已完成物化并通过全量 schema、alignment、媒体解码
-和真实训练读取链 smoke。训练配置文件仍保留 `preparation` 后缀，用来表明尚未启动正式训练，而不是表示数据
-目录或 formulation source 尚未完成。
+和真实训练读取链 smoke；Qwen3.5-4B 正式训练配置已经发布。
 
 框架公共合同见 [`docs/data.md`](../../docs/data.md)；v5.7 已发布数据见
 [`banana_v5_7.md`](banana_v5_7.md)。
@@ -247,7 +246,7 @@ image object、可编辑 vector panel 以及简单画布，避免把“页面包
 
 - catalog：`configs/data/banana_v5_8.yaml`
 - PromptSource/source/probability 绑定：
-  `configs/train/banana_sft_4b_v5_8_preparation.yaml`
+  `configs/train/banana_sft_4b_qwen35_v5_8.yaml`
 
 当前组合媒体 snapshot id 为 `banana-v5.8-v9-20260802-reviewed-real-v1`，同时覆盖 V9 派生 crop、active
 compact raw 的真实 line points，以及已复验恢复的 background/image-type 媒体；任一来源或 selection 改变都
@@ -255,13 +254,20 @@ compact raw 的真实 line points，以及已复验恢复的 background/image-ty
 
 Grounding 和 background 的普通 `train_path/val_path` 由 catalog 绑定；grounding pool 在
 detailed/concise 之间随机选措辞，background 只选择 detailed，target 分别始终是完整 objects 和审核 boolean。
-preparation recipe 为其它 dataset eligible formulation id 绑定标准 SFT 路径。shape
+正式训练 recipe 为其它 dataset eligible formulation id 绑定标准 SFT 路径。shape
 和 full-capable line 使用 `1:1:4`；其中 `reconstruction` 在对应 pool 内约占 66.7%。points-only cohort 的
 eligible 子集只有共享 pool 中既有的 `points`，因此确定选择它。
 
 line reconstruction 还包含 points-only cohort：catalog 对 full-capable/points-only 两个 dataset 使用 `6:2`，
 与 full-capable pool 内部的 `1:1:4` 合成后，line reconstruction 总体约为 appearance 12.5%、points 37.5%、
 reconstruction 50%。修改 catalog weight 或 formulation `sampling_weight` 即可改变这个分布。
+
+外层 dataset 权重为 `grounding:background:shape:line:line_points:image = 4:1:5:6:2:1`。
+Qwen3.5-4B run 名为 `banana-v5.8-qwen35-4B`，使用 seed 465、12,000 optimizer steps、BF16 full
+fine-tuning、DDP、BS1、GA8、
+`bounded_cost + fixed`、8,000 token 上限、cosine scheduler、10% warmup、peak LR 2e-5 与
+weight decay 0.003。每 2,000 steps 保存完整可恢复 checkpoint，最多保留 10 个；不额外发布 root `best`
+final model。
 
 显式 formulation dataset 不再同时配置顶层 `train_path`；物理训练来源由对应 PromptSource 管理。Grounding
 和 background 作为普通单目标 dataset 继续由 catalog 提供顶层 source。外层 `data.schedule.mixing` 仍负责

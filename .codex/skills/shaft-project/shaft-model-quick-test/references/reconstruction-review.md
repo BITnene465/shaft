@@ -42,17 +42,21 @@ render/overlay 或浏览页面时读取。推理前门禁同时约束 detection 
   decoding。
 - retry/fallback、失败 attempt 的保留方式、resume/force/overwrite、输出目录和上传范围。
 - GPU、tensor parallel/replica 方式、canary 样本与正式扩量门禁。
+- 多 replica 调度方式：正式批次默认使用共享动态 endpoint-slot 队列，明确每 endpoint 的最大 in-flight；固定
+  sample-ID 路由只允许用于要求严格 endpoint 复现的诊断，不作为高吞吐默认值。
 
 对齐时给出“推荐值 + 理由 + 与训练合同的差异”，等待用户确认；不要只问一个笼统的“是否开始”。
 
 ### Layout recognition 推荐提案
 
-本轮成功 real_v2 推理形成以下可复用流程。实际成功 run 的 detection/reconstruction 都使用了 1M–4M；
-用户随后分别确定未来默认提案：detection 使用 1M–4M，reconstruction 使用 0.5M–4M。二者必须分阶段列出，
-不能再用一个像素范围概括整个两阶段任务，也不应把未来默认值伪称为本轮已经跑过的配置。
+历史 real_v2 两阶段成功 run 的 detection/reconstruction 都使用了 1M–4M；后续 real_v1/real_v2 detection
+像素预算实验覆盖了 0.5M–2M、0.5M–4M、1M–4M。用户最终确定未来默认提案为 detection 0.5M–4M、
+reconstruction 0.5M–4M，并优先采用训练更充分、invalid 更稳定的 v5.8 27B ckpt8000。两个阶段即使当前
+数值相同，也必须分别列出和确认，不能用一个范围隐去阶段合同；历史 run 仍按其真实配置报告。
 
-- detection：Shaft 统一 Qwen smart resize，默认提案为 `1,000,000–4,000,000` pixels。它面向整图全局检测，
-  需要保留足够的全图细节。
+- detection：Shaft 统一 Qwen smart resize，默认提案为 `500,000–4,000,000` pixels。real_v1/real_v2
+  对照支持保留 4M 上限；0.5M 与 1M 下限的差异未形成跨 checkpoint 一致显著性，最终按用户决策采用
+  与训练下限一致的 0.5M，并优先使用训练更充分的 ckpt8000。
 - reconstruction：默认提案为 `500,000–4,000,000` pixels；`padding_ratio=0.65`、
   `minimum_crop_size=256`。
 - Qwen smart resize 只执行一次；vLLM 不再私自解释 pixel budget，也不做第二次业务 resize。
@@ -62,12 +66,18 @@ render/overlay 或浏览页面时读取。推理前门禁同时约束 detection 
 - 只有 `finish_reason=stop`、完整 JSON、task schema 和跨字段 contract 均通过时才安装 parsed 结果。
 - fallback 前保留原始失败 attempt；summary 分别报告 generation error、parser contract violation、geometry
   violation 和 fallback，不能合并成“解析成功”。
+- 用户确认 invalid 直接跳过后，失败项只保存 error artifact，resume 复用该失败状态，不再对确定性长输出反复
+  重试。评测允许 prediction 缺失，但必须把它计为 `parse_ok=false` 和全量 GT 的 FN，同时在 provenance 保存
+  missing count/stems；不得写一个伪造的空 prediction JSON 来冒充模型正常返回。
 - canary 通过后才扩到全集；正式结果逐请求审计 pixel budget、prompt、generation、GT 隔离、ID 集和输出 hash。
+- 多单卡 vLLM replica 不是一个跨进程 scheduler。批量 runner 必须维护共享动态 slot 队列：每个 endpoint 可按
+  `max_num_seqs` 暴露若干 in-flight slot，请求完成即归还 slot，等待任务由先空闲的 slot 领取。禁止用 request ID
+  哈希固定绑定 replica，否则长尾请求会造成“一卡满载、其余卡空闲”。
 - 发布只上传约定的 prediction JSON；score/method metadata 是否上传必须在本次合同中确认。
 
 对 reconstruction，0.5M 相比无下限/processor 65K 是关键修复；从 0.5M 增到 1M 属于额外质量余量。若怀疑
 tiny shape 退化，先按目标尺寸分桶做 0.5M/1M canary，再决定是否提高 reconstruction 下限。该结论不能外推到
-detection；detection 的默认下限独立保持 1M，除非用户在本次推理前明确修改。
+detection；detection 也独立采用 0.5M 下限，但两个阶段的默认值必须分别维护和确认。
 
 - Qwen3VL 的训练、eval 和运行时推理统一使用 image-first。用户消息中的图片必须在文本指令
   之前。
@@ -101,7 +111,10 @@ detection；detection 的默认下限独立保持 1M，除非用户在本次推�
   - shape: `rectangle / oval / triangle / trapezoid / parallelogram / diamond / step /
     regular_pentagon / regular_hexagon / arrow_pentagon / other_polygon / callout`。
   - shape 几何优先使用预测里的 `corners / body_corners / body_bbox / tail.points`。
-  - `other` 只输出空透明图或明确 unsupported，不从 crop bbox 虚构形状。
+  - 单对象 reconstruction review 中，`other` 只输出空透明图或明确 unsupported，不从 crop bbox 虚构形状。
+    端到端最终合成的目标不同：为避免已检测对象静默消失，`shape_type=other` 必须像 icon/image 一样直接粘贴
+    预测 bbox 对应的原图 crop，并在 summary 记录 `shape_other crop fallback` 数量。该 fallback 只消费模型
+    detection bbox 和原图，不补 GT、不虚构几何，也不得写回 prediction parameters。
   - oval 只有在预测中存在明确几何字段时才按该几何渲染；普通 oval 可按完整
     normalized crop box作为该 DSL 的隐式主体，但不要用 relax 后额外区域扩大 overlay。
 - P1 风格也需要服务日常 review：

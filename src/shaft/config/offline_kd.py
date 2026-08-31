@@ -76,8 +76,6 @@ def normalize_offline_kd_runtime_config(config: Any) -> None:
         raise ValueError("offline_kd requires a non-zero CE or KD loss weight.")
     if config.data.batching.packing.mode != "none" or config.data.batching.layout != "padded":
         raise ValueError("offline_kd currently requires packing.mode='none' and layout='padded'.")
-    if config.data.batching.grouping != "none" or config.data.batching.cardinality != "fixed":
-        raise ValueError("offline_kd currently requires grouping='none' and cardinality='fixed'.")
     if config.eval.enabled:
         raise ValueError("offline_kd evaluation is not implemented; set eval.enabled=false.")
     transformed = [

@@ -360,6 +360,18 @@ class SFTDataset(ShaftVisionDatasetBase):
         )
         return self._apply_online_transforms(sample)
 
+    def planning_preprocessed_image_sizes(
+        self,
+        item: dict[str, Any],
+    ) -> tuple[tuple[int, int], ...] | None:
+        """Return frozen post-preprocess image sizes when the dataset owns that contract."""
+
+        _ = item
+        return None
+
+    def planning_image_cost_policy_signature(self) -> str | None:
+        return None
+
     def __getitem__(
         self,
         index: int | ShaftSampleRef | ShaftPlannedSampleRef,

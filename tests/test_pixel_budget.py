@@ -10,6 +10,11 @@ from shaft.utils.qwen_pixel_budget import (
     image_to_data_url_with_qwen_pixel_budget,
     smart_resize_qwen,
 )
+from shaft.offline_kd.media_plan import (
+    MEDIA_PLAN_VERSION,
+    OfflineKDMediaPlan,
+    deterministic_detection_media_plan,
+)
 
 
 def test_smart_resize_qwen_applies_patch_factor_and_max_pixels() -> None:
@@ -30,6 +35,22 @@ def test_apply_qwen_pixel_budget_does_not_resize_without_budget() -> None:
     assert metadata.target_width == 101
     assert metadata.target_height == 57
     assert metadata.resized is False
+
+
+def test_detection_media_plan_is_deterministic_and_round_trips() -> None:
+    first = deterministic_detection_media_plan(
+        sample_id="paper:sample-1", width=3840, height=2160, seed=465
+    )
+    second = deterministic_detection_media_plan(
+        sample_id="paper:sample-1", width=3840, height=2160, seed=465
+    )
+
+    assert first == second
+    assert 500_000 <= first.min_pixels <= 4_000_000
+    assert first.min_pixels == first.max_pixels
+    assert first.target_width % 32 == first.target_height % 32 == 0
+    assert OfflineKDMediaPlan.from_mapping(first.to_dict()) == first
+    assert first.to_dict()["version"] == MEDIA_PLAN_VERSION
 
 
 def test_image_to_data_url_with_qwen_budget_resizes_payload(tmp_path: Path) -> None:

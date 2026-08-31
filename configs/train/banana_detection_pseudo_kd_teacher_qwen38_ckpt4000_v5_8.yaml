@@ -1,0 +1,56 @@
+# Prompt-only unlabeled detection selection for one-pass pseudo-label + Offline-KD production.
+experiment:
+  name: banana-v5.8-detection-pseudo-kd-qwen38-ckpt4000
+  output_dir: outputs/offline-kd-producer-unused
+  seed: 465
+
+model:
+  model_type: qwen38vl
+  model_name_or_path: outputs/qwen38vl-sft/27b/banana-v5.8-qwen38-27B/checkpoint-4000
+  template: qwen38vl
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  torch_dtype: bfloat16
+  finetune:
+    mode: full
+
+algorithm:
+  name: sft
+  params: {}
+
+data:
+  batching:
+    grouping: none
+    cardinality: fixed
+    packing: {mode: none}
+    layout: padded
+  datasets:
+    - dataset_name: banana_v5_8_detection_unlabeled
+      source_type: jsonl_sft
+      train_path: ../../../data/distillation/banana_v5_8_detection_unlabeled/selection.jsonl
+      use_for_eval: false
+  schedule:
+    mixing: weighted
+    shuffle: false
+  media_snapshot_id: banana-v5.8-detection-unlabeled-selection-v1
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  min_pixels: 500000
+  max_pixels: 4000000
+  max_length: 16384
+  add_eos_token: true
+
+train:
+  duration: {unit: steps, value: 1}
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  loss_name: auto
+  loss_scale: default
+  load_best_model_at_end: false
+  report_to: []
+
+eval: {enabled: false}
+plugins: {hooks: []}
+logging: {level: INFO, fmt: text, rank_zero_only: true}
+progress: {enabled: true}

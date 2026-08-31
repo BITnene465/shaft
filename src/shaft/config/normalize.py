@@ -864,6 +864,13 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             "train.distributed.ddp.static_graph=true is currently validated only for "
             "algorithm.name='sft'."
         )
+    if ddp_cfg.static_graph and train.gradient_accumulation_steps > 1:
+        raise ValueError(
+            "train.distributed.ddp.static_graph=true is incompatible with "
+            "gradient accumulation (train.gradient_accumulation_steps>1): the first "
+            "DDP no_sync() backward can "
+            "trigger PyTorch reducer internal assertions. Set static_graph=false."
+        )
     fsdp_cfg = train.distributed.fsdp
     fsdp_cfg.sharding_strategy = str(fsdp_cfg.sharding_strategy).strip().lower()
     if fsdp_cfg.sharding_strategy not in _FSDP_SHARDING_STRATEGIES:

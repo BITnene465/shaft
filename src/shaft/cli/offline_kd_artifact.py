@@ -7,6 +7,7 @@ import torch
 from shaft.config import load_config
 from shaft.offline_kd.producer import (
     OfflineKDDistributionSpec,
+    produce_detection_pseudo_kd_artifact,
     produce_offline_kd_artifact,
 )
 
@@ -55,6 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-model-length", type=int)
     parser.add_argument("--enforce-eager", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--pseudo-label-task",
+        choices=("detection",),
+        help="Generate pseudo labels and output distributions in the same greedy pass.",
+    )
+    parser.add_argument("--generation-max-tokens", type=int, default=8000)
+    parser.add_argument("--source-rank", type=int, default=0)
+    parser.add_argument("--source-world-size", type=int, default=1)
     return parser
 
 
@@ -66,6 +75,42 @@ def main(argv: list[str] | None = None) -> None:
         temperature=args.temperature if args.mode == "topk_tail" else None,
         top_k=args.top_k,
     )
+    vllm_options = (
+        {
+            "tensor_parallel_size": args.tensor_parallel_size,
+            "gpu_memory_utilization": args.gpu_memory_utilization,
+            "max_model_length": args.max_model_length,
+            "enforce_eager": args.enforce_eager,
+        }
+        if args.backend == "vllm"
+        else None
+    )
+    if args.pseudo_label_task is not None:
+        if args.backend != "vllm":
+            raise ValueError("Pseudo-label Offline KD requires --backend vllm.")
+        if args.mode != "topk_tail" or args.temperature != 1.0 or args.top_k is None:
+            raise ValueError(
+                "Pseudo-label Offline KD requires --mode topk_tail --temperature 1 --top-k K."
+            )
+        produce_detection_pseudo_kd_artifact(
+            config,
+            output_dir=args.output_dir,
+            denylist_path=args.denylist,
+            top_k=args.top_k,
+            max_tokens=args.generation_max_tokens,
+            shard_rows=args.shard_rows,
+            shard_max_bytes=args.shard_max_bytes,
+            scoring_batch_size=args.scoring_batch_size,
+            max_rows=args.max_rows,
+            source_rank=args.source_rank,
+            source_world_size=args.source_world_size,
+            vllm_options=vllm_options,
+            resume=args.resume,
+            expected_teacher_checkpoint_fingerprint=(
+                args.expected_teacher_checkpoint_fingerprint
+            ),
+        )
+        return
     produce_offline_kd_artifact(
         config,
         output_dir=args.output_dir,
@@ -77,16 +122,7 @@ def main(argv: list[str] | None = None) -> None:
         scorer_backend=args.backend,
         scoring_batch_size=args.scoring_batch_size,
         max_rows=args.max_rows,
-        vllm_options=(
-            {
-                "tensor_parallel_size": args.tensor_parallel_size,
-                "gpu_memory_utilization": args.gpu_memory_utilization,
-                "max_model_length": args.max_model_length,
-                "enforce_eager": args.enforce_eager,
-            }
-            if args.backend == "vllm"
-            else None
-        ),
+        vllm_options=vllm_options,
         resume=args.resume,
         expected_teacher_checkpoint_fingerprint=(
             args.expected_teacher_checkpoint_fingerprint

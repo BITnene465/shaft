@@ -7,7 +7,9 @@ from .artifact import (
     build_offline_kd_input_contract,
     canonical_sha256,
     clear_media_fingerprint_cache,
+    file_sha256,
     media_content_fingerprint,
+    merge_offline_kd_artifacts,
     offline_kd_artifact_identity,
 )
 from .data import (
@@ -18,17 +20,29 @@ from .data import (
     load_jsonl_offline_kd_records,
 )
 from .trainer import ShaftOfflineKDTrainer
+from .media_plan import (
+    MEDIA_PLAN_FIELD,
+    MEDIA_PLAN_VERSION,
+    OfflineKDMediaPlan,
+    deterministic_detection_media_plan,
+    media_plan_from_item,
+)
 from .producer import (
     DENYLIST_VERSION,
     HFOfflineKDTeacherScorer,
     OfflineKDArtifactRow,
     OfflineKDArtifactWriter,
+    OfflineKDPseudoLabelGeneration,
     OfflineKDDenylist,
     OfflineKDDistributionSpec,
     OfflineKDScoringBatch,
     OfflineKDTeacherScorer,
+    VLLMOfflineKDAsyncGreedyGenerator,
     VLLMOfflineKDTeacherScorer,
+    VLLMOfflineKDGreedyGenerator,
+    produce_detection_pseudo_kd_artifact,
     produce_offline_kd_artifact,
+    validate_detection_pseudo_label,
 )
 from . import resume as _resume  # noqa: F401
 
@@ -42,10 +56,12 @@ __all__ = [
     "OfflineKDArtifactReference",
     "OfflineKDArtifactStore",
     "OfflineKDArtifactWriter",
+    "OfflineKDPseudoLabelGeneration",
     "ShaftOfflineKDInputContract",
     "build_offline_kd_input_contract",
     "canonical_sha256",
     "clear_media_fingerprint_cache",
+    "file_sha256",
     "OfflineKDCollator",
     "OfflineKDDataset",
     "OfflineKDRecord",
@@ -53,10 +69,20 @@ __all__ = [
     "OfflineKDDistributionSpec",
     "OfflineKDScoringBatch",
     "OfflineKDTeacherScorer",
+    "MEDIA_PLAN_FIELD",
+    "MEDIA_PLAN_VERSION",
+    "OfflineKDMediaPlan",
+    "VLLMOfflineKDAsyncGreedyGenerator",
     "VLLMOfflineKDTeacherScorer",
+    "VLLMOfflineKDGreedyGenerator",
     "load_jsonl_offline_kd_records",
     "ShaftOfflineKDTrainer",
     "media_content_fingerprint",
+    "merge_offline_kd_artifacts",
     "offline_kd_artifact_identity",
     "produce_offline_kd_artifact",
+    "produce_detection_pseudo_kd_artifact",
+    "validate_detection_pseudo_label",
+    "deterministic_detection_media_plan",
+    "media_plan_from_item",
 ]

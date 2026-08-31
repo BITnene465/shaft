@@ -19,6 +19,7 @@ from .artifact import (
     OfflineKDArtifactStore,
     media_content_fingerprint,
 )
+from .media_plan import media_plan_from_item
 
 
 @dataclass(init=False)
@@ -130,7 +131,17 @@ class JsonlOfflineKDDataSource(BaseDataSource):
 
 
 class OfflineKDDataset(SFTDataset):
-    pass
+    def planning_preprocessed_image_sizes(
+        self,
+        item: dict[str, Any],
+    ) -> tuple[tuple[int, int], ...] | None:
+        media_plan = media_plan_from_item(item)
+        if media_plan is None:
+            return None
+        return ((media_plan.target_width, media_plan.target_height),)
+
+    def planning_image_cost_policy_signature(self) -> str:
+        return "shaft-offline-kd-frozen-media-plan-cost-v1"
 
 
 def _concatenate_distributions(
@@ -180,9 +191,67 @@ class OfflineKDCollator(SFTCollator):
         if self.layout != "padded" or self.packing_mode != "none":
             raise ValueError("Offline KD collator supports only padded, unpacked batches.")
         self.artifact_store = artifact_store
+        self._media_plan_batch_active = False
+
+    def _run_processor(
+        self,
+        prompt_texts: list[str],
+        images: list[Any],
+        *,
+        dataset_names: list[str | None] | None = None,
+    ):
+        if not self._media_plan_batch_active:
+            return super()._run_processor(
+                prompt_texts,
+                images,
+                dataset_names=dataset_names,
+            )
+        return self.model_adapter.build_processor_batch(
+            processor=self.processor,
+            tokenizer=self.tokenizer,
+            prompt_texts=prompt_texts,
+            images=images,
+            min_pixels=None,
+            max_pixels=None,
+            input_mode=self.input_mode,
+        )
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
-        output = super().__call__(batch)
+        media_plans = [media_plan_from_item(item) for item in batch]
+        if any(plan is None for plan in media_plans) and not all(
+            plan is None for plan in media_plans
+        ):
+            raise ValueError("Offline KD batches cannot mix planned and unplanned media rows.")
+        prepared_batch: list[dict[str, Any]] = []
+        for item, media_plan in zip(batch, media_plans, strict=True):
+            if media_plan is None:
+                prepared_batch.append(item)
+                continue
+            raw_images = item.get("images")
+            images = (
+                tuple(raw_images)
+                if isinstance(raw_images, (list, tuple))
+                else (() if raw_images is None else (raw_images,))
+            )
+            if len(images) != 1:
+                raise ValueError(
+                    "Offline KD per-row media plans currently require exactly one image."
+                )
+            media_plan.validate_image_size(images[0])
+            resized = self.model_adapter.prepare_rollout_image(
+                images[0],
+                min_pixels=media_plan.min_pixels,
+                max_pixels=media_plan.max_pixels,
+            )
+            resolved = dict(item)
+            resolved["images"] = (resized,)
+            resolved["image"] = resized
+            prepared_batch.append(resolved)
+        self._media_plan_batch_active = bool(media_plans and media_plans[0] is not None)
+        try:
+            output = super().__call__(prepared_batch)
+        finally:
+            self._media_plan_batch_active = False
         labels = output.get("labels")
         if not isinstance(labels, torch.Tensor) or labels.ndim != 2:
             raise ValueError("Offline KD requires padded 2-D causal labels.")

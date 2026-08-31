@@ -74,6 +74,10 @@ configs/train/*.yaml
 !configs/train/banana_sft_4b_v5_1.yaml
 !configs/train/banana_sft_4b_v5_7.yaml
 !configs/train/banana_sft_4b_v5_7_trial.yaml
+!configs/train/banana_detection_pseudo_kd_teacher_qwen38_ckpt4000_v5_8.yaml
+!configs/train/banana_sft_4b_qwen35_v5_8.yaml
+!configs/train/banana_sft_4b_qwen35_v5_9.yaml
+!configs/train/banana_sft_27b_qwen38_v5_9_full_zero3.yaml
 !configs/train/banana_sft_27b_qwen36_v5_7_full_zero3.yaml
 !configs/train/banana_sft_27b_qwen36_v5_7_lora.yaml
 !configs/train/banana_sft_27b_qwen36_v5_7_qlora.yaml

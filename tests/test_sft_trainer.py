@@ -914,7 +914,11 @@ def test_fixed_sft_epoch_checkpoint_actual_resume_preserves_cycle_and_state(
                 )
             )
             token = 1 + int(ref.context.transform_seed % 14)
-            return {"input_ids": [token], "labels": [token]}
+            next_token = 1 + token % 14
+            return {
+                "input_ids": [token, next_token],
+                "labels": [token, next_token],
+            }
 
     def _collate(rows):
         return {

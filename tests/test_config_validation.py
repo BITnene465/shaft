@@ -128,6 +128,34 @@ train:
         )
 
 
+def test_ddp_static_graph_rejects_gradient_accumulation_without_checkpointing(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="static_graph=true is incompatible with gradient accumulation",
+    ):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  gradient_checkpointing: false
+  gradient_accumulation_steps: 2
+  distributed:
+    strategy: ddp
+    ddp:
+      static_graph: true
+""",
+            )
+        )
+
+
 def test_training_efficiency_config_is_normalized(tmp_path: Path) -> None:
     config = load_config(
         write_config_yaml(

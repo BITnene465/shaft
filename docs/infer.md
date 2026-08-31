@@ -151,12 +151,11 @@ device map 时，`HFLocalInferAdapter` 不再把模型整体 `.to(device)` 到�
   仍需以支持 `qwen3_5` 架构的 Transformers / vLLM 环境启动。
 - Shaft 当前不支持 Qwen3.5/3.6 MTP。通过 Shaft SFT/merge 生成的权重不保证包含 `mtp.*` draft head，
   即使 `config.json` 仍有 `mtp_num_hidden_layers` 也不能启用 vLLM/SGLang MTP speculative decoding。
-  `VLLM_EXTRA_ARGS` 是通用后端逃生口，不代表其中的 speculative 参数进入 Shaft 支持合同；当前业务镜像和
-  `shaft-contract-smoke` 只验收标准 target-model decode。官方原始权重在外部服务中启用 MTP 属于后端自有
-  能力，不得把结果外推到 Shaft 训练产物。
+  外部部署入口中的 speculative 参数不进入 Shaft 支持合同。官方原始权重在外部服务中启用 MTP 属于后端
+  自有能力，不得把结果外推到 Shaft 训练产物。
 - 当前标准推理环境以 `uv.lock` 为准，已经验证到 `vllm==0.19.1` 与
-  `transformers==5.10.1`。业务推理应优先使用 `docker/inference/` 中的镜像构建入口，或用
-  同一份 lock 构建等价环境。
+  `transformers==5.10.1`。部署系统必须用同一份 lock 构建等价环境，并自行维护镜像、服务编排和发布生命周期；
+  本仓库不提供生产部署 Dockerfile、vLLM launcher 或业务 smoke wrapper。
 - 只启动 vLLM 仍不足以复现实验效果；业务调用侧还必须对齐 prompt pool、Qwen pixel budget
   smart resize、generation 参数和共享 codec/JSON 解析策略。
 
@@ -178,18 +177,13 @@ device map 时，`HFLocalInferAdapter` 不再把模型整体 `.to(device)` 到�
 - 不允许用 executor/background thread 包装无法抢占的本地 generate 来伪造 timeout；返回超时的同时仍有
   推理在后台运行属于资源泄漏。
 
-### 5.4 推理镜像与契约 smoke
+### 5.4 部署边界与契约验收
 
-`docker/inference/` 是当前业务推理镜像入口。它只安装推理服务需要的 extras，并提供两个容器内命令：
-
-- `shaft-start-vllm`：按环境变量启动 OpenAI-compatible vLLM server。
-- `shaft-contract-smoke`：用同一份 prompt pool、Qwen pixel budget、generation 参数和共享
-  `json_any` codec 跑单图 smoke，并输出 prompt hash、resize 后尺寸、finish reason、raw output、
-  parser 状态和 token usage。
-
-这个 smoke 用于验证业务镜像与 Shaft 推理/在线评估链的契约是否一致，不替代模型质量评测。
-如果 `shaft-contract-smoke` 的 prompt hash、pixel budget、generation、finish reason 或 parser 状态不同，
-后续评测结果就不能直接归因到模型能力。
+本仓库只维护 `src/shaft/infer` 的推理合同和 task-local 评测工具，不维护生产镜像、vLLM 服务 launcher 或业务
+部署 smoke。部署系统消费 Shaft 权重时，必须在自身受追踪的配置中固定 checkpoint/merge provenance、依赖
+版本、prompt hash、image-first 消息顺序、Qwen pixel budget、thinking 开关、generation 参数和 parser 版本。
+部署环境与本地评测出现差异时，应使用同一图片和同一完整请求体对两个 endpoint 做 raw-output A/B；不能用
+另写的简化 smoke 代替正式调用合同。
 
 ## 6. Codec 设计（共享层）
 

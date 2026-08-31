@@ -570,6 +570,10 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
   `OfflineKDArtifactReference`，不把 tensor 放进 Arrow/JSONL。reader 仅限界缓存 shard index，不缓存整分片。
 - `OfflineKDRecord/OfflineKDDataset/OfflineKDCollator` 是独立 `jsonl_offline_kd` 合同。collator 复用一次
   full-render supervision compiler，然后逐 token 验证离线 completion IDs，输出 batch 级 teacher distribution。
+- Offline KD 复用公共 planned batching，可选择 `length`，或使用 `bounded_cost + token_budget` 按展开后的
+  token cost 形成变长 microbatch。存在逐行 `offline_kd_media_plan` 时，dataset 向 cost provider 暴露冻结的
+  target size；planner 不打开原图、不重复 smart resize，且其 vision-patch 估算必须与 collator runtime 精确
+  一致。rank assignment 使用确定性搜索预算，约束不可行时快速报错，禁止无界回溯卡住所有 rank。
 - `ShaftOfflineKDTrainer` 复用 SFT 的 HF/optimizer/checkpoint 机制，但自行组合 CE 与 distribution loss；
   `OfflineKDAlgorithm`、`ShaftOfflineKDPipeline` 和 `offline-kd` CLI 分别承担 registry、编排和薄入口职责。
 - `src/shaft/training/distribution_loss.py` 是 Offline KD 的 dense/top-k-tail KL/JSD 数学真源。本域不修改
@@ -583,6 +587,13 @@ RL 实现与唯一公开 pipeline API 位于 `pipeline/rl.py`：`ShaftRLPipeline
   本地 processor 与 vLLM；外部请求使用 structured plan 中每图一个未展开 placeholder，不接受 pixel budget，
   返回的展开 prompt IDs 必须严格等于本地 collated `input_ids`。生产代码不再折叠 image-token run。当前仍缺
   真实发布模型的吞吐与 HF/vLLM parity release gate。
+- 同一 producer 还提供 detection-only 的 prompt-only 贪心路径：一次 vLLM generation 同时保留原始伪标签、
+  completion token IDs 与逐 token `top-k + exact tail mass`。输出先经过严格 v5.8 detection schema 门禁，
+  parser 不修复也不重序列化；无效输出写入 bad-case sidecar，不进入正式 artifact。逐样本
+  `offline_kd_media_plan` 冻结 smart-resize 预算与目标尺寸，producer 和 `OfflineKDCollator` 都消费该计划，
+  因而不需要创建图片副本。生产调度使用 AsyncLLM：单样本 CPU 准备完成即提交，每个完成请求立即补位；
+  活跃请求数由 `scoring_batch_size` 限界。异步完成结果先进入有界重排缓冲，再按 source index 顺序提交
+  artifact writer，从而保留确定性输出与已有 resume cursor 语义。
 - artifact writer 从 resolved immutable model bytes 自动计算 teacher fingerprint；CLI 的 expected fingerprint
   只是可选断言。reader 会从 teacher/input ABI/input contract/distribution/build 重算 canonical
   `artifact_id`，并校验 shard checksum。

@@ -60,3 +60,32 @@ crop 和少量 hard-negative。数据增强 seed 保持 42，以复现 v5.8 基�
 - media：67,195 张派生媒体全部通过并行解码复验，错误为 0。
 - views：full 23,051、clean resize 20,571、degraded resize 17,218、padded 2,296、density crop
   3,444、hard negative 615。
+
+## Qwen3.5-4B 训练
+
+`configs/train/banana_sft_4b_qwen35_v5_9.yaml` 从原始 `Qwen3.5-4B` fresh training，继承 v5.8
+的 8×A800 全参 SFT、12,000 steps、global batch 64、8K 长度、保存和 batching 配置；v5.9 将主模型、
+vision tower 和 aligner 学习率统一提高 50%，分别设为 `3e-5`、`1.5e-5` 和 `3e-5`，并切换 v5.9
+experiment identity、catalog 与 media snapshot。
+
+```bash
+WANDB_MODE=offline CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 PYTHONUNBUFFERED=1 \
+uv run --no-sync torchrun --standalone --nnodes=1 --nproc-per-node=8 \
+  scripts/train.py sft \
+  --config configs/train/banana_sft_4b_qwen35_v5_9.yaml
+```
+
+## Qwen3.8-27B 训练
+
+`configs/train/banana_sft_27b_qwen38_v5_9_full_zero3.yaml` 从原始 `Qwen3.8-27B` fresh training，
+使用 8×A800、ZeRO-3、global batch 64 和 7K 长度。相对 v5.8，训练缩短为 8,000 steps；language
+model/vision/aligner LR 分别为 `2e-6`、`1.2e-6`、`4e-6`，warmup ratio 为 `0.13`，weight decay
+为 `0.003`。每 2,000 steps 保存一套 model-only HF checkpoint，共保留四套。
+
+```bash
+WANDB_MODE=offline PYTORCH_ALLOC_CONF=expandable_segments:True \
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 PYTHONUNBUFFERED=1 \
+uv run --no-sync torchrun --standalone --nnodes=1 --nproc-per-node=8 \
+  scripts/train.py sft \
+  --config configs/train/banana_sft_27b_qwen38_v5_9_full_zero3.yaml
+```

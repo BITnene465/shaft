@@ -85,10 +85,33 @@ def test_v5_7_training_configs_resolve_complete_dataset_and_prompt_contracts(
         assert pool.version == expected_version
 
 
-def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> None:
-    config = load_config(Path("configs/train/banana_sft_4b_v5_8_preparation.yaml"))
+def test_v5_8_qwen35_4b_config_freezes_training_and_prompt_contracts() -> None:
+    config = load_config(Path("configs/train/banana_sft_4b_qwen35_v5_8.yaml"))
 
+    assert config.experiment.name == "banana-v5.8-qwen35-4B"
+    assert config.experiment.output_dir == (
+        "outputs/qwen35vl-sft/4b/banana-v5.8-qwen35-4B"
+    )
     assert config.experiment.seed == 465
+    assert config.model.model_type == "qwen35vl"
+    assert config.model.model_name_or_path == "../models/Qwen3.5-4B"
+    assert config.model.template == "qwen35vl"
+    assert config.model.finetune.mode == "full"
+    assert config.train.duration.unit == "steps"
+    assert config.train.duration.value == pytest.approx(12_000)
+    assert config.train.warmup_ratio == pytest.approx(0.1)
+    assert config.train.weight_decay == pytest.approx(0.003)
+    assert config.train.save_steps == 2_000
+    assert config.train.save_total_limit == 10
+    assert config.train.save_only_model is False
+    assert config.train.save_final_model is False
+    assert config.train.save_final_state is True
+    assert config.train.distributed.strategy == "ddp"
+    assert config.train.distributed.ddp.static_graph is False
+    assert config.train.per_device_train_batch_size == 1
+    assert config.train.gradient_accumulation_steps == 8
+    assert config.data.batching.cardinality == "fixed"
+    assert config.data.batching.max_tokens_per_microbatch == 8_000
     assert tuple(dataset.dataset_name for dataset in config.data.datasets) == tuple(
         V5_8_POOL_FORMULATIONS
     )
@@ -111,6 +134,7 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
     dataset_weights = {
         dataset.dataset_name: dataset.weight for dataset in config.data.datasets
     }
+    assert dataset_weights["grounding_layout"] == pytest.approx(4.0)
     assert dataset_weights["line_context_reconstruction"] == pytest.approx(6.0)
     assert dataset_weights["line_context_points"] == pytest.approx(2.0)
     assert dataset_weights["background"] == pytest.approx(1.0)
@@ -147,6 +171,36 @@ def test_v5_8_preparation_config_freezes_formulation_and_prompt_contracts() -> N
     assert len(system_prompts) == 1
     assert next(iter(system_prompts)).startswith(
         "You are a specialized model for editable visual layout understanding"
+    )
+
+
+@pytest.mark.parametrize(
+    ("filename", "model_type", "steps", "strategy"),
+    (
+        ("banana_sft_4b_qwen35_v5_9.yaml", "qwen35vl", 12_000, "ddp"),
+        ("banana_sft_27b_qwen38_v5_9_full_zero3.yaml", "qwen38vl", 8_000, "deepspeed"),
+    ),
+)
+def test_v5_9_production_configs_resolve_frozen_data_contract(
+    filename: str,
+    model_type: str,
+    steps: int,
+    strategy: str,
+) -> None:
+    config = load_config(Path("configs/train") / filename)
+
+    assert config.model.model_type == model_type
+    assert config.train.duration.unit == "steps"
+    assert config.train.duration.value == pytest.approx(steps)
+    assert config.train.per_device_train_batch_size == 1
+    assert config.train.gradient_accumulation_steps == 8
+    assert config.train.distributed.strategy == strategy
+    assert tuple(dataset.dataset_name for dataset in config.data.datasets) == tuple(
+        V5_8_POOL_FORMULATIONS
+    )
+    assert tuple(config.data.catalog_names) == tuple(V5_8_POOL_FORMULATIONS)
+    assert config.data.media_snapshot_id == (
+        "banana-v5.9-v9-20260802-reviewed-real-v1-grounding-increment-v1"
     )
 
 

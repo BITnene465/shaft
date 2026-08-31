@@ -16,6 +16,27 @@
 
 ## P0：修正错误能力边界
 
+### 0. real_v2 与 active 训练集的图像重合
+
+状态：已完成只读审计，训练/评测隔离尚未修复；当前 real_v2 指标不能表述为严格无泄漏结果。
+
+- 当前 v5.9 正式六个 active source 中，real_v2 有 `200/250` 张图与 background 训练源文件完全一致；其中
+  `51/250` 张还以不同 ID 命中 frozen v5.8 grounding base。grounding 重合中的 1 张为整图 ignore，实际影响
+  当前 detection 评分的为 50 张。
+- 这 51 张 grounding 图在仓库现存 v5.7/v5.8 共用 grounding train 和 v5.9 合并 train 中均为 `51/51`
+  命中，因此现有跨版本模型没有“只让某一代接触重合图”的干净对照组；过滤前后分差不能解释为某一版本的
+  泄漏收益。
+- 完整命中样本清单保存在
+  `temp/data_leakage_audit_real_v1_v2_20260831/matched_eval_images.csv`；其中同时记录 real_v1 12 张和
+  real_v2 200 张、匹配训练文件及 active task。grounding 跨 ID 对照表保存在同目录的
+  `grounding_overlap_confirmed.csv`（real_v1 12 对、real_v2 51 对），完整审计数据在 `report.json`。
+- 为所有 active catalog source 建立统一的内容级 test denylist 和 fail-closed 构建门禁；同时检查 SHA256 与
+  pHash Hamming `<=6`，不能只检查新增 source 或 image ID。
+- 在不覆盖 raw truth 的前提下，从后续 train split/selection 中按源图 identity 排除 real_v1/real_v2 冲突组，
+  重建受影响的 structured/SFT，并验证所有 active source 对完整 eval 图库零内容重合。
+- 准备不参与任何历史训练的独立 detection/reconstruction 测试集，或用清洗训练集重新训练模型；完成前，现有
+  去重子集排名只能标记为 clean-subset 描述性结果，不能当作泄漏因果实验或严格无泄漏排行榜。
+
 ### 1. DPO/GRPO 的 FSDP + PEFT exact resume
 
 状态：未完成，当前不属于支持范围。

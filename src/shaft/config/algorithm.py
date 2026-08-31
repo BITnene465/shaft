@@ -141,7 +141,7 @@ register_algorithm_profile(
         domain="offline_kd",
         source_types=frozenset({"jsonl_offline_kd"}),
         config_normalizer=normalize_offline_kd_runtime_config,
-        supports_planned_batching=False,
+        supports_planned_batching=True,
         supports_online_eval=False,
     )
 )
