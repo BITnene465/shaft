@@ -24,6 +24,7 @@ from shaft.opd.input_abi import build_opd_input_abi
 def test_cpu_fake_teacher_producer_builds_training_ready_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_vllm_runtime: None,
 ) -> None:
     image_path = tmp_path / "image.png"
     Image.new("RGB", (8, 8), color=(5, 17, 29)).save(image_path)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -187,3 +189,23 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool 
 @pytest.fixture
 def repo_root() -> Path:
     return _TEST_ROOT.parent
+
+
+@pytest.fixture
+def fake_vllm_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide the vLLM request types used by injected-engine unit tests."""
+
+    class SamplingParams:
+        def __init__(self, **kwargs) -> None:
+            for name, value in kwargs.items():
+                setattr(self, name, value)
+
+    class RequestOutputKind:
+        FINAL_ONLY = "FINAL_ONLY"
+
+    vllm_module = ModuleType("vllm")
+    vllm_module.SamplingParams = SamplingParams
+    sampling_params_module = ModuleType("vllm.sampling_params")
+    sampling_params_module.RequestOutputKind = RequestOutputKind
+    monkeypatch.setitem(sys.modules, "vllm", vllm_module)
+    monkeypatch.setitem(sys.modules, "vllm.sampling_params", sampling_params_module)

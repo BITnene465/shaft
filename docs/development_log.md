@@ -6052,9 +6052,10 @@
 
 ### 现象
 
-- `framework-ci` 在 fresh checkout 中出现 6 个失败：v5.8 config contract 缺少
-  `background.v5.8.yaml`，5 个 injected-engine vLLM 单测因未安装 `vllm` 失败；framework 失败后 smoke 被
-  顺序跳过。
+- `framework-ci` 在 fresh checkout 中先出现 6 个 framework 失败：v5.8 config contract 缺少
+  `background.v5.8.yaml`，5 个 injected-engine vLLM 单测因未安装 `vllm` 失败；重构后的独立 smoke job 又
+  发现 producer smoke 中同类 optional-import 漂移。旧结构里 framework 失败后 smoke 被顺序跳过，无法一次
+  暴露完整失败集合。
 - 独立 `framework-runtime` 在约 10 分钟后才报告 rank-drift 负例未注入成功；该 workflow 没有进入稳定
   required 汇总。release 又单独维护更窄的 framework/smoke 命令，形成第三套门禁语义。
 
@@ -6078,8 +6079,8 @@
 
 - 将被公开 v5.8 配置引用的 background prompt pool 纳入 Git，并新增 tracked config → tracked prompt pool
   repository contract。
-- vLLM injected-engine 单测显式安装最小 `vllm`/`vllm.sampling_params` fake；distributed fault injection 改为
-  patch `ShaftSFTPipeline.build_data_collator` 当前扩展点。
+- vLLM injected-engine 单测统一消费 `tests/conftest.py` 中的最小 `vllm`/`vllm.sampling_params` fake；
+  distributed fault injection 改为 patch `ShaftSFTPipeline.build_data_collator` 当前扩展点。
 - 新增 `_framework-validation.yml` 作为 CI/CD validation 唯一真源：preflight、framework/smoke/task CPU
   matrix、convergence canary/manifest-driven remainder distributed 分片全部独立运行；外层仍保留
   `framework-ci / required` 稳定 context。
@@ -6099,3 +6100,25 @@
 - 扩展点重构后，所有 failure-injection 测试必须 patch 当前真源并先单独跑负例。CI/CD validation 命令只允许在
   reusable workflow 维护，distributed remainder 必须从 suite manifest 选取，branch protection 只绑定
   `framework-ci / required`。
+
+## 2026-09-03：将 reconstruction crop 并行准备收敛到正式评测入口
+
+### 现象
+
+- 16 卡图像退化评测在数据集切换时再次出现模型驻留但 GPU 利用率为 0%；进程停留在
+  `prepare-reconstruction`，复现了 2026-08-30 已记录的串行 crop 瓶颈。
+
+### 根因与影响范围
+
+- 之前的 50 进程方案只存在于一次性恢复脚本，正式 `run_layout_recognition_eval.py` 仍按图片串行处理；所有调用
+  该入口且在 GPU 驻留后准备大量 crop 的任务都会产生空等。模型、prompt、codec 与评分结果不受影响。
+
+### 修复方式
+
+- `prepare-reconstruction` 增加统一的进程池实现和 `--workers` 参数，默认 50；每张图独立生成 crop，主进程排序后
+  原子发布同一份 manifest，保持确定性和既有输出合同。
+
+### 回归测试与后续防线
+
+- 单测覆盖 2 进程下缺失 detection 的行为与 summary worker 记录；CLI 合同锁定默认 50。focused pytest 与 Ruff
+  通过。以后不得再用 task-local 并行 helper 绕过正式入口。
