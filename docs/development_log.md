@@ -6010,3 +6010,92 @@
 - 任何 task 脚本不得自行实现 Offline-KD manifest/shard writer；需要筛选或重排时仍由公共 writer 发布新
   artifact。所谓 resume 必须从首次运行就产生可校验 build-state，不能靠目录 glob 或行数推断。
 - 已发布数据 bundle 一律作为不可变输入；增量、过滤和格式迁移必须写显式新 output，并在完整校验后原子发布。
+
+## 2026-09-01：v5.9 横向比较混用了新旧 Detection evaluator
+
+### 现象
+
+- v5.9 2B/4B 的历史 `detection_score.json` 使用 evaluator `ee64a815...`，而后续 0.8B/27B 汇总使用
+  evaluator `5c39bd1f...` 与 GT revision `ce9e5ef2...`；直接抄取历史分数会得到 2B/4B 明显弱于 27B 的
+  错误结论。
+- 在同一新 evaluator 上重算现有 prediction 后，2B-ckpt10000、4B-ckpt12000、27B-ckpt8000 pooled F1
+  分别为 `0.864690/0.865822/0.863474`，实际处于同一平台。
+
+### 根因
+
+- 旧 evaluator 尚未采用当前 ignore sample/region protocol 和统一 GT revision；横向汇总没有把 evaluator hash、
+  GT revision 作为强制 join key。这是 `eval/data` 口径造成的误判，不是模型能力突变。
+
+### 影响范围
+
+- 影响此前直接比较 2B/4B 历史 score 与 0.8B/27B 新 score 的排名：2B-ckpt10000 从旧口径
+  `0.828311` 变为 `0.864690`，4B-ckpt12000 从 `0.831153` 变为 `0.865822`。
+- 不影响 prediction JSON、模型权重和同一 evaluator 内部的 checkpoint 趋势。
+
+### 修复方式
+
+- 本次横向结论统一使用 evaluator `5c39bd1f...` 与同一 real_v1/real_v2 GT 快照重算；旧 score 只保留为历史
+  artifact，不再进入跨模型排行。
+
+### 回归测试
+
+- 对 2B-ckpt10000/12000、4B-ckpt8000/10000/12000 的现有 prediction 执行统一 CPU 重算；统一口径下最优
+  2B/4B 分别为 ckpt10000/ckpt12000，parse-ok rate 为 `1.0/1.0`。
+- 与已有 0.8B、27B 当前 evaluator score 核对 evaluator hash、GT revision、pixel budget 和数据集集合。
+
+### 后续防线
+
+- 任何跨 run 排名表必须先验证 evaluator hash、GT revision、ignore protocol、prompt/pixel/decoding 合同一致；
+  任一字段不同就必须重算，不能将目录中的 `score.json` 视为天然可比。
+
+## 2026-09-03：CI fresh checkout 与本机环境语义不一致，distributed 回归未进入 required gate
+
+### 现象
+
+- `framework-ci` 在 fresh checkout 中出现 6 个失败：v5.8 config contract 缺少
+  `background.v5.8.yaml`，5 个 injected-engine vLLM 单测因未安装 `vllm` 失败；framework 失败后 smoke 被
+  顺序跳过。
+- 独立 `framework-runtime` 在约 10 分钟后才报告 rank-drift 负例未注入成功；该 workflow 没有进入稳定
+  required 汇总。release 又单独维护更窄的 framework/smoke 命令，形成第三套门禁语义。
+
+### 根因
+
+- tracked 训练配置引用了被 `.gitignore` 隐藏的 prompt pool；本机文件存在掩盖了 clean checkout 缺失。
+- vLLM 测试虽然注入 fake engine，执行路径仍动态 import `SamplingParams`；开发机已安装的 `serve` extra 掩盖了
+  单测对 optional package 的依赖。
+- Offline-KD 扩展引入 `ShaftSFTPipeline.build_data_collator`/`collator_cls` 真源后，distributed fault test 仍
+  patch 旧的模块级 `SFTCollator` alias，负例实际未触发。
+- CI 将多个 suite 串在一个 job，distributed 另起非 required workflow；CD 再复制部分命令，失败隔离、状态汇总
+  和 release 一致性均不足。
+
+### 影响范围
+
+- 影响 commit `cb04d5c` 的 GitHub-hosted framework/distributed 结果；不代表 vLLM Offline-KD 实现本身要求在
+  CPU unit-test runner 安装完整 vLLM，也不代表 distributed failure convergence 的生产实现失效。
+- 旧 required check 无法证明 task/distributed 通过，release validation 也弱于仓库实际测试分层。
+
+### 修复方式
+
+- 将被公开 v5.8 配置引用的 background prompt pool 纳入 Git，并新增 tracked config → tracked prompt pool
+  repository contract。
+- vLLM injected-engine 单测显式安装最小 `vllm`/`vllm.sampling_params` fake；distributed fault injection 改为
+  patch `ShaftSFTPipeline.build_data_collator` 当前扩展点。
+- 新增 `_framework-validation.yml` 作为 CI/CD validation 唯一真源：preflight、framework/smoke/task CPU
+  matrix、convergence canary/manifest-driven remainder distributed 分片全部独立运行；外层仍保留
+  `framework-ci / required` 稳定 context。
+- release 在 tag/version 检查后复用同一 validation，仅 validation 全绿才构建、clean-venv import、生成校验和
+  并以最小写权限发布。
+
+### 回归测试
+
+- focused 回归覆盖 v5.8 config、5 个无真实 vLLM 的 Offline-KD 单测和 2-rank rank-drift convergence canary。
+- 执行 framework、smoke、task 与 distributed 对应 suite/分片；ruff、compileall、workflow YAML parse、wheel
+  build 与 clean-venv import 作为提交前门禁。
+
+### 后续防线
+
+- 新增 tracked 配置时，任何仓库内 prompt asset 都必须同时 tracked；optional backend 单测必须在该依赖缺席时
+  仍能通过 fake/module boundary。
+- 扩展点重构后，所有 failure-injection 测试必须 patch 当前真源并先单独跑负例。CI/CD validation 命令只允许在
+  reusable workflow 维护，distributed remainder 必须从 suite manifest 选取，branch protection 只绑定
+  `framework-ci / required`。

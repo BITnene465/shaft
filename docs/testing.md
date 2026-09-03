@@ -21,15 +21,15 @@ Framework suite membership 的唯一真源是 `tests/conftest.py` 中的 `_SUITE
 | --- | --- | --- |
 | `framework` | config/data/model/template/pipeline/training/infer/eval/export CPU 功能契约 | 是 |
 | `smoke` | tiny/fake SFT、DPO/PPO/GRPO、online eval 最短主链，以及轻量 rank-zero console 契约 | 是 |
-| `distributed` | DeepSpeed/FSDP/torchrun runtime contract，含同机双 agent 多节点 Gloo | 否，独立 workflow |
+| `distributed` | DeepSpeed/FSDP/torchrun runtime contract，含同机双 agent 多节点 Gloo | 是，独立分片 |
 | `integration` | 真实模型、真实推理服务或仓库 fixture 主链 | 否 |
 | `gpu` | CUDA kernel、FlashAttention 等 GPU runtime | 否 |
-| `task` | 临时数据构建、迁移与 review task | 否 |
+| `task` | tracked 数据构建、迁移与 review task 工具合同 | 是 |
 | `visual` | render/overlay/dashboard 观感检查 | 否 |
 
-required 的 framework/smoke 绿灯只证明 CPU contract 与 tiny/fake 最短主链。当前 DPO、GRPO 没有完整真实 Qwen
-训练 release gate，PPO 只做 debug smoke；distributed、integration、GPU 和真实模型证据必须单独查看，不能由
-required CI 外推。未完成门禁只维护在 [TODO.md](TODO.md)。
+required 绿灯证明 CPU framework/smoke/task 合同和 GitHub-hosted Gloo/torchrun distributed 合同。当前 DPO、
+GRPO 没有完整真实 Qwen 训练 release gate，PPO 只做 debug smoke；integration、GPU、真实多机网络和真实模型
+证据仍必须单独查看，不能由 required CI 外推。未完成门禁只维护在 [TODO.md](TODO.md)。
 
 Suite 负责“运行哪批文件”。pytest marker 仅补充描述 `unit/component/contract/smoke/integration/manual`
 等测试属性，不再决定 required gate membership。
@@ -86,17 +86,19 @@ uv run --locked python -m compileall -q src/shaft tests
 
 ## 4. GitHub Actions
 
-### 4.1 Required framework gate
+### 4.1 Shared validation 与 required gate
 
-`.github/workflows/framework-ci.yml` 对所有 PR、`main` push 和手动触发运行：
+`.github/workflows/_framework-validation.yml` 是 CI 与 release 共用的唯一 validation 真源；
+`.github/workflows/framework-ci.yml` 对所有 PR、`main` push 和手动触发调用它，并保留稳定的外部 required
+context：
 
 - `uv lock --check`，拒绝过期 lockfile。
-- 使用 `uv sync --locked --extra dev --extra train --extra rlhf` 创建不含 DeepSpeed 的 core 环境。
-- 运行 ruff、compileall 和 workflow YAML parse。
-- 构建 wheel，验证标准 Python package artifact。
-- 运行 `framework` 与 CPU `smoke` suites。
-- 保存 JUnit XML artifacts，所有 job 都有明确 timeout。
-- 最终 `required` job 汇总内部 required jobs。
+- `preflight` 独立运行 ruff、compileall、workflow YAML parse 和 wheel build。
+- `framework`、`smoke`、`task` 三个 CPU suite 使用 `fail-fast: false` matrix 并行运行；一个失败不会遮蔽其余结果。
+- distributed 测试拆成 convergence canary 与 `--suite distributed` remainder 两个分片；rank-drift 负例先
+  单独报错，其余用例仍从 suite manifest 自动选取，不复制文件清单。
+- 所有 pytest job 使用显式 lock 环境、独立 timeout、faulthandler（distributed）与独立 JUnit artifact。
+- reusable workflow 的整体结果由 GitHub 原生汇总；只有外层 `required` 提供稳定 branch-protection context。
 
 Branch protection 只绑定稳定 context：
 
@@ -104,21 +106,32 @@ Branch protection 只绑定稳定 context：
 framework-ci / required
 ```
 
-内部 job 可拆分或改名，但不得随意改变这个外部门禁名称。
+内部 matrix、分片和 job 可继续演进，但不得随意改变这个外部门禁名称。
 
 Required workflow 不使用 PR path filter。GitHub 在整个 required workflow 因 path filter 未触发时，
 可能让 required check 长期 pending。非 required workflow 才按路径过滤。
 
-### 4.2 Distributed/runtime
+### 4.2 Hermetic contract
 
-`.github/workflows/framework-runtime.yml` 是非 required 的 focused workflow：
+required 测试必须能在 fresh checkout 和未安装 optional runtime 的环境执行：
 
-- 安装 `distributed` extra。
-- 运行 `--suite distributed`。
-- 覆盖 DeepSpeed 配置激活、global state 清理、TRL 参数传递和 CPU torchrun canary。
+- tracked 训练配置引用的仓库内 prompt pool 必须同样被 Git 跟踪；`test_config_loader.py` 负责检查。
+- 使用 injected fake engine 的 vLLM 单元测试必须同时提供最小 module fake，不能借用开发机已经安装的
+  `serve` extra。
+- 测试 fault injection 必须 patch 当前 extension hook 或注册真源，不能 patch 已不再消费的旧 import alias。
+
+Distributed required 分片安装 `distributed` extra，并覆盖 DeepSpeed 配置激活、global state 清理、TRL 参数
+传递和 CPU torchrun canary。它还：
+
 - 用两个独立 static-rendezvous launcher 模拟 `2 nodes x 2 processes`，覆盖 global/local/group rank 轴、
   bounded SFT committed checkpoint 与 `full_determinism + DDP static_graph` bitwise exact resume；该测试不
   声称覆盖真实跨主机网络、NCCL 或节点文件系统。
+
+### 4.3 Release gate
+
+`.github/workflows/release.yml` 先校验 tag 与 package version，再调用同一 reusable validation。validation 全绿后
+才构建 sdist/wheel、在干净 venv 安装并 import wheel、生成 `SHA256SUMS`；只有 tag run 可以进入最小
+`contents: write` 权限的 GitHub Release publish job。手动触发只产出 package artifact，不发布 release。
 
 真实 GPU、FlashAttention、真实模型与外部推理服务继续通过 `gpu/integration` suite 人工或专用 runner
 执行，不在 GitHub-hosted CPU runner 上伪造通过。

@@ -60,6 +60,7 @@ configs/prompts/**/*.yaml
 !configs/prompts/pools/line_context_reconstruction.v5.7.yaml
 !configs/prompts/pools/line_context_points.v5.7.yaml
 !configs/prompts/pools/image_context_reconstruction.v5.3.yaml
+!configs/prompts/pools/background.v5.8.yaml
 configs/train/*.yaml
 !configs/train/sft_4b.yaml
 !configs/train/dpo_4b.yaml

@@ -710,6 +710,19 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - 单个模型族的细粒度 `processor_kwargs`
 - 临时 smoke model / smoke template 能力
 
+### 8.3 CI/CD validation 边界
+
+- `.github/workflows/_framework-validation.yml` 是 CI 与 release 的 validation 唯一真源，负责 preflight、
+  CPU suite matrix 和 distributed 分片；release 不得复制一套更窄的测试命令。
+- `tests/conftest.py` 的 suite manifest 继续是测试归属真源。distributed 只额外抽出一个高价值 convergence
+  canary，其余测试仍通过 `--suite distributed` 选择，避免 workflow 维护第二份文件清单。
+- `.github/workflows/framework-ci.yml` 只负责编排 reusable validation，并用
+  `framework-ci / required` 提供唯一稳定 branch-protection context。
+- `.github/workflows/release.yml` 只在同一 validation 全绿后构建和验证 package；发布写权限只存在于 tag
+  publish job。GitHub-hosted CPU/Gloo 证据不能替代 integration、GPU、真实多机网络或真实模型 gate。
+- required 测试以 fresh checkout 为合同：tracked config 的仓库内依赖必须 tracked，optional backend unit
+  test 必须在 optional package 缺席时使用显式 fake boundary。
+
 ## 9. 当前明确受限的能力
 
 - DPO/GRPO 仍是实验能力；配置、数据和 trainer 装配通过不等于真实 Qwen release gate。FSDP+PEFT exact

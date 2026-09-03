@@ -51,7 +51,7 @@ def _expect_sft_pipeline_setup_failure(
 
     config = _load_shared_sft_config(root / mode)
     original_build_metadata = sft_module.build_batching_run_metadata
-    original_collator = sft_module.SFTCollator
+    original_build_data_collator = sft_module.ShaftSFTPipeline.build_data_collator
     original_stage = sft_module.distributed_training_contract_stage
     status_stage_depth = 0
 
@@ -89,14 +89,10 @@ def _expect_sft_pipeline_setup_failure(
             raise ValueError("intentional rank-one metadata build failure")
         return original_build_metadata(*args, **kwargs)
 
-    def _collator_with_rank_failure(*args, **kwargs):
+    def _build_data_collator_with_rank_failure(self, **kwargs):
         if mode == "trainer_input" and dist.get_rank() == 1:
             raise ValueError("intentional rank-one trainer input failure")
-        return original_collator(*args, **kwargs)
-
-    _collator_with_rank_failure.SHAFT_INPUT_POLICY_VERSION = (  # type: ignore[attr-defined]
-        original_collator.SHAFT_INPUT_POLICY_VERSION
-    )
+        return original_build_data_collator(self, **kwargs)
 
     failure_message: str | None = None
     with (
@@ -108,7 +104,10 @@ def _expect_sft_pipeline_setup_failure(
             "shaft.pipeline.sft.build_batching_run_metadata",
             _build_metadata_with_rank_failure,
         ),
-        patch("shaft.pipeline.sft.SFTCollator", _collator_with_rank_failure),
+        patch(
+            "shaft.pipeline.sft.ShaftSFTPipeline.build_data_collator",
+            _build_data_collator_with_rank_failure,
+        ),
         patch(
             "shaft.pipeline.sft.distributed_training_contract_stage",
             _tracked_status_stage,

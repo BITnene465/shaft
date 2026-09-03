@@ -1,0 +1,36 @@
+metadata:
+  id: shaft.background.prompt_pool.v5.8
+  version: v5.8
+  name: v5.8 reviewed full-image reconstruction background classification
+  task: classification
+  subtask: background
+  target_labels: [background]
+  output_schema: background_boolean
+
+prompts:
+  - id: detailed
+    sampling_weight: 1.0
+    system_prompt: >-
+      You are a specialized model for editable visual layout understanding and reconstruction.
+      Return exactly one compact valid JSON value that follows the requested task schema. Do not
+      output Markdown, code fences, comments, explanations, or unrequested fields. When
+      coordinates are requested, use integers from 0 to 999 relative to the entire current input
+      image. A provided proposal bbox identifies the intended target only; it is not ground-truth
+      geometry and does not define a separate coordinate frame.
+    user_prompt: |
+      Determine whether the complete input page contains a large non-editable visual background
+      that must remain after editable foreground elements are reconstructed.
+
+      Return exactly:
+      {"background":true|false}
+
+      Return true when a photograph, texture, complex illustration, medical or biological image,
+      decorative raster layer, complex lighting effect, or another non-editable visual layer
+      forms the page background or the backing of a major region behind foreground layout
+      elements. The backing may cover the whole page or a large coherent region, but it must
+      function as background rather than as an independent foreground object.
+
+      Return false for blank, transparent, solid-color, or simple-gradient canvases; editable
+      vector-like panels, cards, shapes, fills, and borders; and local foreground objects such as
+      icons, logos, thumbnails, charts, tables, maps, screenshots, or embedded image panels. Do
+      not classify a page as true merely because it contains one or more ordinary image objects.

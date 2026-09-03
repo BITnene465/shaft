@@ -4,7 +4,8 @@ import asyncio
 import hashlib
 import json
 from pathlib import Path
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 from PIL import Image
 import pytest
@@ -53,6 +54,24 @@ from shaft.template import (
 )
 from shaft.training.distribution_loss import DistributionLossComponents, TeacherDistribution
 from shaft.training.sft_trainer import ShaftSFTTrainer
+
+
+@pytest.fixture
+def fake_vllm_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    class SamplingParams:
+        def __init__(self, **kwargs) -> None:
+            for name, value in kwargs.items():
+                setattr(self, name, value)
+
+    class RequestOutputKind:
+        FINAL_ONLY = "FINAL_ONLY"
+
+    vllm_module = ModuleType("vllm")
+    vllm_module.SamplingParams = SamplingParams
+    sampling_params_module = ModuleType("vllm.sampling_params")
+    sampling_params_module.RequestOutputKind = RequestOutputKind
+    monkeypatch.setitem(sys.modules, "vllm", vllm_module)
+    monkeypatch.setitem(sys.modules, "vllm.sampling_params", sampling_params_module)
 
 
 def _abi(*, vocab_size: int = 5, token_fingerprint: str = "1" * 64) -> ShaftOPDInputABI:
@@ -1212,7 +1231,9 @@ def test_detection_pseudo_label_validator_is_strict_and_keeps_raw_order() -> Non
         validate_detection_pseudo_label("```json\n[]\n```")
 
 
-def test_vllm_greedy_generator_returns_same_pass_tokens_and_topk_tail() -> None:
+def test_vllm_greedy_generator_returns_same_pass_tokens_and_topk_tail(
+    fake_vllm_runtime: None,
+) -> None:
     image = Image.new("RGB", (32, 32))
 
     def value(probability: float):
@@ -1268,7 +1289,9 @@ def test_vllm_greedy_generator_returns_same_pass_tokens_and_topk_tail() -> None:
     )
 
 
-def test_vllm_async_greedy_generator_returns_final_topk_tail() -> None:
+def test_vllm_async_greedy_generator_returns_final_topk_tail(
+    fake_vllm_runtime: None,
+) -> None:
     image = Image.new("RGB", (32, 32))
 
     def value(probability: float):
@@ -1326,7 +1349,9 @@ def test_vllm_async_greedy_generator_returns_final_topk_tail() -> None:
     assert engine.shutdown_called is True
 
 
-def test_vllm_scorer_uses_prompt_logprobs_and_preserves_exact_tail_mass() -> None:
+def test_vllm_scorer_uses_prompt_logprobs_and_preserves_exact_tail_mass(
+    fake_vllm_runtime: None,
+) -> None:
     resized_image = Image.new("RGB", (64, 32))
 
     class Engine:
@@ -1390,7 +1415,9 @@ def test_vllm_scorer_uses_prompt_logprobs_and_preserves_exact_tail_mass() -> Non
     assert distribution.tail_log_probs.exp().tolist() == pytest.approx([0.2, 0.2])
 
 
-def test_vllm_scorer_rejects_double_image_placeholder_expansion() -> None:
+def test_vllm_scorer_rejects_double_image_placeholder_expansion(
+    fake_vllm_runtime: None,
+) -> None:
     class Engine:
         @staticmethod
         def generate(prompts, params, use_tqdm):
@@ -1434,7 +1461,9 @@ def test_vllm_scorer_rejects_double_image_placeholder_expansion() -> None:
         )
 
 
-def test_vllm_topk_temperature_projection_requests_full_vocabulary() -> None:
+def test_vllm_topk_temperature_projection_requests_full_vocabulary(
+    fake_vllm_runtime: None,
+) -> None:
     probabilities = [0.4, 0.3, 0.15, 0.1, 0.05]
 
     class Engine:

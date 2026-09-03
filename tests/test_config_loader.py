@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+import subprocess
 
 import pytest
+import yaml
 
 from shaft.config import RuntimeConfig, TrainDDPConfig, TrainDistributedConfig, load_config
 from shaft.data import load_prompt_source_pool
@@ -45,6 +47,50 @@ V5_8_ELIGIBLE_FORMULATIONS = {
     "line_context_points": ("points",),
     "image_context_reconstruction": ("image_type",),
 }
+
+
+def test_tracked_train_configs_only_reference_tracked_prompt_pools(repo_root: Path) -> None:
+    tracked_config_paths = subprocess.run(
+        ["git", "ls-files", "configs/train/*.yaml"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    tracked_paths = set(
+        subprocess.run(
+            ["git", "ls-files"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    missing: list[str] = []
+    untracked: list[str] = []
+
+    for relative_config_path in tracked_config_paths:
+        config_path = repo_root / relative_config_path
+        payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        prompt_sources = (payload.get("data") or {}).get("prompt_sources") or {}
+        for source in prompt_sources.values():
+            raw_path = source.get("path") if isinstance(source, dict) else None
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                continue
+            prompt_path = (config_path.parent / raw_path).resolve()
+            try:
+                relative_prompt_path = prompt_path.relative_to(repo_root).as_posix()
+            except ValueError:
+                continue
+            if not prompt_path.is_file():
+                missing.append(f"{relative_config_path} -> {relative_prompt_path}")
+            elif relative_prompt_path not in tracked_paths:
+                untracked.append(f"{relative_config_path} -> {relative_prompt_path}")
+
+    assert not missing, f"Tracked train configs reference missing prompt pools: {missing}"
+    assert not untracked, f"Tracked train configs reference untracked prompt pools: {untracked}"
+
+
 V5_8_FORMULATION_WEIGHTS = {
     "grounding_layout": (1.0,),
     "background": (1.0,),
