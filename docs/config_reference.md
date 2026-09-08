@@ -2012,6 +2012,10 @@ v5.10 离线准备配置位于 `configs/data/preparation/banana_v5_10.json`，�
 `configs/data/preparation/banana_v5_10_line_preview.json` 只由 line 校准预览脚本消费，
 固定强度和 clean twin 服务对照检查，不注册为训练增强 profile，不改变既有 shape 数据。
 
+Line 生产参数单独位于 `configs/data/preparation/banana_v5_10_line.json`，由
+`prepare_banana_v5_10_lines.py` 消费：JPEG quality 40–90、4:4:4 与轻噪声单选，极小目标允许 clean；
+不使用预览的强模糊/三操作组合，不修改训练内核。具体采样和复现命令见 v5.10 任务文档。
+
 `configs/data/banana_v5_9.yaml` 是 v5.8 的 grounding-only 增量 catalog：只有 `grounding_layout` 指向
 `data/banana_v5_9/grounding_layout/sft`，其余数据源、权重和 PromptSource 继续复用 v5.8。完整 source
 门禁、增强和重建命令见 `scripts/tasks/banana_v5_9.md`。

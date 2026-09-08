@@ -12,6 +12,7 @@ import hashlib
 import importlib.metadata
 import json
 import math
+import os
 from pathlib import Path
 import platform
 import shutil
@@ -279,13 +280,14 @@ def check_media(item):
     return relative, sha(path)
 
 
-def verify_task(root, workers):
+def verify_task(root, workers, *, label="shape", formulations=FORMULATIONS):
+    root = root.resolve()
     media, ids = [], set()
     with ExitStack() as stack:
         structured = stack.enter_context((root / "structured/train.jsonl").open())
         stores = [
             stack.enter_context((root / f"sft/formulations/{f}/train.jsonl").open())
-            for f in FORMULATIONS
+            for f in formulations
         ]
         for line in structured:
             row = json.loads(line)
@@ -294,25 +296,29 @@ def verify_task(root, workers):
             ids.add(row["sample_id"])
             source = row["instances"][0]["parameters"]
             siblings = []
-            for formulation, stream in zip(FORMULATIONS, stores):
+            for formulation, stream in zip(formulations, stores):
                 sft = json.loads(next(stream))
                 target = json.loads(sft.pop("target_text"))
                 expected = {
-                    "type": "shape",
-                    "parameters": builder._formulation_parameters("shape", formulation, source),
+                    "type": label,
+                    "parameters": builder._formulation_parameters(label, formulation, source),
                 }
                 if target != expected or sft["sample_id"] != row["sample_id"]:
                     raise ValueError("Target/identity mismatch")
-                path = (root / f"sft/formulations/{formulation}" / sft["image_path"]).resolve()
-                if path != (root / "structured" / row["image_path"]).resolve():
+                path = Path(
+                    os.path.abspath(root / f"sft/formulations/{formulation}" / sft["image_path"])
+                )
+                if path != Path(os.path.abspath(root / "structured" / row["image_path"])):
                     raise ValueError("SFT media mismatch")
                 siblings.append(sft)
             if not all(s == siblings[0] for s in siblings):
                 raise ValueError("Formulation identity mismatch")
-            relative = (
-                (root / "structured" / row["image_path"]).resolve().relative_to(root.resolve())
+            relative = Path(os.path.abspath(root / "structured" / row["image_path"])).relative_to(
+                root
             )
             media.append((root, str(relative), [row["image_width"], row["image_height"]]))
+            if len(ids) % 25000 == 0:
+                print(f"verify aligned rows {len(ids)}", flush=True)
         if any(stream.read(1) for stream in stores):
             raise ValueError("Extra formulation rows")
     hashes = {}

@@ -76,6 +76,106 @@ def test_line_preview_is_deterministic_and_size_preserving():
             b.close()
 
 
+def test_line_single_pixel_policy_and_strict_quantization():
+    import json
+    import pytest
+
+    m = _module()
+    policy = json.loads((m.REPO / "configs/data/preparation/banana_v5_10_line.json").read_text())[
+        "pixel_policy"
+    ]
+    qualities = set()
+    for index in range(2000):
+        plan = m.builder._sample_single_pixel_plan(
+            policy=policy,
+            sample_id=str(index),
+            seed=465,
+            image_size=(200, 200),
+            target_size=(100, 100),
+        )
+        assert len(plan["operations"]) == 1
+        op = plan["operations"][0]
+        if op["name"] == "jpeg_compression":
+            qualities.add(op["quality"])
+            assert op["subsampling"] == 0
+        else:
+            assert op["name"] == "gaussian_noise" and 0.5 <= op["sigma_255"] <= 1.5
+    assert qualities == set(range(40, 91))
+    assert not m.builder._sample_single_pixel_plan(
+        policy=policy, sample_id="tiny", seed=465, image_size=(200, 200), target_size=(1, 100)
+    )["operations"]
+    with pytest.raises(ValueError, match="collision"):
+        m.builder._line_parameters(
+            {"points": [[[0, 0], [0.1, 0.1], [500, 500], [999, 999]]]},
+            left=0,
+            top=0,
+            crop_width=1000,
+            crop_height=1000,
+            strict=True,
+        )
+
+
+def test_line_production_small_build(tmp_path):
+    import json
+    import subprocess
+    from PIL import Image
+
+    m = _module()
+    root = tmp_path / "source"
+    (root / "gt_standard").mkdir(parents=True)
+    (root / "img").mkdir()
+    (root / "train.txt").write_text("a\n")
+    (root / "val.txt").write_text("b\n")
+    excluded = tmp_path / "excluded.txt"
+    excluded.write_text("test\n")
+    p = {
+        "line_type": "straight",
+        "line_style": "path",
+        "is_single": True,
+        "points": [[[10, 10], [70, 70]]],
+        "dash_style": "solid",
+        "begin_arrow": "none",
+        "end_arrow": "triangle",
+        "fill": {"type": "uniform", "color": "#111111"},
+        "border": {"type": "none"},
+    }
+    (root / "gt_standard/a.json").write_text(
+        json.dumps(
+            {
+                "size": [100, 100],
+                "layout": [{"type": "line", "bbox": [10, 10, 70, 70], "parameters": p}],
+            }
+        )
+    )
+    with Image.new("RGB", (100, 100), "white") as image:
+        image.save(root / "img/a.png")
+    output = tmp_path / "output"
+    subprocess.run(
+        [
+            sys.executable,
+            str(m.REPO / "scripts/tasks/prepare_banana_v5_10_lines.py"),
+            "--synthetic-root",
+            str(root),
+            "--exclude-manifests",
+            str(excluded),
+            "--output-root",
+            str(output),
+            "--work-root",
+            str(tmp_path / "work"),
+            "--workers",
+            "2",
+        ],
+        check=True,
+        timeout=180,
+    )
+    task = output / "line_context_reconstruction"
+    assert json.loads((task / "reports/reproduction_result.json").read_text())["rows"] == 1
+    assert json.loads((task / "reports/rejected_views.json").read_text()) == []
+    for formulation in ("appearance", "points", "reconstruction"):
+        row = json.loads((task / f"sft/formulations/{formulation}/train.jsonl").read_text())
+        assert json.loads(row["target_text"])["type"] == "line"
+
+
 def test_quotas_are_order_independent_and_capacity_bounded():
     m = _module()
     capacities = {"a": 100, "b": 2, "c": 37}

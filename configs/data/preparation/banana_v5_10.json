@@ -16,7 +16,7 @@
   },
   "tasks": {
     "shape_context_reconstruction": "build_from_v10",
-    "line_context_reconstruction": "pending_sampling_agreement",
+    "line_context_reconstruction": "build_with_banana_v5_10_line_recipe",
     "line_context_points": "pending_synthetic_supplement_agreement",
     "grounding_layout": "inherit_v5_9_frozen_raw_and_split",
     "background": "requires_reviewed_historical_inputs",

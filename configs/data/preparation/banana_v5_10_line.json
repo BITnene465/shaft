@@ -1,0 +1,15 @@
+{
+  "version": "banana-v5.10-line-v1",
+  "seed": 465,
+  "snapshot": "regulated_layout_dataset_v10_20260830-gt-df3f66d8e661b60641dc8d10a6f65d7a98dcaab8",
+  "sampling": {"complex_single_target": 200000, "simple_single_target": 30000, "protect_stratum_max_count": 256},
+  "pixel_policy": {
+    "id": "banana-v5.10-line-single-v1",
+    "jpeg_probability": 0.8,
+    "jpeg_quality": [40, 90],
+    "noise_sigma": [0.5, 1.5],
+    "clean_short_edge_px": 16
+  },
+  "prompt_pool": "configs/prompts/pools/line_context_reconstruction.v5.8.yaml",
+  "formulations": ["appearance", "points", "reconstruction"]
+}

@@ -13,7 +13,7 @@ Git `v5.10` tag 只在整套流程完成、验收并提交后创建；当前 sha
 | 任务 | 输入真源 | 当前状态 |
 | --- | --- | --- |
 | shape_context_reconstruction | 修正后的 V10 GT + 原始 img + train/val | 已生成、全量验收并发布 |
-| line_context_reconstruction | 相同 V10 快照 | 待确定采样数量后接入版本入口 |
+| line_context_reconstruction | 相同 V10 快照 | 已生成、全量验收并发布 |
 | line_context_points | compact real raw + V10 多叉 line | 待确定合成补充量后接入 |
 | grounding_layout | v5.9 冻结 raw、增量标注及 split | 继承规则，仍需冻结本版复现输入 |
 | background | 历史人工审核标签及经过验证的历史媒体 | 沿用；必须提供历史输入，不能从 V10 猜测 |
@@ -50,6 +50,8 @@ Git `v5.10` tag 只在整套流程完成、验收并提交后创建；当前 sha
 - 使用既有 `synthetic_realism_v1`：1–3 个尺寸不变操作；重采样往返、模糊、噪声、JPEG。
   强度由目标在 crop 内的跨度决定，极小目标仅一次轻度操作，完整参数和 noise seed 写入每行 extra。
   参数真源是冻结哈希的 `src/shaft/data/synthetic_realism.py`；不在训练时重复离线噪声。
+- 已发布 shape 的 JPEG quality 为 mild 82–95、moderate 62–84、strong 42–68，总范围 42–95；
+  只有选到 JPEG 的样本应用此项，不等于所有 shape 图片都经过 JPEG，也不是统一均匀分布。
 - Proposal/crop 复用维护中的几何合同；完整 target 与 proposal 都使用 crop 的 0–999 坐标系。
 - 不改变原图尺寸、不改原图标注；空 val 表示 train-only，V10 val 不进入本轮训练产物。
 
@@ -117,6 +119,45 @@ uv run --no-sync python scripts/tasks/preview_banana_v5_10_lines.py \
 密集多路径 `024568__line_0022` 的浅色细分支在强模糊下变弱。
 结论仅支持 line 单独校准强度，不能外推为已测得准确率损失或已冻结生产概率。
 建议弱线/小端点优先轻度、普通清晰线以轻中度为主；强度较高组合仅在可辨认性确认后少量采用。
+
+### Line 生产策略（覆盖上述校准建议）
+
+用户最终确认：不再增加人工对照负担，关闭 blur、重采样、颜色扰动及多操作叠加；
+JPEG quality 覆盖 **40–90**，不是 90–97，也不是压缩后文件大小比例。
+配置真源为 `configs/data/preparation/banana_v5_10_line.json`：
+
+- 多路径有效实例全保留；单路径完整属性 stratum 数量不超过 256 的优先全保留。
+- 复杂单路径目标 200,000、普通简单单路径目标 30,000；稀有保护量超过目标时不截断稀有实例。
+- 非极小目标按 80% JPEG、20% Gaussian noise 的显式默认概率单选。
+  JPEG 为 40–90 整数均匀分布、`subsampling=0`（4:4:4）；噪声 sigma 为 0.5–1.5/255。
+- 原始 bbox 短边小于 16 像素的目标保持 clean；这是保守尺寸代理，不声称测量了实际笔画宽度。
+- 这条用户确认的 v5.10 line 规则有意允许 clean，覆盖历史“每个合成 crop 必须加噪”的默认要求。
+- Locator 额外留 2px 可见边缘，不改源 GT/points；原始 bbox 单独记录在 `source_bbox_raw`。
+- 曲线/折线量化发生连续点重合时拒绝该 view 并报告，不静默删点；未知构建错误直接中止。
+- 复用既有像素操作执行器，使用单独 `policy_id` 区分采样策略；shape 策略与已发布图片不变。
+- 当前入口只生成 full-capable synthetic line 的三个 formulation，不重新生成真实 points-only cohort。
+
+```bash
+uv run --no-sync python scripts/tasks/prepare_banana_v5_10_lines.py \
+  --synthetic-root /path/to/v10 \
+  --exclude-manifests /path/to/real_v1.ids.txt /path/to/real_v2.ids.txt /path/to/vlm.test.json \
+  --work-root data/.build/banana-v5.10-line \
+  --output-root data --workers 50 --replace
+```
+
+使用新的 work-root；准备、输入校验、生成、全量验收和发布一次完成。源数据和旧正式目录不提前删除。
+最终 `reports` 包含 recipe/环境/输入与代码哈希、拒绝 view、生成统计和内容校验结果。
+SHA256 和可解码性证明内容一致与媒体有效，不代表所有视觉属性已经自动证明可辨认。
+已完成 shape 与校准代码的历史基线提交为 `92cf188`；整版 `v5.10` tag 仍待各任务完成。
+
+生产完成基线：348,768 张共享 crop，appearance/points/reconstruction 各 348,768 行，
+总 SFT 1,046,304 行；118,768 条有效多路径全保留，复杂单路径 200,000，普通单路径 30,000。
+量化拒绝 view 为 0，静默删除点为 0。JPEG 243,732、noise 61,250、clean 43,786；
+逐行检查确认 JPEG 覆盖全部 51 个整数 quality 档位 40–90，全部 subsampling=0，无 blur/resample/叠加。
+全量 formulation 目标/身份/媒体引用对齐、图片解码/尺寸/hash 验收通过。
+已发布到 `data/line_context_reconstruction`，旧目录为同级 `line_context_reconstruction.previous-tw50dyn2`。
+Content SHA256：`c47ca5f3f1880d25bc9b82b8421c0fe4d29998359174b44a2eb5650c44a29c5c`。
+这不是整版 v5.10 发布：真实 points-only cohort 和其余任务还需按版本计划处理。
 
 ### Shape 生成
 

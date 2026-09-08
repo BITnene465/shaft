@@ -18,7 +18,8 @@
 
 ### v5.10 数据发布门禁
 
-- 将确认后的 line/points 采样和其余真实任务接入同一版本准备流程；shape 已完成生成与全量验收。
+- 将 points-only cohort 和其余真实任务接入同一版本准备流程；shape 与 full-capable synthetic line
+  已完成生成与全量验收。
 - 所有任务冻结输入、split/exclusion、代码/prompt/环境和输出内容哈希，不允许依赖 `subTasks/`。
 - 整版复用真实数据前必须落实下述跨 ID 内容泄漏门禁，不能将 ID 排除表述为零内容泄漏。
 - 整套验收并提交后创建 `v5.10` Git tag；阶段性 shape 完成不代表版本发布。

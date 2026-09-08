@@ -114,6 +114,8 @@ class WorkerConfig:
     png_compress_level: int
     formulation_ids: tuple[str, ...] = ()
     write_images: bool = True
+    single_pixel_policy: dict[str, Any] | None = None
+    strict_line_geometry: bool = False
 
 
 @dataclass(frozen=True)
@@ -623,6 +625,7 @@ def _line_parameters(
     top: int,
     crop_width: int,
     crop_height: int,
+    strict: bool = False,
 ) -> dict[str, Any]:
     result = json.loads(json.dumps(parameters))
     segments = result.get("points")
@@ -641,6 +644,8 @@ def _line_parameters(
                 crop_width=crop_width,
                 crop_height=crop_height,
             )
+            if strict and quantized and converted_point == quantized[-1]:
+                raise ValueError("Line point collision after Qwen quantization")
             if not quantized or converted_point != quantized[-1]:
                 quantized.append(converted_point)
         if len({tuple(point) for point in quantized}) < 2:
@@ -655,6 +660,7 @@ def _target_parameters(
     parameters: dict[str, Any],
     *,
     crop_box: tuple[int, int, int, int],
+    strict_line_geometry: bool = False,
 ) -> dict[str, Any]:
     left, top, right, bottom = crop_box
     kwargs = {
@@ -666,7 +672,7 @@ def _target_parameters(
     if label == "shape":
         return _shape_parameters(parameters, **kwargs)
     if label == "line":
-        return _line_parameters(parameters, **kwargs)
+        return _line_parameters(parameters, strict=strict_line_geometry, **kwargs)
     if label == "image":
         return json.loads(json.dumps(parameters))
     raise ValueError(f"Unsupported label: {label}")
@@ -1355,6 +1361,31 @@ def _distractor_count(
     return count
 
 
+def _sample_single_pixel_plan(
+    *, policy: dict[str, Any], sample_id: str, seed: int,
+    image_size: tuple[int, int], target_size: tuple[float, float],
+) -> dict[str, Any]:
+    """Single-operation offline policy; uses the existing pixel operator implementation."""
+    rng = random.Random(f"{seed}:{policy['id']}:{sample_id}")
+    tiny = min(target_size) < policy["clean_short_edge_px"]
+    plan: dict[str, Any] = {
+        "profile": SYNTHETIC_PIXEL_PROFILE, "policy_id": policy["id"],
+        "severity": "clean" if tiny else "single", "operations": [],
+        "dimensions_unchanged": True, "input_size": list(image_size),
+        "output_size": list(image_size),
+    }
+    if tiny:
+        plan["reason"] = "small_or_slender_target"
+    elif rng.random() < policy["jpeg_probability"]:
+        plan["operations"] = [{"name": "jpeg_compression",
+            "quality": rng.randint(*policy["jpeg_quality"]), "subsampling": 0}]
+    else:
+        plan["operations"] = [{"name": "gaussian_noise",
+            "sigma_255": round(rng.uniform(*policy["noise_sigma"]), 6),
+            "seed": rng.getrandbits(63)}]
+    return plan
+
+
 def _build_row(
     *,
     config: WorkerConfig,
@@ -1386,6 +1417,7 @@ def _build_row(
         spec.label,
         source_parameters,
         crop_box=view.crop_box,
+        strict_line_geometry=config.strict_line_geometry,
     )
     prompt_bbox = quantize_qwen_bbox(
         _local_bbox(view.proposal_bbox, view.crop_box),
@@ -1410,14 +1442,19 @@ def _build_row(
     image_relative = f"../images/train/{shard}/{filename}"
     pixel_augmentation: dict[str, Any] = {"profile": "none", "operations": []}
     if _is_synthetic_source(spec):
-        pixel_augmentation = _sample_synthetic_pixel_augmentation(
-            task=spec.name,
-            sample_id=selection.sample_id,
-            seed=config.seed,
-            target_short_span=target_short_span,
-            image_width=crop_width,
-            image_height=crop_height,
-        )
+        if config.single_pixel_policy is not None:
+            pixel_augmentation = _sample_single_pixel_plan(
+                policy=config.single_pixel_policy, sample_id=selection.sample_id,
+                seed=config.seed, image_size=(crop_width, crop_height),
+                target_size=(selection.source_bbox[2]-selection.source_bbox[0],
+                             selection.source_bbox[3]-selection.source_bbox[1]),
+            )
+        else:
+            pixel_augmentation = _sample_synthetic_pixel_augmentation(
+                task=spec.name, sample_id=selection.sample_id, seed=config.seed,
+                target_short_span=target_short_span,
+                image_width=crop_width, image_height=crop_height,
+            )
     if config.write_images:
         image_output = config.staging_root / "images/train" / shard / filename
         image_output.parent.mkdir(parents=True, exist_ok=True)

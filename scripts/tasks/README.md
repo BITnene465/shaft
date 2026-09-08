@@ -11,6 +11,8 @@
   多路径/复杂单路径/普通线分组、属性分层与源 GT 哈希；不直接生成训练数据。
 - `preview_banana_v5_10_lines.py`：基于已审计 train 身份生成 line 增强校准对照，
   保存原尺寸 crop、精确参数与环境/内容哈希；不是生产增强配置。
+- `prepare_banana_v5_10_lines.py`：修正 V10 GT 的 line 生产入口，稀有/多路径优先，
+  单操作 JPEG 40–90 或轻噪声；全量对齐/媒体/内容哈希验收后替换派生目录。
 - [banana_v5_7.md](banana_v5_7.md)：Banana v5.7 的数据、prompt、训练配置、构建顺序与完整性基线。
 - [banana_v5_8.md](banana_v5_8.md)：Banana v5.8 的 source/structured/SFT、人工 formulation 与在线随机合同。
 - [banana_v5_9.md](banana_v5_9.md)：Banana v5.9 的 grounding-only 增量、ID 测试门禁与多尺度增强流程。
