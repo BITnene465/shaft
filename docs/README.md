@@ -25,6 +25,7 @@
 - [testing.md](testing.md)：suite 真源、CI、CPU/GPU/manual gate 与测试责任。
 - [extension_guide.md](extension_guide.md)：开发收口流程与正式扩展规范。
 - [scripts.md](scripts.md)：正式 CLI 与 task 脚本使用说明。
+- [Banana v5.10 数据复现](../scripts/tasks/banana_v5_10.md)：版本化准备入口、输入依赖和验收口径。
 
 ## 唯一总 TODO
 

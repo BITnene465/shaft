@@ -2003,6 +2003,15 @@ train 0.25% ╸───────── 25/10k 6.54s/it eta 18h07m loss 7.9 l
 
 ## 14. Banana 版本化数据 catalog
 
+v5.10 离线准备配置位于 `configs/data/preparation/banana_v5_10.json`，由
+`scripts/tasks/prepare_banana_v5_10.py` 消费，不是训练 `TrainConfig`，不包含服务器路径。
+整版输入依赖、任务接入状态、50 进程构建与内容哈希复现合同见
+[`banana_v5_10.md`](../scripts/tasks/banana_v5_10.md)。当前只实现已确认的 shape 阶段，
+不能把该配置或准备入口当作六任务训练数据已发布的证明。
+
+`configs/data/preparation/banana_v5_10_line_preview.json` 只由 line 校准预览脚本消费，
+固定强度和 clean twin 服务对照检查，不注册为训练增强 profile，不改变既有 shape 数据。
+
 `configs/data/banana_v5_9.yaml` 是 v5.8 的 grounding-only 增量 catalog：只有 `grounding_layout` 指向
 `data/banana_v5_9/grounding_layout/sft`，其余数据源、权重和 PromptSource 继续复用 v5.8。完整 source
 门禁、增强和重建命令见 `scripts/tasks/banana_v5_9.md`。

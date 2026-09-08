@@ -1,0 +1,11 @@
+{
+  "version": "banana-v5.10-line-calibration-v1",
+  "review_only": true,
+  "seed": 465,
+  "examples_per_category": 2,
+  "levels": {
+    "mild": {"resample_ratio": 0.90, "noise_sigma": 2.0, "jpeg_quality": 90, "blur_radius": 0.45},
+    "moderate": {"resample_ratio": 0.75, "noise_sigma": 5.0, "jpeg_quality": 75, "blur_radius": 0.85},
+    "strong": {"resample_ratio": 0.55, "noise_sigma": 9.0, "jpeg_quality": 50, "blur_radius": 1.40}
+  }
+}

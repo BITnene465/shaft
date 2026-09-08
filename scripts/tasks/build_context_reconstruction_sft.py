@@ -74,6 +74,7 @@ class TaskSpec:
     selection_limit: int | None = None
     additional_sources: tuple[TaskSourceSpec, ...] = ()
     eligible_formulations: tuple[str, ...] = ()
+    source_dataset_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1459,7 +1460,7 @@ def _build_row(
         "task": spec.name,
         "split": "train",
         "view_type": "context_crop_bbox_conditioned",
-        "source_dataset": spec.source_root.name,
+        "source_dataset": spec.source_dataset_id or spec.source_root.name,
         "source_json": selection.source_json,
         "source_image": selection.source_image,
         "source_instance_index": source_instance_index,

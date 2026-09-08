@@ -1,0 +1,25 @@
+{
+  "version": "banana-v5.10",
+  "seed": 465,
+  "synthetic_snapshot": "regulated_layout_dataset_v10_20260830-gt-df3f66d8e661b60641dc8d10a6f65d7a98dcaab8",
+  "shape": {
+    "rectangle_target": 300000,
+    "common_card_target": 25000,
+    "keep_all_other_types": true,
+    "keep_all_card_side_by_side_or_multiregion": true,
+    "rare_training_probability": {"regular_pentagon": 0.005, "step": 0.005},
+    "prompt_pool": "configs/prompts/pools/shape_context_reconstruction.v5.8.yaml",
+    "augmentation": "synthetic_realism_v1",
+    "min_crop_size": 4,
+    "max_aspect_ratio": 60.0,
+    "png_compress_level": 1
+  },
+  "tasks": {
+    "shape_context_reconstruction": "build_from_v10",
+    "line_context_reconstruction": "pending_sampling_agreement",
+    "line_context_points": "pending_synthetic_supplement_agreement",
+    "grounding_layout": "inherit_v5_9_frozen_raw_and_split",
+    "background": "requires_reviewed_historical_inputs",
+    "image_context_reconstruction": "requires_verified_historical_bundle"
+  }
+}

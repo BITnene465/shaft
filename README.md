@@ -406,6 +406,7 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 统一文档入口见：
 
 - [docs/README.md](docs/README.md)
+- [Banana v5.10 数据准备与跨机器复现](scripts/tasks/banana_v5_10.md)
 
 重点文档：
 
