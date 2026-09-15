@@ -16,9 +16,10 @@
   },
   "tasks": {
     "shape_context_reconstruction": "build_from_v10",
+    "shape_context_reconstruction_real": "build_with_banana_v5_10_real_shape_recipe",
     "line_context_reconstruction": "build_with_banana_v5_10_line_recipe",
-    "line_context_points": "pending_synthetic_supplement_agreement",
-    "grounding_layout": "inherit_v5_9_frozen_raw_and_split",
+    "line_context_points": "build_with_banana_v5_10_line_points_recipe",
+    "grounding_layout": "build_with_banana_v5_10_grounding_recipe",
     "background": "requires_reviewed_historical_inputs",
     "image_context_reconstruction": "requires_verified_historical_bundle"
   }

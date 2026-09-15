@@ -1,0 +1,174 @@
+# Banana v5.10 / Qwen3.5-0.8B / 8 x A800 / AdamW full-parameter SFT.
+# Launch with WANDB_MODE=offline. Muon hybrid is deferred to docs/TODO.md.
+experiment:
+  name: banana-v5.10-qwen35-0.8B
+  output_dir: outputs/qwen35vl-sft/0.8b/banana-v5.10-qwen35-0.8B
+  seed: 465
+model:
+  model_type: qwen35vl
+  model_name_or_path: ../models/Qwen3.5-0.8B
+  template: qwen35vl
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  torch_dtype: bfloat16
+  finetune:
+    mode: full
+algorithm:
+  name: sft
+  params: {}
+data:
+  batching:
+    grouping: length
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: varlen
+    buffer_size: 512
+    cost_cache_size: 65536
+    resource_budgets:
+      vision_patches: 32768
+  catalog_path: ../data/banana_v5_10.yaml
+  catalog_names:
+  - grounding_layout
+  - shape_context_reconstruction
+  - shape_context_reconstruction_real
+  - line_context_reconstruction
+  - line_context_points
+  - image_context_reconstruction
+  - background
+  prompt_sources:
+    grounding_layout:
+      path: ../prompts/pools/grounding_layout.v5.8.yaml
+      apply_to: train
+    shape_context_reconstruction:
+      path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        appearance:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/appearance/train.jsonl
+        geometry:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/geometry/train.jsonl
+        reconstruction:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/reconstruction/train.jsonl
+    shape_context_reconstruction_real:
+      path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        appearance:
+          train_path: ../../data/shape_context_reconstruction_real/sft/formulations/appearance/train.jsonl
+        geometry:
+          train_path: ../../data/shape_context_reconstruction_real/sft/formulations/geometry/train.jsonl
+        reconstruction:
+          train_path: ../../data/shape_context_reconstruction_real/sft/formulations/reconstruction/train.jsonl
+    line_context_reconstruction:
+      path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        appearance:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/appearance/train.jsonl
+        points:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/points/train.jsonl
+        reconstruction:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/reconstruction/train.jsonl
+    line_context_points:
+      path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        points:
+          train_path: ../../data/line_context_points/sft/formulations/points/train.jsonl
+    image_context_reconstruction:
+      path: ../prompts/pools/image_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        image_type:
+          train_path: ../../data/image_context_reconstruction/sft/formulations/image_type/train.jsonl
+    background:
+      path: ../prompts/pools/background.v5.8.yaml
+      apply_to: train
+  schedule:
+    mixing: weighted
+    shuffle: true
+  media_snapshot_id: banana-v5.10-v10-20260830-real-shape-grounding-v1
+  num_workers: 8
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  min_pixels: 500000
+  max_pixels: 2000000
+  max_length: 8000
+  add_eos_token: true
+train:
+  duration:
+    unit: steps
+    value: 24000
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
+  gradient_checkpointing: true
+  learning_rate: 3.0e-05
+  param_group_lrs:
+    vision_tower: 1.5e-05
+    aligner: 3.0e-05
+  no_decay_name_patterns:
+  - embed_tokens.weight
+  optimizer_name: adamw_torch
+  scheduler_name: cosine
+  scheduler_num_cycles: 0.5
+  scheduler_power: 1.0
+  loss_name: auto
+  loss_scale: default
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-08
+  weight_decay: 0.003
+  warmup_ratio: 0.1
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 20
+  save_strategy: steps
+  save_epoch_interval: 1
+  save_steps: 2000
+  save_total_limit: 10
+  save_only_model: false
+  max_shard_size: 4GB
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: true
+  ddp_find_unused_parameters: false
+  distributed:
+    strategy: ddp
+    ddp:
+      static_graph: false
+  report_to:
+  - wandb
+  init_from_checkpoint: null
+  resume_from_checkpoint: null
+eval:
+  enabled: false
+  per_device_eval_batch_size: 1
+  eval_strategy: false
+  epoch_interval: 1
+  eval_steps: 200
+  loss_metrics_enabled: false
+  do_sample: false
+  temperature: 0.0
+  max_new_tokens: 8000
+  online_metrics_enabled: false
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  datasets: {}
+plugins:
+  hooks: []
+logging:
+  level: INFO
+  fmt: text
+  file_path: null
+  rank_zero_only: true
+progress:
+  enabled: true
+  display: auto
+  width: 72
+  refresh_interval: 0.5
+  log_interval: 30.0
+  leave_completed: false
+  persist: true

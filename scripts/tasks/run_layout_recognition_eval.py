@@ -8,7 +8,7 @@ loaded by the explicit ``evaluate`` phase after the prediction payload is frozen
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import hashlib
 import importlib.util
@@ -948,59 +948,93 @@ def detect(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def prepare_reconstruction_image(
+    task: tuple[str, Path, Path, Path, float, int, bool, bool],
+) -> tuple[str, list[dict[str, Any]], bool]:
+    (
+        stem,
+        image_path,
+        pred_dir,
+        crop_dir,
+        padding_ratio,
+        minimum_crop_size,
+        force,
+        allow_missing,
+    ) = task
+    prediction_path = pred_dir / f"{stem}.json"
+    if not prediction_path.is_file():
+        if allow_missing:
+            return stem, [], True
+        raise FileNotFoundError(prediction_path)
+    prediction = json.loads(prediction_path.read_text(encoding="utf-8"))
+    width, height = prediction["size"]
+    rows: list[dict[str, Any]] = []
+    with Image.open(image_path) as image:
+        for index, element in enumerate(prediction.get("layout", [])):
+            label = element.get("type")
+            if label not in RECONSTRUCTION_LABELS:
+                continue
+            crop_box = context_crop_box(
+                element["bbox"],
+                image_width=width,
+                image_height=height,
+                padding_ratio=padding_ratio,
+                minimum_size=minimum_crop_size,
+            )
+            request_id = f"{stem}__det_{index:04d}_{label}"
+            crop_path = crop_dir / f"{request_id}.png"
+            crop_path.parent.mkdir(parents=True, exist_ok=True)
+            if not crop_path.is_file() or force:
+                crop = image.crop(crop_box)
+                try:
+                    crop.save(crop_path, format="PNG")
+                finally:
+                    crop.close()
+            rows.append(
+                {
+                    "request_id": request_id,
+                    "sample_id": stem,
+                    "detection_index": index,
+                    "label": label,
+                    "image_path": str(image_path),
+                    "crop_path": str(crop_path),
+                    "image_size": [width, height],
+                    "detection_bbox": list(element["bbox"]),
+                    "proposal_bbox_full": list(element["bbox"]),
+                    "crop_box": list(crop_box),
+                    "proposal_bbox_2d": quantize_bbox_in_crop(element["bbox"], crop_box),
+                    "proposal_source": "detection",
+                    "gt_read": False,
+                }
+            )
+    return stem, rows, False
+
+
 def prepare_reconstruction(args: argparse.Namespace) -> None:
     images = {path.stem: path for path in collect_images(args.image_dir)}
     pred_dir = args.work_dir / "detection" / "pred"
     crop_dir = args.work_dir / "reconstruction" / "crops"
-    rows: list[dict[str, Any]] = []
-    missing_detection_stems: list[str] = []
-    for stem, image_path in images.items():
-        prediction_path = pred_dir / f"{stem}.json"
-        if not prediction_path.is_file():
-            if args.allow_missing_detection:
-                missing_detection_stems.append(stem)
-                continue
-            raise FileNotFoundError(prediction_path)
-        prediction = json.loads(prediction_path.read_text(encoding="utf-8"))
-        width, height = prediction["size"]
-        with Image.open(image_path) as image:
-            for index, element in enumerate(prediction.get("layout", [])):
-                label = element.get("type")
-                if label not in RECONSTRUCTION_LABELS:
-                    continue
-                crop_box = context_crop_box(
-                    element["bbox"],
-                    image_width=width,
-                    image_height=height,
-                    padding_ratio=args.padding_ratio,
-                    minimum_size=args.minimum_crop_size,
-                )
-                request_id = f"{stem}__det_{index:04d}_{label}"
-                crop_path = crop_dir / f"{request_id}.png"
-                crop_path.parent.mkdir(parents=True, exist_ok=True)
-                if not crop_path.is_file() or args.force:
-                    crop = image.crop(crop_box)
-                    try:
-                        crop.save(crop_path, format="PNG")
-                    finally:
-                        crop.close()
-                rows.append(
-                    {
-                        "request_id": request_id,
-                        "sample_id": stem,
-                        "detection_index": index,
-                        "label": label,
-                        "image_path": str(image_path),
-                        "crop_path": str(crop_path),
-                        "image_size": [width, height],
-                        "detection_bbox": list(element["bbox"]),
-                        "proposal_bbox_full": list(element["bbox"]),
-                        "crop_box": list(crop_box),
-                        "proposal_bbox_2d": quantize_bbox_in_crop(element["bbox"], crop_box),
-                        "proposal_source": "detection",
-                        "gt_read": False,
-                    }
-                )
+    workers = max(1, int(getattr(args, "workers", 1)))
+    tasks = [
+        (
+            stem,
+            image_path,
+            pred_dir,
+            crop_dir,
+            args.padding_ratio,
+            args.minimum_crop_size,
+            args.force,
+            args.allow_missing_detection,
+        )
+        for stem, image_path in images.items()
+    ]
+    if workers == 1 or len(tasks) <= 1:
+        results = [prepare_reconstruction_image(task) for task in tasks]
+    else:
+        with ProcessPoolExecutor(max_workers=min(workers, len(tasks))) as executor:
+            results = list(executor.map(prepare_reconstruction_image, tasks, chunksize=1))
+    rows = [row for _stem, task_rows, _missing in results for row in task_rows]
+    missing_detection_stems = [stem for stem, _rows, missing in results if missing]
     rows.sort(key=lambda row: row["request_id"])
     manifest_path = args.work_dir / "reconstruction" / "manifest.jsonl"
     atomic_write_jsonl(manifest_path, rows)
@@ -1012,6 +1046,7 @@ def prepare_reconstruction(args: argparse.Namespace) -> None:
         "missing_detection_count": len(missing_detection_stems),
         "missing_detection_stems": sorted(missing_detection_stems),
         "allow_missing_detection": args.allow_missing_detection,
+        "workers": workers,
         "proposal_source": "detection",
         "gt_read": False,
     }
@@ -1386,6 +1421,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--image-dir", type=Path, required=True)
     prepare.add_argument("--padding-ratio", type=float, default=0.65)
     prepare.add_argument("--minimum-crop-size", type=int, default=256)
+    prepare.add_argument("--workers", type=int, default=50)
     prepare.add_argument(
         "--allow-missing-detection",
         action="store_true",

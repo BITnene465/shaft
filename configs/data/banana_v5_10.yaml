@@ -1,0 +1,61 @@
+# Banana v5.10: confirmed sample weights sum to 60; train-only.
+datasets:
+  grounding_layout:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_layout/sft/train.jsonl
+    val_path: ../../data/grounding_layout/sft/val.jsonl
+    weight: 8.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.10 / grounding_layout
+    tags: [banana, v5.10, real, grounding, augmented, sft]
+
+  shape_context_reconstruction:
+    source_type: jsonl_sft
+    weight: 21.6
+    enabled: true
+    use_for_eval: false
+    help: banana v5.10 / shape_context_reconstruction
+    tags: [banana, v5.10, synthetic, v10, shape, sft]
+
+  shape_context_reconstruction_real:
+    source_type: jsonl_sft
+    weight: 2.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.10 / shape_context_reconstruction_real
+    tags: [banana, v5.10, real, shape, complete_attributes, sft]
+
+  line_context_reconstruction:
+    source_type: jsonl_sft
+    weight: 21.6
+    enabled: true
+    use_for_eval: false
+    help: banana v5.10 / line_context_reconstruction
+    tags: [banana, v5.10, synthetic, v10, line, sft]
+
+  line_context_points:
+    source_type: jsonl_sft
+    weight: 4.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.10 / line_context_points
+    tags: [banana, v5.10, real, synthetic, points_only, sft]
+
+  image_context_reconstruction:
+    source_type: jsonl_sft
+    weight: 1.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.10 / image_context_reconstruction
+    tags: [banana, v5.10, real, reviewed, reused, sft]
+
+  background:
+    source_type: jsonl_sft
+    train_path: ../../data/background/sft/train.jsonl
+    val_path: ../../data/background/sft/val.jsonl
+    weight: 1.8
+    enabled: true
+    use_for_eval: false
+    help: banana v5.10 / background
+    tags: [banana, v5.10, real, reviewed, reused, sft]

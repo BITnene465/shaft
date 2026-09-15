@@ -103,6 +103,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
     ),
     "gpu": ("test_flash_attn_smoke.py",),
     "task": (
+        "test_clean_real_raw_annotations.py",
         "test_build_background_sft.py",
         "test_build_detection_distill_selection.py",
         "test_build_context_reconstruction_sft.py",
@@ -117,6 +118,9 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_prepare_gt_standard_v5_7.py",
         "test_prepare_banana_v5_9_grounding.py",
         "test_prepare_banana_v5_10.py",
+        "test_prepare_banana_v5_10_grounding.py",
+        "test_prepare_banana_v5_10_line_points.py",
+        "test_prepare_banana_v5_10_real_shape.py",
         "test_recover_v5_8_real_tasks.py",
         "test_run_layout_recognition_eval.py",
     ),

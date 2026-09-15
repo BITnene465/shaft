@@ -1,5 +1,19 @@
 # Shaft 配置参考
 
+## Banana v5.10 数据配置
+
+4B 消费入口：`configs/train/banana_sft_4b_qwen35_v5_10.yaml`，AdamW、24,000步、
+8卡BS1/GA8；启动环境设置 `WANDB_MODE=offline`。Muon hybrid 留待后续实现与对照。
+
+`configs/data/banana_v5_10.yaml` 登记七个 train-only 数据源；配套的
+`configs/data/banana_v5_10_runtime.yaml` 是待合入正式训练 YAML 的配置片段，
+不是独立训练入口（不指定模型、batch 和优化器，也没有自动 include 功能）。
+权重依次为 grounding 8、合成 shape 21.6、真实 shape 2、合成 line 21.6、line points 4、
+image 1、background 1.8，总计60。采用 weighted/shuffle、seed 465 和独立 v5.10 media snapshot。
+真实 shape 共用原 shape pool；points-only 只接 points。formulation 与 variant 权重
+继续由 v5.8 prompt pool 定义，不能按 SFT 文件数重复加权。没有新增在线像素增强。
+完整使用约定见 [v5.10 数据复现与配置](../scripts/tasks/banana_v5_10.md)。
+
 本文档描述 `RuntimeConfig` 的主要配置块和推荐使用方式。配置以 YAML 为主，CLI 只允许无歧义 override。
 
 当前 `config` 已按职责拆分为多文件实现：
@@ -2005,9 +2019,14 @@ train 0.25% ╸───────── 25/10k 6.54s/it eta 18h07m loss 7.9 l
 
 v5.10 离线准备配置位于 `configs/data/preparation/banana_v5_10.json`，由
 `scripts/tasks/prepare_banana_v5_10.py` 消费，不是训练 `TrainConfig`，不包含服务器路径。
+
+Grounding 配方单独位于 `configs/data/preparation/banana_v5_10_grounding.json`，由
+`prepare_banana_v5_10_grounding.py` 消费：seed465、1M–2M缩放、JPEG质量40–95、轻度blur/noise。
+基础几何入口新增 `--degradation-max-severity L1/L2/L3`，默认L3保持旧行为；新配方选择L1。
+测试内容排除、原图保留及发布合同见 [grounding准备文档](../scripts/tasks/banana_v5_10_grounding.md)。
 整版输入依赖、任务接入状态、50 进程构建与内容哈希复现合同见
-[`banana_v5_10.md`](../scripts/tasks/banana_v5_10.md)。当前只实现已确认的 shape 阶段，
-不能把该配置或准备入口当作六任务训练数据已发布的证明。
+[`banana_v5_10.md`](../scripts/tasks/banana_v5_10.md)。Shape/合成line/line points/grounding已发布，
+不能把该配置或准备入口当作整套训练数据已发布的证明。
 
 `configs/data/preparation/banana_v5_10_line_preview.json` 只由 line 校准预览脚本消费，
 固定强度和 clean twin 服务对照检查，不注册为训练增强 profile，不改变既有 shape 数据。
@@ -2015,6 +2034,24 @@ v5.10 离线准备配置位于 `configs/data/preparation/banana_v5_10.json`，�
 Line 生产参数单独位于 `configs/data/preparation/banana_v5_10_line.json`，由
 `prepare_banana_v5_10_lines.py` 消费：JPEG quality 40–90、4:4:4 与轻噪声单选，极小目标允许 clean；
 不使用预览的强模糊/三操作组合，不修改训练内核。具体采样和复现命令见 v5.10 任务文档。
+
+Line points 配方 `configs/data/preparation/banana_v5_10_line_points.json` 由独立离线入口
+`prepare_banana_v5_10_line_points.py` 消费：真实干净样本全部保留，额外20%生成JPEG60–90
+（4:4:4）同几何副本；V10多叉候选15,000，合成像素策略复用并冻结line生产配方。
+仅生成已有line pool的points formulation；不改变训练内核或prompt。
+输入、测试隔离与可复现合同见 [line points文档](../scripts/tasks/banana_v5_10_line_points.md)。
+
+真实shape独立配方 `configs/data/preparation/banana_v5_10_real_shape.json` 由
+`prepare_banana_v5_10_real_shape.py` 消费：dataset为`shape_context_reconstruction_real`，
+TXT白名单+grounding内容门禁、完整属性准入、seed465、clean保留+20% JPEG60–90/4:4:4。
+同一图片共享既有shape pool三种formulation。它不是TrainConfig，发布不激活训练数据源，
+不修改既有catalog、prompt或权重。详见 [真实shape文档](../scripts/tasks/banana_v5_10_real_shape.md)。
+
+真实 compact 标注清洗使用独立离线入口 `scripts/tasks/clean_real_raw_annotations.py`：
+显式传入 `--raw-root`、`--report`、`--workers`，审计后通过 `--apply` 应用同一报告。
+输入和脚本哈希不一致时拒绝执行；保留完整备份并隔离严重错误 JSON。`subbbox` 不作为质量门禁。
+它不修改训练 schema、原始图片或测试 split，规则及边界见
+[真实标注质量清洗](../scripts/tasks/clean_real_raw_annotations.md)。
 
 `configs/data/banana_v5_9.yaml` 是 v5.8 的 grounding-only 增量 catalog：只有 `grounding_layout` 指向
 `data/banana_v5_9/grounding_layout/sft`，其余数据源、权重和 PromptSource 继续复用 v5.8。完整 source

@@ -1,0 +1,173 @@
+# Banana v5.8 Qwen3.8-27B full-parameter SFT on 8 x A800 80GB.
+#
+# Qwen3.8 reuses Shaft's verified HF qwen3_5 architecture contract while keeping an explicit
+# non-thinking product template. DeepSpeed ZeRO-3 and the 7k sequence envelope follow the v5.7
+# 27B production contract; optimizer rates follow the v5.7-re continuation recipe.
+experiment:
+  name: banana-v5.8-qwen38-27B
+  output_dir: outputs/qwen38vl-sft/27b/banana-v5.8-qwen38-27B
+  seed: 465
+
+model:
+  model_type: qwen38vl
+  model_name_or_path: ../models/Qwen3.8-27B
+  template: qwen38vl
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  torch_dtype: bfloat16
+  finetune:
+    mode: full
+
+algorithm:
+  name: sft
+  params: {}
+
+data:
+  batching:
+    grouping: bounded_cost
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
+    buffer_size: 256
+    cost_cache_size: 65536
+    max_tokens_per_microbatch: 7000
+    resource_budgets:
+      vision_patches: 8192
+  catalog_path: ../data/banana_v5_8.yaml
+  catalog_names:
+    - grounding_layout
+    - background
+    - shape_context_reconstruction
+    - line_context_reconstruction
+    - line_context_points
+    - image_context_reconstruction
+  prompt_sources:
+    grounding_layout:
+      path: ../prompts/pools/grounding_layout.v5.8.yaml
+      apply_to: train
+    background:
+      path: ../prompts/pools/background.v5.8.yaml
+      apply_to: train
+    shape_context_reconstruction:
+      path: ../prompts/pools/shape_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        appearance:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/appearance/train.jsonl
+        geometry:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/geometry/train.jsonl
+        reconstruction:
+          train_path: ../../data/shape_context_reconstruction/sft/formulations/reconstruction/train.jsonl
+    line_context_reconstruction:
+      path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        appearance:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/appearance/train.jsonl
+        points:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/points/train.jsonl
+        reconstruction:
+          train_path: ../../data/line_context_reconstruction/sft/formulations/reconstruction/train.jsonl
+    line_context_points:
+      path: ../prompts/pools/line_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        points:
+          train_path: ../../data/line_context_points/sft/formulations/points/train.jsonl
+    image_context_reconstruction:
+      path: ../prompts/pools/image_context_reconstruction.v5.8.yaml
+      apply_to: train
+      formulation_sources:
+        image_type:
+          train_path: ../../data/image_context_reconstruction/sft/formulations/image_type/train.jsonl
+  schedule:
+    mixing: weighted
+    shuffle: true
+  media_snapshot_id: banana-v5.8-v9-20260802-reviewed-real-v1
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  min_pixels: 500000
+  max_pixels: 2000000
+  max_length: 7000
+  add_eos_token: true
+
+train:
+  duration:
+    unit: steps
+    value: 10000
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  learning_rate: 0.0000025
+  param_group_lrs:
+    vision_tower: 0.000001
+    aligner: 0.0000025
+  no_decay_name_patterns:
+    - embed_tokens.weight
+  optimizer_name: adamw_torch
+  scheduler_name: cosine
+  scheduler_num_cycles: 0.5
+  scheduler_power: 1.0
+  loss_name: auto
+  loss_scale: default
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  weight_decay: 0.001
+  warmup_ratio: 0.1
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 10
+  save_strategy: steps
+  save_epoch_interval: 1
+  save_steps: 2000
+  save_total_limit: 4
+  save_only_model: true
+  max_shard_size: 4GB
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
+  ddp_find_unused_parameters: false
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config_path: ../deepspeed/zero3_bf16_lowmem.json
+  report_to: ["wandb"]
+  init_from_checkpoint:
+  resume_from_checkpoint:
+
+eval:
+  enabled: false
+  per_device_eval_batch_size: 1
+  eval_strategy: no
+  epoch_interval: 1
+  eval_steps: 200
+  loss_metrics_enabled: false
+  do_sample: false
+  temperature: 0.0
+  max_new_tokens: 8000
+  online_metrics_enabled: false
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  datasets: {}
+
+plugins:
+  hooks: []
+
+logging:
+  level: INFO
+  fmt: text
+  file_path:
+  rank_zero_only: true
+
+progress:
+  enabled: true
+  display: auto
+  width: 72
+  refresh_interval: 0.5
+  log_interval: 30.0
+  leave_completed: false
+  persist: true

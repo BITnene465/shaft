@@ -1,5 +1,97 @@
 # Shaft 开发日志
 
+## 2026-09-15：Git 忽略规则与正式配置维护边界冲突
+
+- 现象：16 个已跟踪配置/文档仍命中忽略规则，另有 12 份配置被版本白名单隐藏；本地工具链、认证目录和
+  `.ops` 快照缺少仓库级显式忽略。
+- 根因：对 `configs` 的 YAML 整类忽略后逐版本放行，白名单落后于开发；开发日志也被误归入本地产物。
+- 影响范围：影响新增配置、prompt pool 与文档的提交可见性，可能重现 fresh checkout 缺少资产的 CI 失败；
+  已跟踪文件本身不会因 `.gitignore` 消失。
+- 修复方式：正式配置/文档默认可见；本地覆盖使用 `configs/local/` 或 `*.local.*`；产物使用根目录规则，
+  补齐环境、缓存、私有认证、工具链和操作快照规则，保留环境模板与 `.codex/skills/`。
+- 回归测试：用 Git 原生 `check-ignore --no-index` 校验正式资产和产物路径；检查已跟踪文件与规则冲突为零。
+- 后续防线：新增正式配置不再增加版本白名单；机器专属例外写 `.git/info/exclude`；新显示的历史配置需审查
+  后再提交，不自动搬迁、暂存或删除。
+
+## 2026-09-09：Muon 注册项的语义偏差（修复延期）
+
+- 现象：规划 v5.10 优化器时发现已有 `muon` 注册名，但实现并非标准 Muon。
+- 根因：历史 lightweight 实现用逐行归一化代替矩阵正交化，且未为非隐藏层矩阵参数
+  配套 AdamW 分流；注册名容易造成算法能力误判。
+- 影响范围：仅显式选择该注册项的运行；当前检查的 v5.9/v5.10 4B 使用 AdamW，不受影响。
+- 处理方式：用户确认本次维持 AdamW；标准 Muon + AdamW hybrid、旧状态兼容门禁与
+  数值验收已登记总 TODO。内核尚未修复，不表述为已完成标准 Muon 支持。
+- 回归测试：本轮锁定 v5.10 4B 的 AdamW、16,000步及数据装配合同；Muon数值回归待实施。
+- 后续防线：接官方算法并验收参数分流、scheduler、保存/resume，不能以注册成功代替算法正确性。
+
+## 2026-09-09：真实shape完整性与轮廓方向门禁
+
+- 现象：TXT名单中的shape大多具有完整属性，但存在空角点、非标准card分隔/尾部表达；
+  多数源轮廓为逆时针，与既有prompt的顺时针合同不同。字段齐全不等于可直接用于训练。
+- 根因：真实导出携带不适用占位字段，且没有统一遵循合成DSL的几何序列和条件字段合同。
+- 影响范围：仅新增真实shape离线cohort；raw、原有合成数据、prompt和训练配置保持不变。
+- 修复方式：严格完整准入，无损反向/旋转轮廓并同步圆角start/end；不补点、不压缩尾部、
+  不将单圆弧分隔伪造成两角点。源和量化阶段检查退化、自交、完整覆盖，先预检后写图。
+  独立数据源共享三种formulation；少量JPEG副本保留clean和全部几何/target。
+- 回归测试：6项focused覆盖字段、方向、拒绝、源hash、三种输出和JPEG稳定性；
+  100clean+20JPEG的canary完成原始target重算、媒体与三种formulation验收。
+- 后续防线：冻结TXT/source/test/code/prompt/codec环境，验证不同进程数内容一致后发布；
+  不以schema通过冒充视觉正确率，不自动接入训练或改变真实/合成权重。
+- 全量结果：源门禁排除298个，保留14,172个完整实例；新增2,834个JPEG，共17,006图/
+  51,018条SFT已验收发布。120图小批量以1/50进程重建的内容hash一致。
+  原始target重算、几何门禁、全媒体解码及生成前后源hash通过，既有训练配置和数据不变。
+
+## 2026-09-09：真实 line points 的 JPEG 增强与路径保真
+
+- 现象：旧真实打点仅有clean crop，缺少JPEG输入覆盖；旧转换允许去掉量化重合点。
+- 根因：旧增强策略只覆盖合成图；通用折线去重对需要保留采样点数的路径存在语义风险。
+- 影响范围：v5.10 line_context_points离线准备，不改旧版本、不改raw、不改训练和prompt。
+- 修复方式：真实clean全部保留，稳定抽20%追加JPEG60–90/4:4:4；合成15k多叉复用line
+  配方。复用grounding内容隔离结果并校验源hash。禁止通过删点修复量化碰撞，只记录拒绝视图。
+- 回归测试：稳定多叉采样、源指纹变化拒绝、空点不推断、JPEG不改clean与target；
+  真实20+合成20+JPEG4的canary完成原始目标重算、媒体完整解码与twin验证。
+- 后续防线：冻结版本配方/代码/源hash；全量原始路径重算及完整覆盖验收后原子发布。
+  JPEG增强的模型收益仍需训练后评估，不用数据验收替代效果结论。
+- 全量结果：187,727真实clean + 37,545真实JPEG + 15,000合成，共240,272行已发布。
+  原始路径、完整覆盖、twin、全部媒体和SFT验收通过；18条源几何不合格和194条量化碰撞
+  均有记录，raw不变。44行canary以1/50进程及不同工作路径重建，完整内容hash一致；
+  新入口和共享准备逻辑11项focused测试通过。
+
+## 2026-09-09：grounding 压缩增强缺口与测试清单路径迁移
+
+- 现象：用户观察同图不同压缩质量下预测有差异；v5.9实际67,195行仅含blur/noise退化，未生成JPEG。
+  本轮测试排除还发现canonical清单的50张ppt_000x图片不在旧raw路径。
+- 根因：旧layout_multiscale_v1的实际退化选择不含JPEG；测试清单路径未随图片迁入real_v1更新。
+  这证明覆盖缺口与路径问题，不证明模型效果差只由压缩造成。
+- 影响范围：v5.10 grounding准备；不改既有合成shape/line增强，不重写raw和canonical清单。
+- 修复方式：独立版本化配方使用1M–2M缩放，正源每图一份同几何JPEG（40–95，4:2:0），
+  blur/noise减至0.25且只取L1；保留native和完整裁图规则。测试图从显式real_v1/real_v2目录解析，
+  同名回退必须内容无歧义且尺寸匹配。按ID/SHA256/pHash<=6排除候选，不静默忽略缺图。
+- 回归测试：JPEG稳定随机/质量区间/概率分布、clean twin几何、内容级跨ID测试门禁、
+  轻度档消费、canonical路径回退；8源真实canary产出27行且目标重算/媒体解码/配对均通过。
+- 后续防线：全量生成前冻结source/test/recipe/code/prompt指纹，stage验收后发布；
+  最终视图计数以含JPEG的验收报告为准，不沿用基础几何builder的阶段计数。
+  模型效果需后续同尺寸多JPEG质量评测验证，不以数据生成成功冒充效果改善。
+- 全量结果：23,376份源排除116份测试候选，23,260源生成78,514行；全媒体解码、目标重算、
+  配对和唯一性验收通过，已发布grounding_layout并保留旧目录备份。
+
+## 2026-09-08：真实标注重复与 bbox/path 不一致
+
+- 现象：新真实标注包有完全重复实例、轻微及严重 bbox 越界、退化路径，以及端点与主框不一致。
+- 根因：源标注的 bbox 与重建属性未经过联合几何门禁；EXIF 后尺寸吻合也不能证明所有实例坐标正确。
+  例如 `prod_038597` 的声明尺寸符合转置图，但 7 个 image 框仍越界；不能盲目转置或改 size。
+- 影响范围：本次导入的 20,124 份 compact real JSON；不涉及已发布 V10 合成 shape/line。
+  属于 data 质量问题，不是模型能力或评估指标异常。
+- 修复方式：完整图片解码，精确重复去重、<=3px 主框裁边；严重错误按整份 JSON 可恢复隔离。
+  路径端点偏离主框超过 max(20px, 图像最长边1%) 按质量筛选策略隔离，不猜测正确坐标。
+  空打点、缺失子属性和不同路径同框不判坏；源有序点保留；用户明确不用的 subbbox 不参与判定。
+- 回归测试：focused 用例覆盖边界、重复、部分属性、退化路径、控制点/端点区分、EXIF、
+  重复 JSON 键、解码失败、无用 subbbox，以及备份/隔离/修复发布链。
+- 二次复核：同框 shape 中发现 bare bbox 与属性版重复，以及两套冲突的完整属性；前者保留属性版，
+  后者整份隔离。相同 bbox 的交叉线保留，不把原始实例差异误当重复。
+- 后续防线：报告冻结文件与脚本哈希，修复幂等校验；后续仍须测试集内容隔离、任务 schema/量化门禁。
+  自动质量筛选不等同于全量人工视觉验收；不能把剩余告警表述成零标注问题。
+
 ## 2026-09-08：line 增强过度与量化静默删点风险
 
 - 现象：校准预览中的 strong blur 使虚线间隙和小箭头失去可辨认性；代码检查发现量化会静默删除连续重合点。
@@ -6171,3 +6263,84 @@
 
 - 单测覆盖 2 进程下缺失 detection 的行为与 summary worker 记录；CLI 合同锁定默认 50。focused pytest 与 Ruff
   通过。以后不得再用 task-local 并行 helper 绕过正式入口。
+
+## 2026-09-04：GT-box line 子属性发布缺少自动评分门禁且存在双 schema 误判
+
+### 现象
+
+- 四个 v5.9 `gtbox-shape-line-attributes` 目录上传一天后仍无平台 `score.json`；当前 evaluator 的自动发现只接收
+  含 `method.json` 的目录，而发布合同明确排除了该文件。
+- 使用当前 evaluator `5c39bd1f...` 和最新 GT 复算时，line 全 schema weighted accuracy 只有
+  `66.57%–67.42%`，但限定到 codec 实际发布的 12 个 canonical 平铺字段后为 `79.73%–80.75%`。
+
+### 根因
+
+- 发布要求“平台自行评分”与 evaluator 的 `method.json` discovery gate 不兼容，目录虽有完整 prediction，仍不会
+  进入自动评分队列。
+- v5.8 line prompt 要求嵌套 `fill`/`border`，raw output 也遵循该结构；task-local packaging 却调用
+  `flatten_line_style()` 只发布 `fill_color`/`border_color` 等平铺字段。real_v2 GT 同时保存嵌套与平铺两套字段，
+  evaluator 按路径分别计分，导致嵌套字段全部记为缺失。这是 `codec/data/metric` 口径问题，不是模型突然退化。
+- 推理准备使用的本地 GT 快照也落后于 HF 当前 revision；同步后发现 ignore sample/region 以及少量对象索引、类型、
+  bbox 已变化。
+
+### 影响范围
+
+- 影响四个 v5.9 GT-box shape+line run 的平台自动评分和 line 总分解释；不影响 raw 模型输出，也不改变同一
+  canonical 字段口径下 27B 最优的横向结论。
+- Shape 当前发布结构与 prompt/GT 的嵌套字段一致，未发现同类 flatten 漂移。
+
+### 修复方式
+
+- 本轮先同步 HF 当前 evaluator 与 425 份 real_v1/real_v2 GT，使用仅本地的 `method.json` 复算；报告同时保留
+  full-schema、canonical-line、matched 与 end-to-end 四种口径，本地 score 不回传 HF。
+- 正式修复应让发布器保留 prompt 的嵌套 line 参数，并按版本化 canonical schema 生成兼容字段；同时把
+  `method.json` 是否为自动评分必需文件纳入发布前合同检查。修复前不得用 full-schema line 分数评价模型能力。
+
+### 回归测试
+
+- 当前 evaluator 对四个 run 均生成 `score.json`/`score_special.json`；425 个 GT JSON 使用 50 worker 同步并通过
+  JSON/文件数校验。
+- 复核 real_v2 GT 确认同时存在 `fill`/`border` 与 `fill_color`/`border_color`，并逐模型重算 12 个 canonical
+  line 字段的 weighted matched/E2E 分数。
+
+### 后续防线
+
+- 任何“平台自行评分”的上传必须先 dry-run evaluator discovery，确保所需元数据文件已发布；不能只验证 pred 数量。
+- reconstruction 发布前必须对齐 prompt schema、codec 输出 schema 和 evaluator flatten path；同一语义的嵌套与
+  平铺字段只能有一个计分真源。推理前还必须记录并核验 GT revision，不能复用未绑定 revision 的本地快照。
+
+## 2026-09-14：PPT Review 的 complex 回填与 pointy 渲染修正
+
+### 现象与根因
+
+- `0901_ppt_prelabel` 的 0.8B 子属性 review 中，部分有效且非 other 的 shape/line 被整框原图替换。
+  临时 renderer 将 fill/border 的 complex 当成整个对象不可复原，掩盖了模型已预测的几何。
+- pointy 复用了缩窄三角 marker 与等宽主体，主体仅回缩 marker 长度的 0.72；曲线上还使用了相邻
+  离散采样点推算端部长度，因此不能忠实表达“线体连续收尖”。
+
+### 影响范围与修复
+
+- 影响临时 review 的可视化，不改模型输出、训练配置或评分。入口位于
+  `temp/0901_ppt_prelabel/review_v510_08b_18000_20260914/object_review/index.html`。
+- 单页仅保留单个对照与 E2E 对照复原；单个对象提供 source/crop/overlay/render 与独立 prediction JSON。
+  source/crop 标明当前检测 bbox；E2E 可切换整图 bbox。所有 bbox 使用已有检测结果，不读取 GT。
+- complex fill/border 仅在预测几何 mask 内取原图纹理，并单独标记；单个 other/失败项透明展示，
+  E2E 的 other/失败项才整框回填。原图纹理与整体回填不可计为生成能力。
+- pointy 使用沿中心线弧长递增/递减的截面宽度构造轮廓，不再附加三角头；保留原始 prediction JSON。
+
+### 回归测试与防线
+
+- 完成 725 个对象与 50 张 E2E 的引用校验、输出 PNG 校验、页面 JavaScript 语法校验。
+- 检查 0/30/45/90 度与 begin/end/both 三种 pointy 组合：尖端宽度归零，截面不超过线体宽度。
+- complex 三角形测试验证 bbox 内、预测轮廓外像素保持透明；card 分区测试验证上下区域填色不同。
+- bbox 的原图像素到归一化坐标往返检查通过。本次最终重设计未操作浏览器，不能将这些断言宣称为完整视觉验收。
+- 后续 review 必须区分预测几何、源图纹理与整对象 fallback；渲染问题不能误判为模型预测问题。
+
+## 2026-09-14：PPT 全量子属性预标注的供给瓶颈与补标门禁
+
+- 现象：八个 vLLM 副本存在间歇性空队列；4B 补标的首条 card 输出仍违反 fill/splits 数量约束，导致整批退出。
+- 根因：图像编码与同步落盘限制异步请求供给，且请求过早绑定副本；补标复用了要求全部 canary 解析成功的全量启动门禁。
+- 影响：0.8B 全量吞吐偏低；88 条失败样本的 4B 补标曾在两条 canary 后停止。未修改原成功预测或伪造参数。
+- 修复：50 进程编码、异步落盘、编码完成后领取共享 endpoint slot；4B 补标仅在显式 ALLOW_INVALID_CANARY 下允许有 raw 记录的 parser/geometry 单条失败继续，transport 失败仍阻止扩量。88 条小批量使用 eager，避免额外图编译成本。
+- 回归：0.8B 最近窗口吞吐由约 62 提升至 113 请求/秒；最终 2638 JSON、38356 成功属性、88 失败，ZIP CRC/SHA256 校验通过。4B 合并程序逐项断言原有成功预测不变，剩余失败继续单列；最终补标数量以 repair_v510_4b_ckpt24000/summary.json 为准。
+- 防线：失败样本重试的模型输出不合法与服务不可用必须区分；保留原始错误，不放宽 schema，不改变像素预算、prompt 或坐标语义来掩盖失败。临时实现位于 temp/ppt_attributes_review_20260914，不进入训练内核。

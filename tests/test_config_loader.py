@@ -250,6 +250,163 @@ def test_v5_9_production_configs_resolve_frozen_data_contract(
     )
 
 
+def test_v5_10_data_configuration_contract() -> None:
+    from shaft.config.loader import load_config_from_payload
+
+    fragment_path = Path("configs/data/banana_v5_10_runtime.yaml")
+    fragment = yaml.safe_load(fragment_path.read_text())
+    # Only exercise assembly against a known batching/model contract; the new file
+    # deliberately does not prescribe v5.10 model or optimization settings.
+    payload = yaml.safe_load(Path("configs/train/banana_sft_4b_qwen35_v5_9.yaml").read_text())
+    for section, values in fragment.items():
+        payload[section].update(values)
+    config = load_config_from_payload(payload, config_path=fragment_path)
+    expected = {
+        "grounding_layout": 8.0,
+        "shape_context_reconstruction": 21.6,
+        "shape_context_reconstruction_real": 2.0,
+        "line_context_reconstruction": 21.6,
+        "line_context_points": 4.0,
+        "image_context_reconstruction": 1.0,
+        "background": 1.8,
+    }
+    assert {d.dataset_name: d.weight for d in config.data.datasets} == expected
+    assert all(d.enabled and not d.use_for_eval for d in config.data.datasets)
+    assert config.experiment.seed == 465
+    assert not config.eval.enabled
+    assert config.data.schedule.mixing == "weighted"
+    assert config.data.schedule.shuffle
+    assert config.data.media_snapshot_id.startswith("banana-v5.10-")
+    sources = config.data.prompt_sources
+    assert set(sources) == set(expected)
+    assert sources["shape_context_reconstruction_real"].path == sources[
+        "shape_context_reconstruction"
+    ].path
+    assert sources["line_context_points"].path == sources["line_context_reconstruction"].path
+    for name, source in sources.items():
+        assert source.apply_to == "train"
+        pool = load_prompt_source_pool(source.path)
+        assert pool is not None
+        eligible = V5_8_ELIGIBLE_FORMULATIONS.get(
+            name, ("appearance", "geometry", "reconstruction")
+        )
+        assert tuple(source.formulation_sources) == eligible
+        for formulation, store in source.formulation_sources.items():
+            assert len(store.train_paths) == 1
+            assert store.train_paths[0].endswith(
+                f"/{name}/sft/formulations/{formulation}/train.jsonl"
+            )
+
+
+def test_v5_10_4b_adamw_training_contract() -> None:
+    config = load_config(Path("configs/train/banana_sft_4b_qwen35_v5_10.yaml"))
+    assert config.experiment.name == "banana-v5.10-qwen35-4B"
+    assert config.experiment.seed == 465
+    assert config.train.optimizer_name == "adamw_torch"
+    assert config.train.duration.value == 24_000
+    total_draws = 8 * config.train.per_device_train_batch_size * (
+        config.train.gradient_accumulation_steps * config.train.duration.value
+    )
+    weights = {d.dataset_name: d.weight for d in config.data.datasets}
+    assert sum(weights.values()) == pytest.approx(60.0)
+    expected_draws = {
+        "grounding_layout": 204800,
+        "shape_context_reconstruction": 552960,
+        "shape_context_reconstruction_real": 51200,
+        "line_context_reconstruction": 552960,
+        "line_context_points": 102400,
+        "image_context_reconstruction": 25600,
+        "background": 46080,
+    }
+    for name, draws in expected_draws.items():
+        assert total_draws * weights[name] / sum(weights.values()) == pytest.approx(draws)
+    assert config.train.per_device_train_batch_size == 1
+    assert config.train.gradient_accumulation_steps == 8
+    assert config.train.learning_rate == pytest.approx(3e-5)
+    assert config.train.param_group_lrs == {"vision_tower": 1.5e-5, "aligner": 3e-5}
+    assert config.train.warmup_ratio == pytest.approx(0.1)
+    assert config.train.weight_decay == pytest.approx(0.003)
+    assert config.data.max_length == 8000
+    assert config.data.batching.buffer_size == 256
+    assert config.data.num_workers == 6
+    assert config.train.distributed.strategy == "ddp"
+    assert config.train.save_steps == 2000
+    assert config.train.save_total_limit == 10
+    assert not config.train.save_only_model
+    assert not config.train.save_final_model
+    assert config.train.save_final_state
+    assert not config.train.init_from_checkpoint
+    assert not config.train.resume_from_checkpoint
+    fragment = yaml.safe_load(Path("configs/data/banana_v5_10_runtime.yaml").read_text())
+    production = yaml.safe_load(
+        Path("configs/train/banana_sft_4b_qwen35_v5_10.yaml").read_text()
+    )
+    for key, value in fragment["data"].items():
+        assert production["data"][key] == value
+
+
+def test_v5_10_0_8b_training_contract() -> None:
+    path = Path("configs/train/banana_sft_0_8b_qwen35_v5_10.yaml")
+    config = load_config(path)
+    assert config.experiment.name == "banana-v5.10-qwen35-0.8B"
+    assert config.experiment.seed == 465
+    assert config.train.per_device_train_batch_size == 4
+    assert config.train.gradient_accumulation_steps == 2
+    assert config.train.gradient_checkpointing
+    assert config.data.max_length == 8000
+    assert config.data.batching.grouping == "length"
+    assert config.data.batching.layout == "varlen"
+    assert config.data.batching.buffer_size == 512
+    assert config.data.num_workers == 8
+    assert config.data.prefetch_factor == 4
+    production = yaml.safe_load(path.read_text())
+    reference = yaml.safe_load(
+        Path("configs/train/banana_sft_4b_qwen35_v5_10.yaml").read_text()
+    )
+    for key, value in reference["train"].items():
+        if key not in {"per_device_train_batch_size", "gradient_accumulation_steps"}:
+            assert production["train"][key] == value
+    for key in ("catalog_path", "catalog_names", "prompt_sources", "media_snapshot_id"):
+        assert production["data"][key] == reference["data"][key]
+
+
+def test_v5_10_27b_multinode_training_contract() -> None:
+    path = Path("configs/train/banana_sft_27b_qwen38_v5_10_full_zero3.yaml")
+    config = load_config(path)
+    assert config.experiment.name == "banana-v5.10-qwen38-27B"
+    assert config.experiment.seed == 465
+    assert config.model.template == "qwen38vl"
+    assert config.train.per_device_train_batch_size == 2
+    assert config.train.gradient_accumulation_steps == 2
+    assert config.train.duration.value == 16000
+    assert 16 * config.train.per_device_train_batch_size * config.train.gradient_accumulation_steps == 64
+    assert config.train.learning_rate == pytest.approx(2e-6)
+    assert config.train.param_group_lrs == {"vision_tower": 1.2e-6, "aligner": 4e-6}
+    assert config.train.warmup_ratio == pytest.approx(0.13)
+    assert config.train.gradient_checkpointing
+    assert config.train.distributed.strategy == "deepspeed"
+    assert config.train.save_steps == 2000
+    assert config.train.save_total_limit == 3
+    assert not config.train.save_only_model
+    assert not config.train.save_final_model
+    assert config.train.save_final_state
+    assert not config.train.resume_from_checkpoint
+    assert not config.train.init_from_checkpoint
+    assert config.data.max_length == 9000
+    assert config.data.batching.max_tokens_per_microbatch == 18000
+    assert config.data.batching.resource_budgets == {"vision_patches": 32768}
+    assert config.eval.max_new_tokens == 9000
+    assert config.data.batching.buffer_size == 512
+    assert config.data.num_workers == 6
+    assert config.data.prefetch_factor == 2
+    production = yaml.safe_load(path.read_text())
+    reference = yaml.safe_load(
+        Path("configs/train/banana_sft_4b_qwen35_v5_10.yaml").read_text()
+    )
+    for key in ("catalog_path", "catalog_names", "prompt_sources", "media_snapshot_id"):
+        assert production["data"][key] == reference["data"][key]
+
+
 def test_load_minimal_config(tmp_path: Path) -> None:
     payload = """
 experiment:

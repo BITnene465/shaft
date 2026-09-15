@@ -5,6 +5,12 @@
 
 ## 当前任务文档
 
+- [banana_v5_10_line_points.md](banana_v5_10_line_points.md)：真实points全量+20%JPEG，V10多叉15k。
+- [banana_v5_10_real_shape.md](banana_v5_10_real_shape.md)：完整真实shape独立cohort，三种formulation和少量JPEG。
+- [banana_v5_10_grounding.md](banana_v5_10_grounding.md)：v5.10 真实 grounding，1M–2M 缩放、
+  配对 JPEG、测试内容排除与验证发布。
+- [clean_real_raw_annotations.md](clean_real_raw_annotations.md)：真实 compact 标注全量解码审计、
+  确定性清洗与整份 JSON 可恢复隔离；不使用 `subbbox` 判断质量。
 - [banana_v5_10.md](banana_v5_10.md)：整套 v5.10 可复现输入合同、各任务状态和 shape 生成入口；
   配置见 `configs/data/preparation/banana_v5_10.json`，不依赖本地 subtask。
 - `audit_banana_v5_10_lines.py`：50 进程只读审计修正后的 V10 line，记录标注有效性、

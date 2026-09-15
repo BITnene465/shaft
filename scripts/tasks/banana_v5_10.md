@@ -5,6 +5,72 @@ Git `v5.10` tag 只在整套流程完成、验收并提交后创建；当前 sha
 
 ## 入口与状态
 
+### 已确认的训练数据配置
+
+4B 正式配置已落地：`configs/train/banana_sft_4b_qwen35_v5_10.yaml`。
+8卡A800、基模重新训练、AdamW、BS1/GA8、24,000步、LR 3e-5、视觉塔1.5e-5、
+warmup 0.1、weight decay 0.003、max length 8000，其他批处理/保存设置继承v5.9。
+启动时设置 `WANDB_MODE=offline`。Muon hybrid 已延期至总 TODO，不用于本次训练。
+下述片段仍是数据合同真源，focused测试保证正式4B配置与其一致。
+
+0.8B 配置：`configs/train/banana_sft_0_8b_qwen35_v5_10.yaml`，计划在 worker2 八卡 A800
+从 `Qwen3.5-0.8B` 基模训练。继承 4B 的七任务数据、配比、24k 步和优化/保存参数；
+BS4/GA2（全局 batch 64），length 分组、varlen、无 packing、buffer 512、vision patches
+预算 32768、8 workers/prefetch 4，max length 8000。保持 gradient checkpointing 开启，
+避免上一版关闭后出现的长尾激活 OOM。启动时设置 `WANDB_MODE=offline`；配置校验不替代
+真实八卡长尾显存验证，不自动启动训练。
+
+27B 配置：`configs/train/banana_sft_27b_qwen38_v5_10_full_zero3.yaml`，用于另一集群的
+两节点各 8 张 A800 80GB（IB/RDMA）。Qwen3.8-27B 基模、`qwen38vl` 非思维链模板，
+七任务数据和配比不变；BS1/GA4、全局 batch 64、16k 步（1,024,000 次采样），主干/视觉塔/aligner LR
+分别为 2e-6/1.2e-6/4e-6，warmup 0.13（2080 步）、WD 0.003。bounded_cost/fixed/padded、buffer 512、
+max length/token budget 8000、vision patches 16384、6 workers/prefetch 2。
+启用 gradient checkpointing，复用 `zero3_bf16_lowmem.json`；未默认开启通信重叠。
+每 2000 步保存完整 resume checkpoint，保留最近 3 个，关闭额外 final model。
+
+两节点须使用一致代码、环境、基模和数据内容，路径配置在各节点均可解析；输出 checkpoint
+目录须为两节点可见的共享存储，以保存和恢复所有 rank 的 ZeRO 分片。
+在各节点仓库根目录运行以下命令；首节点 `NODE_RANK=0`，另一节点改为 `1`，
+`MASTER_ADDR` 均填写首节点可达的内网 IP，端口须空闲且可互通。不要使用 `--standalone`。
+
+```bash
+export MASTER_ADDR="填写首节点内网IP"
+export MASTER_PORT=29500
+export NODE_RANK=0
+
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 WANDB_MODE=offline PYTHONUNBUFFERED=1 \
+uv run --no-sync torchrun --nnodes=2 --nproc-per-node=8 \
+  --node-rank="$NODE_RANK" --master-addr="$MASTER_ADDR" --master-port="$MASTER_PORT" \
+  scripts/train.py sft \
+  --config configs/train/banana_sft_27b_qwen38_v5_10_full_zero3.yaml
+```
+
+命令显式传入节点 rank 和 rendezvous 参数。网卡/HCA 名称由目标集群确定，不能复制本机值；
+先确认跨节点 NCCL 实际使用 IB/RDMA，再检查长尾 batch 显存和吞吐。配置通过校验不代表
+已完成该集群的通信、显存或恢复验证。
+
+- Catalog：`configs/data/banana_v5_10.yaml`。
+- 配套片段：`configs/data/banana_v5_10_runtime.yaml`。不是独立训练入口；框架没有
+  YAML include，待模型/优化参数对齐后合入正式训练 YAML，不能只换 catalog 而遗漏 prompt 映射。
+- 权重：grounding 8、合成 shape 21.6、真实 shape 2、合成 line 21.6、line points 4、image 1、
+  background 1.8，总计60。对应样本占比约13.33%、36.00%、3.33%、36.00%、6.67%、1.67%、3.00%，
+  不是 token/loss 占比。
+- 4B/0.8B 的24k步/全局batch64对应1,536,000次采样；上述七个来源预计分别为204,800、552,960、51,200、
+  552,960、102,400、25,600、46,080次。image/background约为现有视图数量的1.21/1.20倍，
+  不是唯一图片覆盖率。warmup ratio仍为0.1（2,400步）；每2k保存，上限10，早期checkpoint会轮替删除。
+- weighted + shuffle，seed 465，新 media snapshot；七个来源均 train-only，关闭在线 eval。
+- 真实 shape 与合成 shape 共用原池。shape appearance/geometry/reconstruction、
+  line appearance/points/reconstruction 均按原池1:1:4随机选择，不按阶段轮换。
+  line points只注册points；image/background原样复用，不表示历史数据重新做了测试隔离。
+- 详细/简略 variant 权重不变，不复制 prompt，不重新叠加在线像素增强。
+- 路径按配置文件所在目录解析；片段的数据路径也适用于 `configs/train/` 下的训练 YAML。
+  模型、batch、像素预算、max length和步数另行确认；固定步数不保证遍历所有视图，覆盖率届时计算。
+
+2026-09-09目录收尾：已清理旧派生备份及完成的`.build`工作目录，正式任务的复现锁/选择清单/
+内容报告保留；`data/banana_v5_9`历史raw快照和旧reports也已退役。下文历史备份路径记录的是
+当时的发布操作，不代表备份现在仍存在。当前目录职责见`data/README.md`。
+复现从完整源输入重新prepare；不能再引用已删除的旧work-root或v5.9路径。
+
 - 配置：`configs/data/preparation/banana_v5_10.json`。
 - 执行：`scripts/tasks/prepare_banana_v5_10.py`。
 - 合同与回归：`tests/test_prepare_banana_v5_10.py`，复用 context reconstruction builder。
@@ -13,17 +79,34 @@ Git `v5.10` tag 只在整套流程完成、验收并提交后创建；当前 sha
 | 任务 | 输入真源 | 当前状态 |
 | --- | --- | --- |
 | shape_context_reconstruction | 修正后的 V10 GT + 原始 img + train/val | 已生成、全量验收并发布 |
+| shape_context_reconstruction_real | TXT白名单中的完整真实shape子属性 | 已验收发布：17,006图，51,018条SFT |
 | line_context_reconstruction | 相同 V10 快照 | 已生成、全量验收并发布 |
-| line_context_points | compact real raw + V10 多叉 line | 待确定合成补充量后接入 |
-| grounding_layout | v5.9 冻结 raw、增量标注及 split | 继承规则，仍需冻结本版复现输入 |
+| line_context_points | compact real raw + V10 多叉 line | 已生成、全量验收并发布：240,272行 |
+| grounding_layout | 新真实标注快照 + 恢复的3,306份paper增量 | 已生成、全量验收并发布：78,514行 |
 | background | 历史人工审核标签及经过验证的历史媒体 | 沿用；必须提供历史输入，不能从 V10 猜测 |
 | image_context_reconstruction | 经过验证的历史 image-type bundle | 沿用；当前 raw 无全部历史类型标签 |
 
-**整版要求可复现，不表示当前六个任务已经全部接通。** 尚未确认的采样不沿用隐含默认值。
+**整版要求可复现，不表示当前所有任务已经全部接通。** 尚未确认的采样不沿用隐含默认值。
+
+2026-09-08 新真实标注包先独立替换用户指定 raw 目录，再通过
+[真实标注质量清洗](clean_real_raw_annotations.md) 清洗：20,124 份输入保留 20,070 份，
+54 份可恢复隔离，删除 126 个重复实例、裁边 12 个轻微越界主框；源点和原图不改，
+`subbbox` 不作为质量判断依据。这个真实源快照尚未自动同步至其他 raw 副本或训练 catalog；
+接入前仍需任务准入与测试集内容隔离。已完成的 V10 合成 shape/line 无需因此重建。
+
+2026-09-09 经用户确认补回新包未包含的 3,306 份 v5.9 paper 增量，真实源现在有 23,376 份 JSON。
+对应图片从 paper 复制到 raw 的 images；全量解码、尺寸匹配以及与冻结 v5.9 图片/标注的字节一致性
+检查通过。补回清单和哈希记录于该 raw 的 `restore_v5_9_increment.json`，不覆盖原有 20,070 份标注。
+复现需额外提供此清单指定的 paper 图片和旧增量 JSON，不能仅使用本次 20,124 份新标注 ZIP。
+
 罕见 `regular_pentagon / step` 各占 shape 训练抽样 0.5% 是后续训练配置目标，
 当前配置中的 `rare_training_probability` 只记录该目标，尚未激活运行时重采样，不重复生成图片。
 
 ## 必要输入
+
+Grounding 独立入口和配方见 [banana_v5_10_grounding.md](banana_v5_10_grounding.md)。
+Line points 独立入口和配方见 [banana_v5_10_line_points.md](banana_v5_10_line_points.md)。
+真实shape独立入口与严格完整性门禁见 [banana_v5_10_real_shape.md](banana_v5_10_real_shape.md)。
 
 1. V10 的 `gt_standard/`、`img/`、`train.txt`、`val.txt`。
    GT revision 为 `df3f66d8e661b60641dc8d10a6f65d7a98dcaab8`，上游 GT ZIP SHA256：

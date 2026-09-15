@@ -1,0 +1,11 @@
+{
+  "version": "banana-v5.10-line-points-v1",
+  "seed": 465,
+  "prompt_pool": "configs/prompts/pools/line_context_reconstruction.v5.8.yaml",
+  "synthetic_limit": 15000,
+  "synthetic_recipe": "configs/data/preparation/banana_v5_10_line.json",
+  "real_jpeg": {"additional_fraction": 0.2, "quality": [60, 90], "subsampling": 0},
+  "min_crop_size": 32,
+  "max_aspect_ratio": 60.0,
+  "png_compress_level": 1
+}

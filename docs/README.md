@@ -26,6 +26,10 @@
 - [extension_guide.md](extension_guide.md)：开发收口流程与正式扩展规范。
 - [scripts.md](scripts.md)：正式 CLI 与 task 脚本使用说明。
 - [Banana v5.10 数据复现](../scripts/tasks/banana_v5_10.md)：版本化准备入口、输入依赖和验收口径。
+- [v5.10 Grounding](../scripts/tasks/banana_v5_10_grounding.md)：1M–2M 缩放、JPEG配对增强与测试隔离。
+- [v5.10 Line points](../scripts/tasks/banana_v5_10_line_points.md)：真实干净样本+20%JPEG，V10多叉补充。
+- [v5.10 真实Shape](../scripts/tasks/banana_v5_10_real_shape.md)：TXT白名单、完整几何准入和独立真实数据源。
+- [真实标注质量清洗](../scripts/tasks/clean_real_raw_annotations.md)：全量解码、几何检查与可恢复隔离。
 
 ## 唯一总 TODO
 

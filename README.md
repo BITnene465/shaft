@@ -407,6 +407,10 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 
 - [docs/README.md](docs/README.md)
 - [Banana v5.10 数据准备与跨机器复现](scripts/tasks/banana_v5_10.md)
+- [v5.10 Grounding：1M–2M 缩放与 JPEG 增强](scripts/tasks/banana_v5_10_grounding.md)
+- [v5.10 Line points：真实 JPEG 副本与 V10 多叉补充](scripts/tasks/banana_v5_10_line_points.md)
+- [v5.10 真实 Shape：完整标注准入与可复现构建](scripts/tasks/banana_v5_10_real_shape.md)
+- [真实标注质量清洗与可恢复隔离](scripts/tasks/clean_real_raw_annotations.md)
 
 重点文档：
 

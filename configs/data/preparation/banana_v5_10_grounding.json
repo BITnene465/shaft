@@ -1,0 +1,18 @@
+{
+  "version": "banana-v5.10-grounding-jpeg-v1",
+  "seed": 465,
+  "augmentation_profile": "layout_multiscale_v1",
+  "min_pixels": 1000000,
+  "max_pixels": 2000000,
+  "clean_resize_views": 0.9,
+  "padded_full_ratio": 0.1,
+  "degraded_resize_ratio": 0.25,
+  "degradation_max_severity": "L1",
+  "density_crop_ratio": 0.15,
+  "negative_ratio": 0.03,
+  "jpeg_quality_bands": [[40, 59, 0.25], [60, 79, 0.35], [80, 95, 0.4]],
+  "jpeg_subsampling": 2,
+  "test_phash_distance": 6,
+  "prompt_config": "configs/prompts/pools/grounding_layout.v5.8.yaml",
+  "prompt_variant": "detailed"
+}

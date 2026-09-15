@@ -787,6 +787,21 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 5. 在 `infer` 中维护私有 codec 逻辑而不与共享 codec 收敛。
 6. 在 `export` 中引入自定义模型目录格式。
 
+### 10.3 Git 跟踪与本地产物边界
+
+- 正式源码、测试、`configs/`（含 prompt pool）、开发日志与待办文档默认可跟踪；不以配置版本白名单决定
+  是否提交，也不按 YAML、JSON、图片或模型文件扩展名整类屏蔽，避免误伤 fixture。
+- 训练数据、权重、输出、评测缓存统一放在根目录 `data/`、`models/`、`outputs/`、`runs/`、
+  `eval_bench_store/` 等忽略目录；这些规则不屏蔽 `src/shaft/data` 或测试内同名目录。
+- 私有环境、下载的运行时、操作快照分别由 `.venv/`、`.uv-python/`、`.cuda/`、`.codex-private/`、
+  `.ops/` 等明确目录隔离；`.codex/skills/` 继续作为正式协作资产维护。
+- 本地配置使用 `configs/local/` 或 `*.local.yaml`、`*.local.yml`、`*.local.json`；迁移时需校验相对路径。
+  仅个人机器适用的其他忽略项放 `.git/info/exclude`。环境文件忽略，`.env.example`、`.shaft.env.example`
+  等无凭证模板保持可见。
+- 修改忽略规则不会删除文件、取消已跟踪文件或自动提交新显示的文件。使用
+  `git ls-files -ci --exclude-standard` 检查已跟踪文件与规则的冲突，使用 `git check-ignore -v --no-index`
+  排查具体路径。
+
 ## 11. 相关文档
 
 - [docs/README.md](README.md)

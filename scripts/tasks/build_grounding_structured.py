@@ -96,6 +96,7 @@ class BuildConfig:
     processor_factor: int
     clean_resize_views: float
     degraded_resize_ratio: float
+    degradation_max_severity: str = "L3"
 
 
 @dataclass(frozen=True)
@@ -1199,6 +1200,7 @@ def _build_multiscale_plans(
             object_quartiles=object_quartiles,
         )
     severity_cycle = ("L1",) * 8 + ("L2",) * 7 + ("L3",) * 5
+    severity_cycle = tuple(s for s in severity_cycle if s <= config.degradation_max_severity)
     degradation_index = 0
     plans: dict[str, SourcePlan] = {}
     for meta in ordered:
@@ -2241,6 +2243,7 @@ def main() -> None:
     parser.add_argument("--processor-factor", type=int, default=32)
     parser.add_argument("--clean-resize-views", type=float, default=0.9)
     parser.add_argument("--degraded-resize-ratio", type=float, default=0.75)
+    parser.add_argument("--degradation-max-severity", choices=("L1", "L2", "L3"), default="L3")
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
 
@@ -2329,6 +2332,7 @@ def main() -> None:
             processor_factor=int(args.processor_factor),
             clean_resize_views=float(args.clean_resize_views),
             degraded_resize_ratio=float(args.degraded_resize_ratio),
+            degradation_max_severity=args.degradation_max_severity,
         )
         val_config = BuildConfig(
             raw_root=raw_root,

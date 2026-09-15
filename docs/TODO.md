@@ -16,11 +16,27 @@
 
 ## P0：修正错误能力边界
 
+### 标准 Muon + AdamW hybrid（延期，本次 v5.10 不启用）
+
+- 当前 `training/muon.py` 的 `muon` 注册项仅做动量更新和逐行归一化，
+  不是包含 Newton–Schulz 正交化的标准 Muon；不能作为标准 Muon 推荐用于生产。
+- 后续复用 PyTorch 原生 Muon，明确隐藏层矩阵与 embedding/head/bias/norm 等
+  AdamW 参数的分流；审计 Qwen 混合注意力、卷积和视觉参数，不按维数盲目分配。
+- 支持差分学习率、RMS 缩放、scheduler、DDP 与保存/resume 合同；旧实现的 optimizer
+  state 不得静默加载为新算法。DeepSpeed/FSDP 等组合单独验收，不自动宣称支持。
+- 补齐数值对照、参数完整且无重复分组、调度、保存恢复与最短训练链测试后，
+  再做同基模/数据/seed 的短程 AdamW 对照，评估吞吐、稳定性和独立验证效果。
+- 本次 v5.10 4B 明确继续 `adamw_torch`，不修改优化器内核，也不启动 Muon 实验。
+
 ### v5.10 数据发布门禁
 
-- 将 points-only cohort 和其余真实任务接入同一版本准备流程；shape 与 full-capable synthetic line
-  已完成生成与全量验收。
+- 将其余真实任务接入同一版本准备流程；shape、full-capable synthetic line、points-only cohort
+  与grounding已完成生成与全量验收。Points为240,272行并复用grounding内容门禁；
+  Grounding现为78,514行，已有real_v1/real_v2/canonical内容门禁；
+  其他真实任务仍须分别接入，不能外推为整版已无泄漏。
 - 所有任务冻结输入、split/exclusion、代码/prompt/环境和输出内容哈希，不允许依赖 `subTasks/`。
+- 独立真实shape已发布：17,006图/51,018条SFT，完整标注+少量JPEG，跨进程canary内容一致。
+  已接入v5.10数据配置及4B配置，真实/合成shape权重为2:21.6；训练尚未启动。
 - 整版复用真实数据前必须落实下述跨 ID 内容泄漏门禁，不能将 ID 排除表述为零内容泄漏。
 - 整套验收并提交后创建 `v5.10` Git tag；阶段性 shape 完成不代表版本发布。
 

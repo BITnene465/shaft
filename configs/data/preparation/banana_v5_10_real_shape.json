@@ -1,0 +1,13 @@
+{
+  "version": "banana-v5.10-real-shape-v1",
+  "dataset": "shape_context_reconstruction_real",
+  "seed": 465,
+  "prompt_pool": "configs/prompts/pools/shape_context_reconstruction.v5.8.yaml",
+  "formulations": ["appearance", "geometry", "reconstruction"],
+  "pixel_augmentation": "none",
+  "additional_jpeg": {"fraction": 0.2, "quality": [60, 90], "subsampling": 0},
+  "min_crop_size": 32,
+  "max_aspect_ratio": 60.0,
+  "png_compress_level": 1,
+  "normalization": "complete-shape-clockwise-v1"
+}

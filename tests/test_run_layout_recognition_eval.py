@@ -75,6 +75,7 @@ def test_cli_defaults_match_layout_inference_contract() -> None:
     assert detection.endpoint_max_inflight == 4
     assert detection.allow_invalid_output is False
     assert prepare.padding_ratio == 0.65
+    assert prepare.workers == 50
     assert prepare.allow_missing_detection is False
     assert (reconstruction.min_pixels, reconstruction.max_pixels) == (500_000, 4_000_000)
     assert reconstruction.allow_invalid_output is False
@@ -136,6 +137,7 @@ def test_prepare_reconstruction_can_explicitly_skip_missing_detection(tmp_path: 
         minimum_crop_size=256,
         force=False,
         allow_missing_detection=True,
+        workers=2,
     )
     MODULE.prepare_reconstruction(args)
 
@@ -146,6 +148,7 @@ def test_prepare_reconstruction_can_explicitly_skip_missing_detection(tmp_path: 
     assert summary["missing_detection_count"] == 1
     assert summary["missing_detection_stems"] == ["missing"]
     assert summary["allow_missing_detection"] is True
+    assert summary["workers"] == 2
 
 
 def test_main_prompt_supports_v58_default_and_reconstruction_formulations() -> None:
