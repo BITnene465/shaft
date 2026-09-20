@@ -52,6 +52,7 @@ jobs:
           - framework
           - smoke
           - task
+          - numerics
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -66,10 +67,31 @@ jobs:
         run: uv sync --locked --extra dev --extra train --extra rlhf
 
       - name: Run ${{ matrix.suite }} suite
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
         run: |
           mkdir -p "$RUNNER_TEMP/shaft-test-results"
           uv run --locked --no-sync pytest tests --suite "${{ matrix.suite }}" -ra \
             --junitxml="$RUNNER_TEMP/shaft-test-results/${{ matrix.suite }}.xml"
+
+      - name: Reject skipped or empty numerical gates
+        if: matrix.suite == 'numerics'
+        run: |
+          uv run --locked --no-sync python - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report = Path(os.environ["RUNNER_TEMP"]) / "shaft-test-results/numerics.xml"
+          cases = ET.parse(report).getroot().findall(".//testcase")
+          if not cases or any(
+              case.find(tag) is not None
+              for case in cases for tag in ("skipped", "failure", "error")
+          ):
+              raise SystemExit("Numerical gates must execute and pass, without skips.")
+          print(f"Verified {len(cases)} executed numerical gates.")
+          PY
 
       - name: Upload ${{ matrix.suite }} results
         if: always()

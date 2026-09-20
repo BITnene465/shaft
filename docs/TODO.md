@@ -16,6 +16,16 @@
 
 ## P0：修正错误能力边界
 
+### 真实训练对照与 GPU 数值门禁
+
+- CPU `numerics` 已接入 required CI，但不覆盖真实 tokenizer/processor、BF16/FA2/FLA 和分布式更新。
+- 确认可用 GPU runner 后，将现有 isolation 测试及真实 padded BS/GA 更新对照设为明确的发布门禁；
+  缺依赖、缺资源或 skip 不能作为通过，不能对不可信 PR 自动开放自托管训练节点。
+- 固定 checkpoint、样本顺序、模板/监督 token、归一化和训练预算，完成 HF/LF/Shaft 短程对照；
+  记录逐任务有效 token 与截断率，不把不同目标或输入合同的分数差直接归因于训练内核。
+- 同硬件测量数据等待、LM head/CE、optimizer 时间和峰值显存，再评估 fused CE/logits selection；
+  候选优化必须通过梯度与更新对照，不能改变现有 loss_scale 语义。
+
 ### 标准 Muon + AdamW hybrid（延期，本次 v5.10 不启用）
 
 - 当前 `training/muon.py` 的 `muon` 注册项仅做动量更新和逐行归一化，
@@ -133,8 +143,8 @@
 
 ### 7. 生产证据与 CI
 
-- required CI 当前只覆盖 CPU framework 与 tiny/fake smoke；distributed、integration、GPU 和真实模型门禁不应
-  被 required 绿灯替代。
+- required CI 覆盖 CPU framework/smoke/task/numerics 与 Gloo/torchrun distributed 合同；
+  integration、GPU、真实多机和生产权重效果仍不能被 required 绿灯替代。
 - 为发布版本维护可审计的真实模型/GPU gate 结果，不把历史一次性通过自动解释为当前依赖版本仍通过。
 - 在资源允许时增加非阻塞的定期 GPU/真实模型验证；是否升级为 required 应由稳定性和资源成本共同决定。
 

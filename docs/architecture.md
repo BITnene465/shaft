@@ -12,6 +12,9 @@
   生产验收与 varlen/packing 仍保持独立边界。
 - 通过注册表和适配层支持后续模型族、算法和推理后端扩展。
 - 保持训练、保存、续训、导出都兼容 HF / PEFT / TRL 标准能力。
+- 训练数值语义由独立参考更新验证，不以 loss 下降或 checkpoint 可恢复代替梯度正确性。
+  CPU `numerics` 为 required CI；真实 processor、GPU kernel 与分布式后端仍需各自验收，见
+  [testing.md](testing.md)。
 
 ### 1.2 当前非目标
 

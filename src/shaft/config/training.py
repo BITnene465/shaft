@@ -138,6 +138,17 @@ class TrainEfficiencyConfig:
 
 
 @dataclass
+class TrainLigerConfig:
+    fused_linear_ce: bool = False
+    rms_norm: bool = False
+    swiglu: bool = False
+
+    @property
+    def enabled(self) -> bool:
+        return self.fused_linear_ce or self.rms_norm or self.swiglu
+
+
+@dataclass
 class TrainConfig:
     duration: TrainDurationConfig = field(default_factory=TrainDurationConfig)
     per_device_train_batch_size: int = 1
@@ -151,6 +162,8 @@ class TrainConfig:
     scheduler_num_cycles: float = 0.5
     scheduler_power: float = 1.0
     loss_name: str = "auto"
+    loss_normalization: str = "global_token"
+    liger: TrainLigerConfig = field(default_factory=TrainLigerConfig)
     loss_scale: str = "default"
     adam_beta1: float = 0.9
     adam_beta2: float = 0.999

@@ -65,7 +65,7 @@ def auto_loss(
     component_output: dict[str, torch.Tensor] | None = None,
     **_: Any,
 ) -> torch.Tensor:
-    if loss_scale is not None or normalization_denominator is not None:
+    if loss_scale is not None or normalization_denominator is not None or component_output is not None:
         logits = _extract_logits(outputs)
         if logits is None or labels is None:
             raise ValueError(
@@ -272,6 +272,30 @@ class _MemoryEfficientCausalLMCrossEntropy(torch.autograd.Function):
         return grad_logits, None, None, None, None, None
 
 
+def _causal_lm_weights_and_denominator(
+    *,
+    labels: torch.Tensor,
+    loss_scale: torch.Tensor | None,
+    ignore_index: int,
+    normalization_denominator: torch.Tensor | int | float | None,
+    device: torch.device,
+    compute_dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Single source of truth for shifted supervision and local/global normalization."""
+    shift_labels = labels[:, 1:].contiguous().to(device=device)
+    valid_mask = shift_labels.ne(int(ignore_index))
+    weights = valid_mask.to(dtype=compute_dtype)
+    if loss_scale is not None:
+        if tuple(loss_scale.shape) != tuple(labels.shape):
+            raise ValueError("loss_scale must align with labels.")
+        weights = weights * loss_scale[:, 1:].to(device=device, dtype=compute_dtype)
+    denominator = (
+        weights.sum() if normalization_denominator is None else
+        torch.as_tensor(normalization_denominator, device=device, dtype=compute_dtype)
+    )
+    return shift_labels, weights, denominator
+
+
 def causal_lm_cross_entropy(
     *,
     logits: torch.Tensor,
@@ -294,32 +318,11 @@ def causal_lm_cross_entropy(
     if max_tokens_per_chunk <= 0:
         raise ValueError("max_tokens_per_chunk must be > 0.")
 
-    shift_labels = labels[:, 1:].contiguous()
-    valid_mask = shift_labels.ne(int(ignore_index))
     compute_dtype = _cross_entropy_compute_dtype(logits.dtype)
-    if loss_scale is None:
-        weights = valid_mask.to(device=logits.device, dtype=compute_dtype)
-    else:
-        if tuple(loss_scale.shape) != tuple(labels.shape):
-            raise ValueError("loss_scale must align with labels.")
-        shift_loss_scale = (
-            loss_scale[:, 1:]
-            .contiguous()
-            .to(
-                device=logits.device,
-                dtype=compute_dtype,
-            )
-        )
-        weights = shift_loss_scale * valid_mask.to(device=logits.device, dtype=compute_dtype)
-    local_denominator = weights.sum()
-    denom = (
-        local_denominator
-        if normalization_denominator is None
-        else torch.as_tensor(
-            normalization_denominator,
-            device=logits.device,
-            dtype=compute_dtype,
-        )
+    shift_labels, weights, denom = _causal_lm_weights_and_denominator(
+        labels=labels, loss_scale=loss_scale, ignore_index=ignore_index,
+        normalization_denominator=normalization_denominator,
+        device=logits.device, compute_dtype=compute_dtype,
     )
     if float(denom.detach().item()) <= 0:
         if component_output is not None:

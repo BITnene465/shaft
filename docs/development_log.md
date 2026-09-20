@@ -1,5 +1,127 @@
 # Shaft 开发日志
 
+## 2026-09-19：对齐 LF 的 weight decay 分组与 Liger 算子范围
+
+- 现象：同样配置 weight_decay=0.003，Qwen3.5-0.8B 的 18 个 A_log 张量（288 个参数）
+  在 LF 参与 decay、Shaft 不参与；Shaft 的 fused_linear_ce 也不等于 LF 完整 Liger 开关。
+- 根因：Shaft 把所有 ndim<=1 参数排除，混淆张量形状与参数用途；此前只接入融合 CE。
+  LF 仍使用模块类型与名字匹配，并不是完全不使用名称规则。尚不能将评测差距因果归于这两项。
+- 影响范围：optimizer plan 被各训练算法共用；完整 Liger 仅适配 dense Qwen3.5 VL full SFT CUDA/DDP。
+- 修复方式：复用 HF Trainer decay 名单，保留显式 no-decay 后缀排除；统一 `train.liger`
+  配置，独立控制融合 CE、RMSNorm、SwiGLU，删除旧顶层两个开关，不保留兼容分支。
+  实例级 patch 覆盖 Q/K norm，不污染 HF 全局类，不改权重键名。
+  未修改 loss 分母、模板、数据顺序、学习率、已有训练配置；旧 optimizer 分组不允许强行精确恢复。
+- 回归测试：最终冻结代码后 442 项 CPU、15 项单卡 CUDA、1 项四卡 NCCL 测试全部通过，
+  无 skip。覆盖 HF decay 名单、配置/保存/恢复/流水线、实际 Liger loss/梯度、GC/GA、
+  两步 BF16 Trainer、模块覆盖与 Parameter 身份。中间一次 resume 测试因测试期间代码
+  仍被修改而触发实现指纹保护，冻结后完整复测通过，未放宽保护。
+- 预演记录：新建 tmux shell 未继承 CUDA_HOME，第一次 128-step canary 在训练前失败。
+  launcher 改为显式 source 项目现有 .venv/bin/activate 并检查 nvcc；仅修改任务启动脚本，
+  保留失败产物后重新预演，没有修改宿主机或共享 shell 配置。
+- 后续防线：不再通过维数猜测参数语义；新模型对照 HF 分组名单；Liger 开关纳入 resume 合同，
+  不把数值门禁通过等同于 LF 完整训练效果复现。
+
+## 2026-09-18：四卡 fused CE 验收启动配置冲突
+
+- 现象：首轮 128-step 有界验收在 config-preflight 退出，未进入训练，无有效训练峰值显存数据。
+- 根因：临时入口将 save_strategy 改为 no，却继承了正式配置的 save_only_model=true；框架按保存合同正确拒绝。
+- 影响范围：仅临时验收启动，不是 Liger/OOM 问题，正式训练保存配置未修改。
+- 修复方式：probe 同时关闭 save_only_model，并在进程组初始化前调用保存策略校验；r2 使用新输出与日志，不覆盖失败证据。
+- 回归测试：r2 重跑完整四卡原生链；最终步数、退出码和逐 rank 峰值以 temp/qwen35-08b-page8k-shaft-control-20260918/fused-probe-r2.* 及对应 outputs 为准，启动不等于验收通过。
+- 后续防线：派生 canary 配置必须完整校验相互关联字段，不能只通过 Python 编译或进程存在就宣称训练成功。
+
+## 2026-09-18：复用 Liger 修复 dense Qwen3.5 SFT 的完整 logits 显存瓶颈
+
+- 现象：同任务 LF 显存补测约 29 GiB NVML，而 Shaft 每卡 batch 4 的正式对照在第 95 步 OOM；
+  `grad_logits = torch.zeros_like(logits)` 单次申请 28.33 GiB。不是已证明 padding/loss 数学错误。
+- 根因：原分块 CE 只约束 CE workspace，模型前向仍生成完整词表 logits，反向仍分配同尺寸梯度。
+  LF 启用 Liger fused LM head + CE；Shaft 移除 labels 的调用方式不能靠安装 Liger 自动获得该路径。
+- 影响范围：大词表、长序列、padded batch 的原生 SFT；参数量小不意味着 logits 成本小。
+- 修复方式：仅新增 `train.fused_linear_ce`，复用固定版本 Liger 0.8.3，不自研 CUDA/Triton 算子，
+  不增加多后端 registry。模型 policy 提供实例级 loss-only forward，保持 HF 参数名/architecture；
+  训练层复用 shift/mask/分母真源，普通监督走 sum、token 加权走 none。未修改模板/样本/像素/batch。
+  logits 评测、KD 和未适配模型保留原路径；当前融合范围限 native dense Qwen3.5 full SFT CUDA/DDP。
+- 回归测试：CPU loss 合同、真实微型 Qwen3.5 HF 保存/重载；CUDA FP32/BF16 loss/梯度、tied/untied
+  head、加权/非加权、GC、不同微批分组，以及四卡全 ignore rank 的全局分母对照均通过。
+  同 batch 长尾单卡 allocated 为 Shaft 24.01 / LF-Liger 23.21 GiB，末三步为 6.95 / 6.89 秒。
+  BF16 近零梯度在两种归约下可变号，Adam 首步会放大到约
+  两倍 LR 的坐标差异，不能声称参数逐 bit 等价；测试保留 FP32 全参数更新对照，BF16 验证梯度
+  相对 L2 <1% 及显著梯度位置的更新，不用放宽全参数容差掩盖差异。
+- 后续防线：同输入张量哈希的真实普通/长尾 batch 显存与逐步计时；四卡不均匀监督与全 ignore rank
+  数值门禁；resume 合同绑定开关、实现和依赖版本。短窗口、单卡 kernel 对照不等于完整 LF/Shaft
+  四卡 pipeline 吞吐验收，未授权重启正式 8K 训练。实测记录见
+  [融合 linear CE 验证](fused_linear_ce_validation.md)。
+
+## 2026-09-18：CPU 数值门禁与跨框架语义对照
+
+- 现象：既有 required CI 不能证明真实 Qwen 模型在改变微批/梯度累积分组后产生等价更新；
+  框架间模板和 loss 合同不同，又容易被误判为 padding bug。
+- 根因：局部 loss 测试与手动 GPU gate 之间缺少默认执行的真实小模型独立更新对照。
+- 影响范围：验收证据不足，不是已证明生产训练错误；本轮不改训练内核、模板或优化目标。
+- 修复方式：新增 CPU numerics suite，以独立 PyTorch CE + AdamW 对照 Shaft Trainer；
+  固定顺序、关闭 dropout、使用真实微型 Qwen3.5 视觉/混合注意力和 CPU kernels，纳入共享 CI/release。
+  JUnit 空集或 skip/failure/error 均不得作为数值通过。模板实例与归一化差异单独记录。
+- 回归测试：覆盖右 padding 有效 logits、BS1×GA4/BS2×GA2/BS4×GA1 的梯度、参数与优化器状态，
+  含加权/非加权、完整/不完整窗口。首轮测试误用 iterable 默认 dispatch，将4个image patches裁成1个；
+  已复核生产配置显式 dispatch_batches=False，改用生产对应的map-style输入并显式关闭dispatch。
+- 后续防线：参考实验必须先对齐输入装配、精度和目标；CPU gate 不认证真实processor/GPU/DDP/ZeRO，
+  不能据此宣布 batch>1 效果问题已解决。GPU runner 与真实短程对照另行验收。
+
+## 2026-09-18：Detection-only 对照启动脚本收敛
+
+- 现象：新增的任务级跨框架审计在训练前失败；直接调用解释器又遗漏项目 CUDA 环境激活。
+- 根因：审计读取框架归一化后的空 train_path，并将参考缓存同位置 token 等价作为启动门禁；这不能证明训练样本或框架错误。另一个启动错误来自未激活 `.venv/bin/activate`，使 DeepSpeed 可用性检测找不到已有 `.cuda`。
+- 影响范围：仅本次临时实验启动，失败尝试没有执行 optimizer step；未修改共享框架源码、环境包、权限或其他 GPU 任务。
+- 修复方式：按用户最新要求去掉跨框架审计门禁，沿用 Shaft 原生 Qwen3.5 模型、chat template、collator 与 loss；启动脚本激活已有项目环境。保留任务独立的每 rank 编译缓存及指定训练参数，不将 LF 模板强加到 Shaft。
+- 回归测试：78113 条源记录转换保持成员、原文 prompt、目标与图片路径；原生 causal CE 小样本值及梯度与 torch CE 一致。四卡短测验证训练和 model-only 保存，正式训练从原始基础模型启动，不续训短测。
+- 后续防线：跨框架差异单独记录，不把新增审计错误解释为框架训练缺陷；启动需要同时验证项目 CUDA 环境与实际首步。结果差距应进一步定位数据、算子、采样和优化语义，不能单凭低分认定致命 bug。
+
+## 2026-09-17：两文档评测台账补充图表与Checkpoint明细
+
+- 现象：仅保留best难以观察训练波动，逐checkpoint长表又增加主文阅读负担。
+- 根因：速览与完整数据缺少分层展示。
+- 影响范围：仅docs/training_evaluation，不改模型、训练、评测或调度。
+- 修复：保留两份文档；正文加入四张图与简短解释，末尾用可展开表保留17系列、279份detection记录，另存十模型GT-BBox与两轮E2E/像素预算明细。figures保存精简数值快照与渲染器，清理原始产物后仍可独立阅读和重画。
+- 回归：图表直接消费同一数值快照；校验P/R/F1、各系列best及表格数量、内部链接；逐图检查标签、范围和可读性。GT-BBox与预测框E2E分开，v5.8合同不完整、rebalance3/上探阶段性和首轮schema缺陷显式标注。
+- 后续防线：维护仍采用“结论+图+可展开明细”，不额外拆分文档。每次更新同时更新数值快照、图和说明，避免图文漂移。
+
+## 2026-09-17：训练评测长期台账与历史子属性格式纠错
+
+- 现象：v5.8/v5.9/v5.10 实验结果散落在临时报告中，清理产物会丢失结论；历史 v5.9 GT-BBox 属性与 v5.10 对比曾出现被夸大的差距。
+- 根因：缺少独立结果记录；历史 v5.9 发布预测仅有平铺 line 外观字段，部分 GT 使用嵌套 fill/border；首轮 LR 实验另有后处理删除原始嵌套字段的问题。
+- 影响范围：四个 v5.9 GT-BBox 模型的 headline 偏低；首轮 LR 预测框 E2E 不能直接与 GT-BBox 对比。该问题不证明模型原始响应格式错误，也不影响 detection 的独立 P/R/F1。
+- 修复方式：此前完成十模型同评分器重算，34302 个可无歧义转换的历史 line 对象恢复嵌套字段，保留平铺值，不填 GT、不改框、不重推理。v5.9 0.8B overall 从66.5356更正到72.8538，27B从69.0204更正到75.6632；六个v5.10模型不变。首轮LR E2E尚未重算，明确标为旧格式结果。
+- 本次归档：审阅279份detection数据集级结果、十模型GT框分数及像素/LR对照，按用户阅读负担要求压缩为 docs/training_evaluation 两份 Markdown：总览与关键结果。不保留逐checkpoint长表，只记录best、核心对照、配置和解释边界。不链接原始产物，不复制权重/图片，不启动定时任务，不改训练或GPU调度。
+- 回归测试：格式转换已验证源文件不变、幂等/往返、歧义拒绝；十模型无关属性分数与检测匹配统计不变。本次检查表格分数、数量、同checkpoint选best与内部导航；现存配置与旧运行权重不同处显式标记，不混写。
+- 后续防线：评测结束同轮维护台账；指标区分GT框与预测框、matched与E2E、strict与修复输出。旧分数作废原因保留，阶段快照标日期/覆盖范围，不将配置存在视为运行完成。
+
+## 2026-09-16：早期 checkpoint 的无效输出不应中断消融评分队列
+
+- 现象：0.8B 两组 1k checkpoint 完成全部图片请求，因 length 终止而产生 baseline 46、high 24 个无效输出；旧 detect 入口退出码为 1，队列未评分。
+- 根因：旧入口将严格全成功验收和模型评测混用。模型输出失败应该计入漏检，而非使整个消融无法继续。
+- 修复：任务 eval_queue.py 通过 allow-invalid-output 执行后续检测，严格核对每张图片都有预测或明确失败；网络失败仍不冒充模型失败。已有 1k 失败按缺失预测计 FN，不修复或伪造预测。
+- 证据限制：旧入口对 length 终止先抛异常，再写 raw，因此这 70 项只有错误记录，没有完整回复原文。保留现有记录，不声称原文完整。
+- 回归：确认两组分别 175+250 张请求均有预测或 length 错误；编译通过，继续验证使用固定 GT/ignore 规则的评分与下一 checkpoint 调度。
+- 防线：区分模型无效输出、网络故障和工具故障；报告 parse_ok 和缺失数量，低训练 loss 不能替代真实评测。
+
+## 2026-09-16：tmux 旧代理环境导致评测就绪探测失败
+
+- 现象：0.8B 学习率消融的 vLLM 已监听 localhost，但队列一直停在 starting_vllm，服务没有收到模型列表探测。
+- 根因：旧 tmux server 的 NO_PROXY/no_proxy 为 localhost,173.0.26.0,::1，缺少 127.0.0.1；新 SSH 会话的代理排除项正常，不能代表 tmux 子进程。
+- 影响：本次两个 checkpoint-1000 评测队列延迟；训练进程及权重未改动，没有发布错误分数。
+- 修复：任务级 eval_queue.py 设置 loopback 排除项，并通过 urllib ProxyHandler({}) 显式禁用就绪探测的代理。仅用 SIGINT 停止已核对 PID 的本任务队列，待其释放自己的服务后重启。
+- 回归：curl --noproxy 验证两个服务均返回正确模型路径；确认本任务 GPU6/7 释放，其他训练进程继续；重启后继续检查实际请求与预测增长。
+- 防线：本地模型 API 必须显式直连；排查时检查 tmux 环境而非仅检查新 SSH shell；就绪与正式请求采用同一代理策略。
+
+## 2026-09-15：Raw 预标注的参数化提示词与跨阶段端口复用
+
+- 现象：参数化 prompt 在写 contract 时访问 `user_prompt` 导致启动失败；shape 补标结束、同卡切换 line 时，预探测端口报 `Address already in use`，控制器停止了其他推理副本。
+- 原因：元数据记录没有调用 `render(prompt_args)`；端口预探测使用不带 `SO_REUSEADDR` 的裸 socket，不能可靠区分服务停止后的 TIME_WAIT 与真实监听占用。事后检查端口无监听者、任务卡显存已释放，未发现其他用户占用该端口。
+- 影响范围：仅 `temp/raw_prelabel_20260915` 的控制任务；detection、shape 主标及补标的已完成结果均保留。没有修改共享账户权限，也没有终止其他任务。
+- 修复：参数化提示词先 render，并在模型启动前做门禁测试；端口探测加入 `SO_REUSEADDR`（不设置 `SO_REUSEPORT`，仍拒绝真实监听冲突）；恢复时跳过已结束的 shape/补标阶段，从缺少结果的 line 请求继续。
+- 回归测试：脚本编译检查通过；原图内存裁剪与既有 PNG 路径的像素、预算一致；点位边界按现有像素索引映射验证；points-only 校验拒绝样式字段。初次真实 shape 六副本与 line 四副本 canary 均通过。端口修复后的十卡续跑另由任务日志记录。
+- 后续防线：每阶段保留独立 summary；resume 不重写成功预测，也不重复确定性的 parser/geometry 失败；新增 canary 从尚未处理的请求抽取。始终核验 GPU holder，不因低利用率或端口异常清理无关任务。
+
 ## 2026-09-15：Git 忽略规则与正式配置维护边界冲突
 
 - 现象：16 个已跟踪配置/文档仍命中忽略规则，另有 12 份配置被版本白名单隐藏；本地工具链、认证目录和
@@ -6344,3 +6466,31 @@
 - 修复：50 进程编码、异步落盘、编码完成后领取共享 endpoint slot；4B 补标仅在显式 ALLOW_INVALID_CANARY 下允许有 raw 记录的 parser/geometry 单条失败继续，transport 失败仍阻止扩量。88 条小批量使用 eager，避免额外图编译成本。
 - 回归：0.8B 最近窗口吞吐由约 62 提升至 113 请求/秒；最终 2638 JSON、38356 成功属性、88 失败，ZIP CRC/SHA256 校验通过。4B 合并程序逐项断言原有成功预测不变，剩余失败继续单列；最终补标数量以 repair_v510_4b_ckpt24000/summary.json 为准。
 - 防线：失败样本重试的模型输出不合法与服务不可用必须区分；保留原始错误，不放宽 schema，不改变像素预算、prompt 或坐标语义来掩盖失败。临时实现位于 temp/ppt_attributes_review_20260914，不进入训练内核。
+
+## 2026-09-16：横向 card 诊断发现训练标签与评测 corner 合同不一致
+
+- 现象：0.8B v5.10 ckpt18000 在 91 个真实左右分区训练 crop 中，有 3 个输出因 card 的 5 个 corners 被拒绝。
+- 根因：`scripts/tasks/run_layout_recognition_eval.py` 的 card 校验固定要求 4 个 corners；这 3 个样本的训练 GT 本身也是 5 个 corners。本次 182 个 card 诊断样本中共有 11 个五角 GT。
+- 影响：严格 parser 下左右分区结构符合为 39/91；仅对上述 3 个 raw 输出核验类型、方向和分区数后为 42/91。不能把这 3 个合同冲突全归为模型失败；另外 37 个 rectangle 输出仍体现分区识别不足。
+- 处理：本轮仅诊断，不修改正式 parser 或训练数据。保留 raw、错误和严格统计，在临时报告中单列数据/评测合同偏差，后续需统一 card 几何定义后再修复。
+- 核验：逐例确认上述 3 个 GT/pred 均为 5 corners，raw 的 card 类型、左右方向、split 数量与 GT 一致；182 张 reconstruction 对比图已生成并人工抽查汇报拼图。未运行核心回归测试，因为本轮未改内核。
+- 防线：训练派生诊断不能作为泛化指标；结构正确不等于轮廓/风格完全正确。后续修复需加入五角 card 的训练标签到 parser 的一致性回归，保留严格/raw 两种审计结果。
+
+## 2026-09-16：学习率消融评测的模型格式错误与恢复门禁
+
+- 现象：low 1k 的两条非法 text 标签、3k 的一条非四坐标 bbox 使任务队列误报覆盖不完整；训练未中断。
+- 根因：任务覆盖门禁只识别 length/不完整 JSON，未覆盖共享检测 parser 明确抛出的标签和 bbox schema 错误；旧服务启动器又仅以 detection_completed 判断完成，不支持单独恢复 E2E。
+- 影响：仅 temp/lr_ablation_20260916 的异步评测暂停；原始模型错误和预测均保留，训练数据、模型及正式 parser 不变。
+- 修复：任务脚本按 ValueError 的精确消息识别已核实的模型解析失败，网络、CUDA 和未知异常继续拒绝。恢复 E2E 时临时保存检测完成标记，调用旧启动器，最后恢复标记；worker 通过已有检测覆盖跳过重新推理。
+- 回归：low3k 的 175/250 图覆盖通过；已知 schema 错误被识别，网络超时/CUDA 错误被拒绝；临时目录模拟 E2E 服务成功与异常，完成标记均正确保存或恢复。队列恢复，后续 E2E 结果仍须核验。
+- 防线：不能将 parser 拒绝输出误认为网络失败，也不能静默补齐或重新生成预测提高分数。每个阶段独立判断完成；模型格式失败计漏检，工具故障另行处理。部分旧失败没有 raw 回复，保持这一证据限制。
+
+## 2026-09-17：学习率上探与 line 输出封装造成的 E2E 偏差
+
+- 现象：上一轮 high9k 的预测框 weighted E2E 为 62.53%，旧版18k GT框属性结果为78.49%。除框来源不同外，line.fill/type/color 与 line.border/type/style/color 的嵌套评分字段覆盖率为零。
+- 根因：共享任务入口 flatten_line_style 会 pop fill/border；历史评分视图保留原嵌套字段并添加旧式平铺别名。本次已核验一条 raw 响应有 fill/border，但 parsed JSON 中被删除。这是输出封装差异，不是模型能力退化证据。
+- 影响范围：原 temp/lr_ablation_20260916 的 E2E 分数不能直接与保留两套字段的历史结果横向比较；detection 分数不受该字段问题影响。原结果未覆盖，历史重算仍待进行。
+- 修复方式：新 temp/lr_upper_20260917 的任务入口采用 {**params, **original_flatten(params)}，仅保留模型自身输出并增加别名，不填 GT、不改变坐标、prompt 或 parser。暂未改共享 tracked 入口，避免影响其他正在运行的实验；这不是项目级根治，后续应统一正式导出/评测合同。
+- 回归：配置除 LR/名称/输出目录外与上一轮 high 配置完全相同；Python 编译通过；fill/border 保留、平铺别名和输入不变测试通过；worker0 共享盘跨进程独占锁测试通过。四组独立短训练测试通过后才允许从原始模型开始正式12k，不从 smoke 续训；实际运行结果以实验日志为准。
+- 实验：主 LR 6e-5/1e-4/1.5e-4/2e-4，vision 为一半，batch64，seed465，每组四卡。6e-5 同 seed 复跑不是独立 seed 复现。worker1/2 训练，worker0 空闲GPU2-7动态评测；启动时 worker1 GPU0 有外部 agentic-rl-prj 服务，基准组等待，不终止他人进程。
+- 防线：不同框来源、不同字段完整度、不同匹配子集不能混作同口径评测。正式部署排序须先统一原始响应封装再重算，不应将修复评分流程误报为模型提点。

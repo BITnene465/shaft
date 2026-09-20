@@ -5,6 +5,15 @@ suite membership、资源需求和 GitHub required check 是三类不同语义�
 
 ## 1. 核心原则
 
+融合 linear CE 的 CUDA 回归入口：安装 `.[train,dev,fused-ce]` 后，在已分配的空闲 GPU 上运行。
+单卡设置 `CUDA_VISIBLE_DEVICES` 只包含一张卡，执行
+`uv run --no-sync pytest tests/test_fused_linear_ce_gpu.py --suite gpu -k 'not four_rank'`；
+四卡设置 `CUDA_VISIBLE_DEVICES` 包含四张卡，执行相同入口并改用 `-k four_rank`。
+单卡覆盖真实 Liger FP32/BF16、token 权重、tied head、GC、HF train loop；
+四卡可见时额外运行 NCCL 不均匀监督/全 ignore rank/GA=2 的全局梯度对照。
+四卡用例使用独立 torchrun 子进程和每 rank 的 `/tmp` 编译缓存；少于四卡时明确 skip，
+不能将该 skip 算作分布式验收通过。真实模型峰值/吞吐仍需独立有界配对测试。
+
 - 默认测试只保护 Shaft 框架主链的稳定功能目标。
 - 优先断言 public API、配置、CLI、artifact、数据语义和跨模块装配结果。
 - 不长期保留只锁私有 helper、调用顺序、mock 次数、字段排列或 production 常量镜像的测试。
@@ -21,13 +30,14 @@ Framework suite membership 的唯一真源是 `tests/conftest.py` 中的 `_SUITE
 | --- | --- | --- |
 | `framework` | config/data/model/template/pipeline/training/infer/eval/export CPU 功能契约 | 是 |
 | `smoke` | tiny/fake SFT、DPO/PPO/GRPO、online eval 最短主链，以及轻量 rank-zero console 契约 | 是 |
+| `numerics` | CPU 微型真实 Qwen3.5 多模态前向、梯度与优化器更新数值对照 | 是，禁止 skip |
 | `distributed` | DeepSpeed/FSDP/torchrun runtime contract，含同机双 agent 多节点 Gloo | 是，独立分片 |
 | `integration` | 真实模型、真实推理服务或仓库 fixture 主链 | 否 |
 | `gpu` | CUDA kernel、FlashAttention 等 GPU runtime | 否 |
 | `task` | tracked 数据构建、迁移与 review task 工具合同 | 是 |
 | `visual` | render/overlay/dashboard 观感检查 | 否 |
 
-required 绿灯证明 CPU framework/smoke/task 合同和 GitHub-hosted Gloo/torchrun distributed 合同。当前 DPO、
+required 绿灯证明 CPU framework/smoke/task/numerics 合同和 GitHub-hosted Gloo/torchrun distributed 合同。当前 DPO、
 GRPO 没有完整真实 Qwen 训练 release gate，PPO 只做 debug smoke；integration、GPU、真实多机网络和真实模型
 证据仍必须单独查看，不能由 required CI 外推。未完成门禁只维护在 [TODO.md](TODO.md)。
 
@@ -53,6 +63,19 @@ CPU 主链 smoke：
 ```bash
 uv run pytest -q tests --suite smoke
 ```
+
+数值正确性门禁（无需下载权重、不使用 GPU）：
+
+```bash
+uv run pytest tests --suite numerics -ra
+```
+
+该 suite 使用随机初始化的微型 HF Qwen3.5，含视觉层、linear/full attention，显式使用 CPU
+参考 kernel 和合成的已处理图像输入。验证变长右 padding 下的有效 logits，并比较
+`BS1×GA4 / BS2×GA2 / BS4×GA1` 与独立 PyTorch CE + AdamW 的梯度、参数和优化器状态。
+覆盖有效 token 均值、加权均值，以及不完整累积窗口。数据顺序固定、dropout 关闭。
+它不覆盖真实 tokenizer/processor、生产权重、BF16/FA2/FLA、DDP 或 sharded backend；
+不能将其结果作为这些路径的认证。GPU 测试仍需已验证的 runner 和单独执行证据。
 
 Distributed、integration 和 GPU：
 
@@ -94,7 +117,9 @@ context：
 
 - `uv lock --check`，拒绝过期 lockfile。
 - `preflight` 独立运行 ruff、compileall、workflow YAML parse 和 wheel build。
-- `framework`、`smoke`、`task` 三个 CPU suite 使用 `fail-fast: false` matrix 并行运行；一个失败不会遮蔽其余结果。
+- `framework`、`smoke`、`task`、`numerics` 四个 CPU suite 使用 `fail-fast: false` matrix 并行运行；一个失败不会遮蔽其余结果。
+- `numerics` 的 JUnit 必须包含已执行用例且没有 skip/failure/error，避免缺依赖或全部跳过显示绿灯。
+- CPU pytest job 限制 OpenMP/MKL 线程为 2，减少小模型与多进程测试的线程过度争用。
 - distributed 测试拆成 convergence canary 与 `--suite distributed` remainder 两个分片；rank-drift 负例先
   单独报错，其余用例仍从 suite manifest 自动选取，不复制文件清单。
 - 所有 pytest job 使用显式 lock 环境、独立 timeout、faulthandler（distributed）与独立 JUnit artifact。

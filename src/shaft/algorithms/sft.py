@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from shaft.config import TrainConfig
@@ -39,6 +39,8 @@ class SFTAlgorithm:
         trainer_kwargs = {
             "shaft_max_shard_size": train_config.max_shard_size,
             "loss_name": train_config.loss_name,
+            "loss_normalization": train_config.loss_normalization,
+            "liger_config": train_config.liger,
             "optimizer_name": train_config.optimizer_name,
             "scheduler_name": train_config.scheduler_name,
             "scheduler_num_cycles": train_config.scheduler_num_cycles,
@@ -63,6 +65,8 @@ class SFTAlgorithm:
                 train_config=train_config,
                 extra={
                     "loss_name": train_config.loss_name,
+                    "loss_normalization": train_config.loss_normalization,
+                    "liger": asdict(train_config.liger),
                     "auxiliary_loss_weights": auxiliary_loss_weights,
                 },
             ),

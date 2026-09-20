@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from transformers import TrainingArguments
+from transformers import Trainer, TrainingArguments
 
 from shaft.model.parameters import parameter_numel
 from shaft.model.types import ShaftModelAdapter
@@ -224,13 +224,13 @@ def _matches_no_decay_name_pattern(
 
 def _is_no_decay_parameter(
     canonical_name: str,
-    parameter: torch.nn.Parameter,
+    raw_name: str,
     *,
+    decay_parameter_names: set[str],
     no_decay_name_patterns: list[str] | None = None,
 ) -> bool:
     return (
-        _parameter_ndim(parameter) <= 1
-        or canonical_name.endswith(".bias")
+        raw_name not in decay_parameter_names
         or _matches_no_decay_name_pattern(canonical_name, no_decay_name_patterns)
     )
 
@@ -316,6 +316,8 @@ def build_resolved_optimizer_plan(
         tuple[str, bool],
         list[tuple[str, str, torch.nn.Parameter]],
     ] = {}
+    # Use the same HF policy as LF: one-dimensional state parameters may decay.
+    decay_parameter_names = set(Trainer.get_decay_parameter_names(None, model))
     for raw_name, parameter in model.named_parameters():
         if not parameter.requires_grad:
             continue
@@ -336,7 +338,8 @@ def build_resolved_optimizer_plan(
             module_group = "default"
         decay = not _is_no_decay_parameter(
             canonical_name,
-            parameter,
+            raw_name,
+            decay_parameter_names=decay_parameter_names,
             no_decay_name_patterns=no_decay_name_patterns,
         )
         grouped_parameters.setdefault((module_group, decay), []).append(
@@ -417,13 +420,6 @@ def summarize_resolved_optimizer_plan(
     sample_limit: int = 5,
 ) -> ShaftResolvedOptimizerSummary:
     return plan.summary(sample_limit=sample_limit)
-
-
-def _parameter_ndim(parameter: torch.nn.Parameter) -> int:
-    deepspeed_shape = getattr(parameter, "ds_shape", None)
-    if deepspeed_shape is not None:
-        return len(tuple(deepspeed_shape))
-    return int(parameter.ndim)
 
 
 def resolved_optimizer_summary_path(output_dir: str | Path) -> Path:

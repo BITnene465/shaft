@@ -634,8 +634,23 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if train.scheduler_name in {"", "auto"}:
         train.scheduler_name = str(train.lr_scheduler_type).strip().lower()
     train.loss_name = str(train.loss_name).strip().lower()
+    from shaft.training.loss_normalization import validate_loss_normalization
+
+    train.loss_normalization = validate_loss_normalization(train.loss_normalization)
+    if train.loss_normalization != "global_token":
+        if config.algorithm.name != "sft" or train.loss_name not in {"auto", "causal_lm"}:
+            raise ValueError("Non-default loss_normalization requires built-in SFT CE.")
+        if str(train.distributed.strategy).strip().lower() != "ddp":
+            raise ValueError("Non-default loss_normalization supports single-device/DDP only.")
     if train.loss_name not in _LOSS_NAMES:
         raise ValueError(f"Unsupported train.loss_name={train.loss_name!r}.")
+    if train.liger.enabled:
+        if config.algorithm.name != "sft" or config.model.finetune.mode != "full":
+            raise ValueError("train.liger currently requires SFT full fine-tuning.")
+        if str(train.distributed.strategy).strip().lower() != "ddp":
+            raise ValueError("train.liger currently supports single-device/DDP only.")
+        if train.use_cpu:
+            raise ValueError("train.liger requires CUDA.")
     train.loss_scale = str(train.loss_scale).strip().lower() or "default"
     from shaft.loss_scale import build_loss_scale
 

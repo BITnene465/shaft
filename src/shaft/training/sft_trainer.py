@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from functools import partial
 import logging
 from pathlib import Path
 import time
@@ -47,6 +48,9 @@ from .efficiency import (
 )
 from .eval_dataloader import ShaftEvalDataLoaderMixin
 from .loss import build_loss
+from .linear_ce import linear_causal_cross_entropy, load_fused_linear_ce
+from shaft.config.training import TrainLigerConfig
+from .loss_normalization import supervision_mass, validate_loss_normalization
 from .optimizer_mixin import ShaftOptimizerMixin
 from .online_eval import ShaftOnlineEvalRunner
 from .reproducibility import isolate_training_rng_during_eval
@@ -94,6 +98,8 @@ class ShaftSFTTrainer(
         self,
         *args: Any,
         loss_name: str = "auto",
+        loss_normalization: str = "global_token",
+        liger_config: TrainLigerConfig | None = None,
         optimizer_name: str = "adamw_torch",
         scheduler_name: str = "cosine",
         scheduler_num_cycles: float = 0.5,
@@ -149,7 +155,29 @@ class ShaftSFTTrainer(
                 "the exact-resume state of its reporting callback."
             )
         self.loss_name = str(loss_name).strip().lower()
+        self.loss_normalization = validate_loss_normalization(loss_normalization)
+        if self.loss_normalization != "global_token":
+            if self.loss_name not in {"auto", "causal_lm"}:
+                raise ValueError("Non-default loss normalization requires built-in SFT CE.")
+            if self.is_fsdp_enabled or self.is_deepspeed_enabled or self.args.n_gpu > 1:
+                raise ValueError("Non-default loss normalization requires single-device/DDP.")
         self.loss_fn = build_loss(self.loss_name)
+        self.liger_config = liger_config or TrainLigerConfig()
+        if self.liger_config.enabled:
+            if self.loss_name not in {"auto", "causal_lm"} or self.model_adapter is None:
+                raise ValueError("Fused linear CE requires the built-in SFT loss and a model adapter.")
+            if self.args.device.type != "cuda" or self.is_fsdp_enabled or self.is_deepspeed_enabled:
+                raise ValueError("Fused linear CE currently supports CUDA single-device/DDP only.")
+            load_fused_linear_ce()
+            policy = self.model_adapter.training_objective_policy
+            if self.liger_config.fused_linear_ce:
+                policy.enable_fused_linear_ce(self.model)
+            if self.liger_config.rms_norm or self.liger_config.swiglu:
+                policy.enable_liger_kernels(
+                    self.model, rms_norm=self.liger_config.rms_norm,
+                    swiglu=self.liger_config.swiglu,
+                )
+            logger.info("SFT Liger kernels: %s", self.liger_config)
         self.ignore_index = int(ignore_index)
         self.auxiliary_loss_weights = normalized_auxiliary_loss_weights
         self._shaft_auxiliary_loss_names = frozenset(auxiliary_loss_names)
@@ -184,8 +212,8 @@ class ShaftSFTTrainer(
         )
         self._shaft_fp16_grad_overflow_count = 0
         self._configure_eval_data_collator(eval_data_collator)
-        # HF uses this flag to collect one optimizer batch before backward and pass
-        # its global normalization denominator into compute_loss.
+        # Shaft owns GA scaling for every mode. The window value is a token mass
+        # for token-window modes and an actual microbatch count for LF-style mode.
         self.model_accepts_loss_kwargs = True
         self._shaft_preloaded_fsdp_peft_checkpoint: Path | None = None
         self._shaft_resume_peft_artifact = resume_peft_artifact
@@ -744,25 +772,18 @@ class ShaftSFTTrainer(
     ) -> torch.Tensor | int | None:
         if not batch_samples or "labels" not in batch_samples[0]:
             return None
+        if self.loss_normalization == "microbatch_token":
+            return len(batch_samples)
         labels_device = batch_samples[0]["labels"].device
         denominator = torch.zeros((), dtype=torch.float32, device=labels_device)
         for batch in batch_samples:
-            labels = batch["labels"]
-            shifted_labels = labels[..., 1:]
-            valid = shifted_labels.ne(self.ignore_index)
-            loss_scale = batch.get("loss_scale")
-            if loss_scale is None:
-                denominator = denominator + valid.sum().to(dtype=torch.float32)
-            else:
-                shifted_scale = loss_scale[..., 1:].to(
-                    device=labels.device,
-                    dtype=torch.float32,
-                )
-                denominator = denominator + (
-                    shifted_scale * valid.to(dtype=torch.float32)
-                ).sum()
+            denominator = denominator + supervision_mass(
+                batch["labels"], batch.get("loss_scale"), self.ignore_index
+            )
 
         denominator = denominator.to(device)
+        if self.loss_normalization == "rank_token":
+            return denominator
         if self.args.average_tokens_across_devices:
             if self.args.world_size > 1:
                 denominator = self.accelerator.gather(denominator).sum()
@@ -793,24 +814,45 @@ class ShaftSFTTrainer(
                 model=model,
                 inputs=model_inputs,
             )
-        outputs = model(**model_inputs)
         is_training = bool(model.training)
+        normalization_denominator = num_items_in_batch
+        if is_training and self.loss_normalization == "microbatch_token":
+            if labels is None:
+                raise ValueError("microbatch_token normalization requires labels.")
+            # Do not divide by configured GA: the final window may be shorter.
+            window_size = num_items_in_batch if num_items_in_batch is not None else 1
+            normalization_denominator = supervision_mass(
+                labels, loss_scale, self.ignore_index
+            ) * window_size
+        loss_only = self.liger_config.fused_linear_ce and is_training and not return_outputs
+        if loss_only:
+            if labels is None:
+                raise ValueError("Fused linear CE requires labels.")
+            model_inputs["shaft_loss"] = partial(
+                linear_causal_cross_entropy,
+                labels=labels,
+                ignore_index=self.ignore_index,
+                loss_scale=loss_scale,
+                normalization_denominator=normalization_denominator,
+            )
+        outputs = model(**model_inputs)
         primary_loss_components: dict[str, torch.Tensor] | None = (
             {}
             if not is_training and self.args.average_tokens_across_devices
             else None
         )
-        primary_loss = self.loss_fn(
+        primary_loss = outputs.loss if loss_only else self.loss_fn(
             outputs=outputs,
             labels=labels,
             ignore_index=self.ignore_index,
             loss_scale=loss_scale,
             model=model,
             inputs=model_inputs,
-            normalization_denominator=num_items_in_batch,
+            normalization_denominator=normalization_denominator,
             component_output=primary_loss_components,
         )
-        if num_items_in_batch is not None and self.args.average_tokens_across_devices:
+        if (num_items_in_batch is not None and self.args.average_tokens_across_devices
+                and self.loss_normalization == "global_token"):
             data_parallel_scale = self.accelerator.num_processes
             parallelism_config = getattr(self.accelerator, "parallelism_config", None)
             if parallelism_config is not None:

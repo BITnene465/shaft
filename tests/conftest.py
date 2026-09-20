@@ -81,6 +81,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_template_registry.py",
         "test_template_supervision.py",
         "test_training_loss.py",
+        "test_linear_ce.py",
         "test_training_efficiency.py",
         "test_training_optimizer.py",
         "test_training_topology.py",
@@ -93,6 +94,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_pipeline_rlhf_smoke.py",
         "test_smoke_train_modes.py",
     ),
+    "numerics": ("test_training_numerics.py", "test_loss_normalization.py"),
     "distributed": (
         "test_pipeline_distributed_contract.py",
         "test_smoke_distributed.py",
@@ -101,7 +103,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_integration_infer_pipeline.py",
         "test_integration_qwen_standard.py",
     ),
-    "gpu": ("test_flash_attn_smoke.py",),
+    "gpu": ("test_flash_attn_smoke.py", "test_fused_linear_ce_gpu.py", "test_loss_normalization_gpu.py"),
     "task": (
         "test_clean_real_raw_annotations.py",
         "test_build_background_sft.py",

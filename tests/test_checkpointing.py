@@ -3530,8 +3530,10 @@ def test_training_resume_contract_round_trips_canonical_payload() -> None:
     assert contract.train_input_contract_fingerprint == _train_input_contract().fingerprint
     assert contract.data_execution_fingerprint == "data-v1"
     assert contract.to_dict()["objective"] == {
+        "liger": {"fused_linear_ce": False, "rms_norm": False, "swiglu": False},
         "ignore_index": -100,
         "loss_name": "auto",
+        "loss_normalization": "global_token",
         "loss_scale": "default",
     }
 
@@ -3752,6 +3754,29 @@ def test_distributed_training_stage_rejects_local_fingerprint_coercion(
             fingerprints=lambda: fingerprints,  # type: ignore[arg-type,return-value]
         ):
             pass
+
+
+@pytest.mark.parametrize("mode", ["rank_token", "microbatch_token"])
+def test_sft_normalization_drift_rejects_exact_resume(tmp_path: Path, mode: str) -> None:
+    config = RuntimeConfig()
+    config.algorithm.name = "sft"
+    batch_contract = _fixed_batch_contract()
+    original = build_training_resume_contract(
+        config=config, training_args=_resume_training_args(),
+        batch_contract_fingerprint=batch_contract.fingerprint,
+    )
+    checkpoint = tmp_path / "checkpoint-1"
+    _write_metadata_checkpoint(checkpoint, _metadata_with_training_resume_contract(original))
+    config.train.loss_normalization = mode
+    changed = build_training_resume_contract(
+        config=config, training_args=_resume_training_args(),
+        batch_contract_fingerprint=batch_contract.fingerprint,
+    )
+    with pytest.raises(ValueError, match=r"Training resume contract.*objective"):
+        validate_batching_resume_contract(
+            checkpoint, expected_contract=batch_contract,
+            expected_training_resume_contract=changed,
+        )
 
 
 def test_dpo_beta_drift_is_rejected_before_exact_resume(tmp_path: Path) -> None:

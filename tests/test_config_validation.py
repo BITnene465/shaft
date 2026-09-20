@@ -11,6 +11,46 @@ from tests.support.configs import write_config_yaml
 pytestmark = pytest.mark.component
 
 
+@pytest.mark.parametrize("field", ["fused_linear_ce", "rms_norm", "swiglu"])
+@pytest.mark.parametrize("enabled", [True, "true", "false"])
+def test_fused_linear_ce_config(tmp_path: Path, enabled, field) -> None:
+    config = load_config(write_config_yaml(tmp_path, f"""
+model:
+  model_type: qwen35vl
+  model_name_or_path: Qwen/Qwen3.5-0.8B
+train:
+  liger:
+    {field}: {enabled}
+eval:
+  enabled: false
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+"""))
+    assert getattr(config.train.liger, field) is (str(enabled).lower() == "true")
+    assert config.train.liger.enabled is (str(enabled).lower() == "true")
+
+
+def test_fused_linear_ce_rejects_cpu(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires CUDA"):
+        load_config(write_config_yaml(tmp_path, """
+model:
+  model_type: qwen35vl
+  model_name_or_path: Qwen/Qwen3.5-0.8B
+train:
+  use_cpu: true
+  liger:
+    fused_linear_ce: true
+eval:
+  enabled: false
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+"""))
+
+
 def test_hf_model_resolution_fields_are_normalized(tmp_path: Path) -> None:
     config = load_config(
         write_config_yaml(

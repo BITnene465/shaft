@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .qwen_inference import QwenVLInferencePolicy
+from .qwen35_loss import Qwen35VLTrainingObjectivePolicy
 from .policies import QwenVLMoePeftPolicy, build_processor_policy
 from .qwen3vl import Qwen3VLLoader
 from .objective import QwenVLMoeTrainingObjectivePolicy
@@ -86,6 +87,7 @@ _QWEN35VL_COMMON = dict(
     processor_policy=build_processor_policy("qwen_vl"),
     inference_policy=QwenVLInferencePolicy(supports_thinking_templates=True),
     sequence_execution_policy=Qwen35VLSequenceExecutionPolicy(),
+    training_objective_policy=Qwen35VLTrainingObjectivePolicy(),
     peft_policy=_QWEN35_DENSE_PEFT_POLICY,
     requires=("transformers>=5.10.1", "module:transformers.models.qwen3_5"),
 )

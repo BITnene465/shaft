@@ -1095,6 +1095,57 @@ algorithm.name
 
 用途：训练行为、保存策略和 resume/init 规则。
 
+### `train.liger`
+
+三个独立开关默认均为 `false`，无需总开关；安装 `.[train,fused-ce]` 后启用。
+
+```yaml
+train:
+  liger:
+    fused_linear_ce: true
+    rms_norm: true
+    swiglu: true
+```
+
+以上为 LF 风格组合，也可逐项消融。旧顶层 `train.fused_linear_ce` 和 `train.use_liger_kernel`
+已移除，不提供别名或自动兼容转换；维护中的配置需显式迁移，历史结果快照保持原样。
+
+启用 `train.liger.fused_linear_ce` 后，原生 dense Qwen3.5 VL
+（含同架构的 qwen36vl/qwen38vl 别名）SFT 可复用 Liger 0.8.3 的融合 LM head + CE，
+避免训练前向/反向保存完整 `[batch, sequence, vocabulary]` logits 及梯度。
+当前接入范围为 CUDA 单卡/DDP、full fine-tuning、内置 auto/causal_lm 目标；
+该子开关仅控制 CE，不更换 attention、RMSNorm 或模板。
+其他模型、PEFT、FSDP/ZeRO 不宣称支持，开启时显式报错。
+backbone 必须参与求导；Liger 0.8.3 的 sum 路径不支持本接入中的纯 head-only 训练，显式拒绝该组合。
+
+Shaft 仍拥有 next-token shift、ignore mask、token 权重与 GA/DDP 分母；普通监督使用
+Liger `reduction=sum`，加权监督使用 `reduction=none` 的逐 token 反向。
+只跳过被 ignore 的 LM-head 投影，不裁剪 backbone 输入、不减少样本或像素。
+评测与显式 `return_outputs=True` 保留原生 logits 路径；KD/OPD/RL 不使用此开关。
+因此这不是评测 full-logits OOM 的修复。checkpoint 参数名与 HF architecture 不变，
+部署无需 Liger；精确 resume 合同记录开关、融合 loss 实现与 Liger 版本。
+
+这是执行优化，不改变训练目标；BF16 的归约/舍入差异不保证逐 bit 等价。
+显存与吞吐必须以同 batch 的有界实测验收，不能仅凭开启开关重启长训练。
+
+#### RMSNorm 与 SwiGLU
+
+`rms_norm`、`swiglu` 分别控制与 LF/Liger 0.8.3 相同的对应算子，独立于 CE 开关。
+RMSNorm 包含 decoder、末层及 full-attention Q/K norm，使用 offset=1、gemma casting、
+非原地更新；不替换 Gated RMSNorm、RoPE 或 attention。适用范围与 fused CE 相同。
+使用实例级绑定，不污染全局 HF 类，不替换 Parameter、不改导出格式；普通 logits 前向也会
+使用已启用的 norm/MLP 算子。归一化独立由 `train.loss_normalization` 控制，默认仍为 `global_token`。
+
+`train.loss_normalization` 的可选值为 `global_token`、`rank_token`、`microbatch_token`。
+分别表示跨 GA/DP 的全局 token 平均、每卡 GA 窗口 token 平均后跨卡平均、每个 microbatch
+token 平均后跨 GA/DP 平均。最后一种用于复现本次审计的 LF 多模态归一化行为。
+非默认模式当前仅支持内置 SFT CE 的单卡/DDP；切换模式会拒绝 exact resume。
+评估 loss 仍统一采用全局 token 平均。定义、限制与复现方案见
+[SFT Loss Normalization](sft_loss_normalization.md)。
+三个开关全部进入精确 resume 合同。只启用 CE 不能等同于完整 Liger。
+
+### 常用字段
+
 关键字段：
 
 - `duration`
@@ -1109,6 +1160,7 @@ algorithm.name
 - `scheduler_num_cycles`
 - `scheduler_power`
 - `loss_name`
+- `liger.fused_linear_ce` / `liger.rms_norm` / `liger.swiglu`
 - `loss_scale`
 - `adam_beta1`
 - `adam_beta2`
@@ -1367,9 +1419,11 @@ train:
   - 匹配语义是“参数规范名后缀匹配”，例如：
     - `embed_tokens.weight`
     - `lm_head.weight`
-  - 这条规则会叠加在默认 `no_decay` 规则之上；默认规则仍然包括：
-    - `*.bias`
-    - `ndim <= 1` 的参数
+  - 默认分组复用 HF Trainer 的 `get_decay_parameter_names`，与当前 LF 对齐：排除
+    LayerNorm 模块和 bias/norm 名称规则，不再笼统排除一维参数。因此线性注意力 `A_log`
+    参与 decay，`dt_bias` 和 norm 参数仍不参与。显式后缀规则只追加排除。
+  - 此修改适用于共用 optimizer plan 的训练算法。旧 optimizer 分组发生变化时不可精确续训；
+    使用部署权重启动新 optimizer，不能忽略 resume 合同或强行加载旧 optimizer 状态。
 - optimizer 只认识上述四个结构组；finetune mode 只决定 `requires_grad` 集合，不改变 LR 解析规则。
 - `loss_scale` 控制哪些粗粒度区段参与 loss 计算，当前内置：
   - `default`: 监督所有 assistant 回答（包括多轮对话中的历史 assistant，以及当前 target/response）

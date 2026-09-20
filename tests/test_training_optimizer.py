@@ -718,7 +718,7 @@ def test_optimizer_summary_uses_deepspeed_global_parameter_counts() -> None:
     assert summary.groups[0].num_tensors == 2
 
 
-def test_optimizer_grouping_uses_deepspeed_global_parameter_ndim() -> None:
+def test_optimizer_grouping_preserves_deepspeed_placeholder_policy() -> None:
     model = torch.nn.Module()
     model.weight = torch.nn.Parameter(torch.empty(0), requires_grad=True)
     model.weight.ds_shape = (4, 4)
@@ -737,6 +737,27 @@ def test_optimizer_grouping_uses_deepspeed_global_parameter_ndim() -> None:
     assert groups_by_decay[True].to_optimizer_group()["weight_decay"] == pytest.approx(0.03)
     assert groups_by_decay[False].raw_parameter_names == ("bias",)
     assert groups_by_decay[False].to_optimizer_group()["weight_decay"] == pytest.approx(0.0)
+
+
+def test_optimizer_decay_matches_hf_including_linear_attention_state(tmp_path) -> None:
+    from transformers import Trainer
+
+    model = torch.nn.Module()
+    model.linear_attn = torch.nn.Module()
+    model.linear_attn.A_log = torch.nn.Parameter(torch.ones(16))
+    model.linear_attn.dt_bias = torch.nn.Parameter(torch.ones(16))
+    model.linear_attn.norm = torch.nn.RMSNorm(16)
+    model.projection = torch.nn.Linear(16, 16)
+    model.custom_layer = torch.nn.LayerNorm(16)
+    args = build_training_args(tmp_path, weight_decay=0.003)
+    plan = build_resolved_optimizer_plan(model=model, args=args)
+    decay = {name for group in plan.groups if group.decay for name in group.raw_parameter_names}
+    assert decay == set(Trainer.get_decay_parameter_names(None, model))
+    assert "linear_attn.A_log" in decay
+    assert "linear_attn.dt_bias" not in decay
+    assert "linear_attn.norm.weight" not in decay
+    assert "custom_layer.weight" not in decay
+    assert sum(len(group.parameters) for group in plan.groups) == len(list(model.parameters()))
 
 
 def test_optimizer_mixin_accepts_delayed_wrapped_model_and_validates_plan() -> None:

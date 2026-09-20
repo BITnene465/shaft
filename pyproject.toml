@@ -39,6 +39,9 @@ train = [
 gpu = [
   "bitsandbytes>=0.46.1",
 ]
+fused-ce = [
+  "liger-kernel==0.8.3",
+]
 gpu-kernels = [
   "flash-attn==2.8.3",
   "flash-linear-attention>=0.5.0",

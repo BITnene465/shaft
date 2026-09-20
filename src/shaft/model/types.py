@@ -1423,6 +1423,12 @@ class ShaftEvalAuxiliaryMetric:
 class TrainingObjectivePolicy:
     """Model-owned additions to the shared SFT next-token objective."""
 
+    def enable_fused_linear_ce(self, model: Any) -> None:
+        raise ValueError("This model policy does not support fused linear CE.")
+
+    def enable_liger_kernels(self, model: Any, *, rms_norm: bool, swiglu: bool) -> None:
+        raise ValueError("This model policy does not support Liger kernels.")
+
     def auxiliary_loss_names(self) -> tuple[str, ...]:
         """Return stable names that may be overridden by algorithm config."""
 

@@ -930,6 +930,8 @@ def _sft_objective(config: Any) -> dict[str, Any]:
     return {
         "ignore_index": -100,
         "loss_name": str(config.train.loss_name),
+        "loss_normalization": config.train.loss_normalization,
+        "liger": asdict(config.train.liger),
         "loss_scale": str(config.train.loss_scale),
     }
 
@@ -1141,6 +1143,8 @@ def _sft_resume_objective(config: Any, training_args: Any, context: Mapping[str,
 
 def _sft_resume_implementation(config: Any) -> dict[str, Any]:
     import shaft.training.loss as loss_module
+    import shaft.training.linear_ce as linear_ce_module
+    import shaft.training.loss_normalization as normalization_module
     from shaft.algorithms import sft as _algorithm_module  # noqa: F401
     from shaft.algorithms.registry import ALGORITHM_REGISTRY
     from .sft_trainer import ShaftSFTTrainer
@@ -1155,8 +1159,13 @@ def _sft_resume_implementation(config: Any) -> dict[str, Any]:
                 role=f"sft_loss:{config.train.loss_name}",
             ),
             "loss_policy": _module_implementation_signature(loss_module),
+            "normalization_policy": _module_implementation_signature(normalization_module),
+            **(
+                {"linear_ce_policy": _module_implementation_signature(linear_ce_module)}
+                if config.train.liger.fused_linear_ce else {}
+            ),
         },
-        "package_names": (),
+        "package_names": ("liger-kernel",) if config.train.liger.enabled else (),
     }
 
 

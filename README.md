@@ -34,6 +34,10 @@ uv pip install -e ".[train]"
 # GPU 训练增强
 uv pip install -e ".[train,gpu]"
 
+# Dense Qwen3.5 VL SFT: train.liger.{fused_linear_ce,rms_norm,swiglu}
+# LF-style kernels: explicitly set all three switches to true
+uv pip install -e ".[train,fused-ce]"
+
 # 可选 CUDA kernel 增强
 uv pip install -e ".[train,gpu,gpu-kernels]"
 
@@ -436,6 +440,12 @@ uv run pytest -q
 
 ```bash
 uv run pytest -q tests --suite smoke
+```
+
+CPU Qwen3.5 数值门禁（padding、梯度累积与独立优化器更新对照，无需下载权重）：
+
+```bash
+uv run pytest -q tests --suite numerics
 ```
 
 只跑 integration：
