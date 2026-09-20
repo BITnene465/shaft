@@ -27,6 +27,7 @@ class OfflineKDAlgorithm:
         plan = resolve_distribution_objective_plan(objective)
         trainer_kwargs = {
             "shaft_max_shard_size": train_config.max_shard_size,
+            "shaft_export_dtype": train_config.export_dtype,
             "loss_name": "auto",
             "optimizer_name": train_config.optimizer_name,
             "scheduler_name": train_config.scheduler_name,

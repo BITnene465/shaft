@@ -38,6 +38,7 @@ class SFTAlgorithm:
         )
         trainer_kwargs = {
             "shaft_max_shard_size": train_config.max_shard_size,
+            "shaft_export_dtype": train_config.export_dtype,
             "loss_name": train_config.loss_name,
             "loss_normalization": train_config.loss_normalization,
             "liger_config": train_config.liger,

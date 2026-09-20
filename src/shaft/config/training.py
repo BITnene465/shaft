@@ -10,6 +10,19 @@ from typing import Any
 
 
 DEFAULT_MAX_SHARD_SIZE = "4GB"
+
+
+def normalize_export_dtype(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("train.export_dtype must be a string.")
+    value = value.strip().lower()
+    if value not in {"preserve", "float32", "bfloat16", "float16"}:
+        raise ValueError(
+            "train.export_dtype must be preserve, float32, bfloat16, or float16."
+        )
+    return value
+
+
 _MAX_SHARD_SIZE_PATTERN = re.compile(
     r"^(?P<amount>(?:\d+(?:\.\d*)?|\.\d+))\s*(?P<unit>KB|MB|GB|TB)$",
     flags=re.IGNORECASE,
@@ -183,6 +196,7 @@ class TrainConfig:
     save_total_limit: int = 3
     save_only_model: bool = False
     max_shard_size: str | int = DEFAULT_MAX_SHARD_SIZE
+    export_dtype: str = "preserve"
     ddp_find_unused_parameters: bool = False
     report_to: list[str] = field(default_factory=lambda: ["none"])
     load_best_model_at_end: bool = True

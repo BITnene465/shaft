@@ -513,13 +513,16 @@ def test_fixed_sft_commits_after_efficiency_on_save_and_is_resolvable(
     ) == str(checkpoint)
 
 
+@pytest.mark.parametrize("export_dtype", ["preserve", "float32", "bfloat16", "float16"])
 def test_model_only_periodic_checkpoint_is_deployable_init_only_snapshot(
     tmp_path: Path,
+    export_dtype: str,
 ) -> None:
     model = _TinyCheckpointModel(_TinyCheckpointConfig())
     trainer = ShaftSFTTrainer(
         model=model,
-        shaft_max_shard_size="1KB",
+        shaft_max_shard_size=256,
+        shaft_export_dtype=export_dtype,
         args=build_training_args(
             output_dir=tmp_path,
             max_steps=1,
@@ -556,12 +559,91 @@ def test_model_only_periodic_checkpoint_is_deployable_init_only_snapshot(
     ensure_hf_export_layout(checkpoint, finetune_mode="full")
     restored = _TinyCheckpointModel.from_pretrained(checkpoint)
     for name, value in model.state_dict().items():
-        assert torch.equal(value, restored.state_dict()[name])
+        expected = value if export_dtype == "preserve" else value.to(getattr(torch, export_dtype))
+        assert restored.state_dict()[name].dtype == expected.dtype
+        assert torch.equal(expected, restored.state_dict()[name])
+        assert value.dtype == torch.float32
     with pytest.raises(ValueError, match="model-only.*cannot.*resume"):
         resolve_resume_checkpoint(
             checkpoint,
             protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
         )
+
+
+@pytest.mark.parametrize("export_dtype", ["float32", "bfloat16", "float16"])
+def test_export_dtype_does_not_mutate_training_or_resumable_weights(tmp_path, export_dtype):
+    from safetensors.torch import load_file
+
+    model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    model.config.text_config = PretrainedConfig(dtype="float32")
+    model.register_buffer("integer_state", torch.tensor([1, 2], dtype=torch.int64))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
+    sum(p.square().sum() for p in model.parameters()).backward()
+    optimizer.step()
+    original_parameters = {k: v.clone() for k, v in model.state_dict().items()}
+    original_grads = [p.grad.clone() for p in model.parameters()]
+    original_pointers = [p.data_ptr() for p in model.parameters()]
+    original_optimizer = deepcopy(optimizer.state_dict())
+    original_config = model.config
+    trainer = ShaftSFTTrainer(
+        model=model, shaft_export_dtype=export_dtype,
+        args=build_training_args(output_dir=tmp_path, save_only_model=False),
+        optimizers=(optimizer, None),
+    )
+    trainer.save_model(str(tmp_path / "resume"), _internal_call=True)
+    trainer.save_model(str(tmp_path / "deploy"))
+    resume = load_file(tmp_path / "resume/model.safetensors")
+    deploy = load_file(tmp_path / "deploy/model.safetensors")
+    for name, value in original_parameters.items():
+        assert torch.equal(resume[name], value)
+        assert resume[name].dtype == value.dtype
+        dtype = getattr(torch, export_dtype) if value.is_floating_point() else value.dtype
+        assert deploy[name].dtype == dtype
+        assert torch.equal(deploy[name], value.to(dtype))
+        assert torch.equal(model.state_dict()[name], value)
+    assert [p.data_ptr() for p in model.parameters()] == original_pointers
+    for param, grad in zip(model.parameters(), original_grads):
+        assert torch.equal(param.grad, grad)
+    _assert_nested_state_equal(original_optimizer, optimizer.state_dict())
+    assert model.config is original_config
+    # The preserve HF save may annotate config; conversion itself must not change it.
+    before_export = deepcopy(model.config.to_dict())
+    trainer.save_model(str(tmp_path / "deploy-again"))
+    assert model.config.to_dict() == before_export
+    exported_config = json.loads((tmp_path / "deploy/config.json").read_text())
+    assert exported_config["dtype"] == export_dtype
+    assert exported_config["text_config"]["dtype"] == export_dtype
+    assert "save_pretrained" not in model.__dict__
+
+
+def test_export_dtype_restores_model_after_save_failure(tmp_path):
+    model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    config = model.config
+    before = deepcopy(model.state_dict())
+    trainer = ShaftSFTTrainer(
+        model=model, shaft_export_dtype="bfloat16",
+        args=build_training_args(output_dir=tmp_path),
+    )
+    with patch.object(model, "save_pretrained", side_effect=OSError("disk full")) as save:
+        with pytest.raises(OSError, match="disk full"):
+            trainer.save_model(str(tmp_path / "fail"))
+        assert model.save_pretrained is save
+    assert model.config is config
+    _assert_nested_state_equal(before, model.state_dict())
+    assert "save_pretrained" not in model.__dict__
+
+
+def test_export_state_dict_preserves_ties_and_nonfloating_buffers():
+    from shaft.training.checkpointing import _export_state_dict
+
+    weight = torch.randn(5, 4)
+    source = {"a": weight, "b": weight.detach(), "count": torch.tensor(3)}
+    exported = _export_state_dict(source, torch.bfloat16)
+    assert exported["a"] is exported["b"]
+    assert exported["count"].dtype == torch.int64
+    exported["a"].zero_()
+    assert not torch.equal(weight, exported["a"].float())
+    assert set(source) == {"a", "b", "count"}
 
 
 def _assert_nested_state_equal(expected, actual) -> None:

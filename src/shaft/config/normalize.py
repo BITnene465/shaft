@@ -12,6 +12,7 @@ from .generation_backend import normalize_vllm_generation_backend
 from .data import SHAFT_BATCH_RESOURCE_NAMES
 from .runtime import RuntimeConfig
 from .training import (
+    normalize_export_dtype,
     normalize_max_shard_size,
     resolve_deepspeed_gather_model_on_save,
     resolve_deepspeed_zero_stage,
@@ -666,6 +667,14 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if train.save_strategy not in {"no", "steps", "epoch"}:
         raise ValueError(f"Unsupported train.save_strategy={train.save_strategy!r}.")
     train.max_shard_size = normalize_max_shard_size(train.max_shard_size)
+    train.export_dtype = normalize_export_dtype(train.export_dtype)
+    if train.export_dtype != "preserve":
+        if config.model.finetune.mode != "full":
+            raise ValueError("train.export_dtype conversion requires full fine-tuning.")
+        if str(train.distributed.strategy).strip().lower() != "ddp":
+            raise ValueError(
+                "train.export_dtype conversion currently supports single-device/DDP only."
+            )
     train.init_from_checkpoint = (
         str(train.init_from_checkpoint).strip() or None
         if train.init_from_checkpoint is not None

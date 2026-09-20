@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import wraps
@@ -14,10 +15,15 @@ from typing import Any
 import uuid
 
 import transformers.trainer as hf_trainer_module
-from transformers import PreTrainedModel
+import torch
+from transformers import PretrainedConfig, PreTrainedModel
 
 from shaft.config import RuntimeConfig
-from shaft.config.training import DEFAULT_MAX_SHARD_SIZE, normalize_max_shard_size
+from shaft.config.training import (
+    DEFAULT_MAX_SHARD_SIZE,
+    normalize_export_dtype,
+    normalize_max_shard_size,
+)
 from shaft.model import (
     ModelMeta,
     ResolvedAdapterInit,
@@ -1325,6 +1331,33 @@ def _checkpoint_error_fields(error: Exception | None) -> tuple[str | None, str |
     return type(error).__name__, message
 
 
+def _export_state_dict(state_dict: Mapping[str, torch.Tensor], dtype: torch.dtype):
+    """Copy to CPU without modifying live storage; retain exact tied tensor aliases."""
+    converted = {}
+    aliases = {}
+    for name, tensor in state_dict.items():
+        if not isinstance(tensor, torch.Tensor) or tensor.is_meta or tensor.is_quantized:
+            raise ValueError(f"Cannot export dtype for non-materialized/plain tensor {name!r}.")
+        key = (
+            tensor.device, tensor.dtype, tensor.data_ptr(), tensor.storage_offset(),
+            tuple(tensor.shape), tuple(tensor.stride()),
+        )
+        if key not in aliases:
+            aliases[key] = tensor.detach().to(
+                device="cpu", dtype=dtype if tensor.is_floating_point() else tensor.dtype,
+                copy=True,
+            )
+        converted[name] = aliases[key]
+    return converted
+
+
+def _set_export_config_dtype(config: PretrainedConfig, dtype: torch.dtype) -> None:
+    config.dtype = dtype
+    for value in vars(config).values():
+        if isinstance(value, PretrainedConfig):
+            _set_export_config_dtype(value, dtype)
+
+
 class ShaftModelSaveMixin:
     """Apply Shaft's HF model serialization policy to every Trainer family."""
 
@@ -1332,9 +1365,11 @@ class ShaftModelSaveMixin:
         self,
         *args: Any,
         shaft_max_shard_size: str | int = DEFAULT_MAX_SHARD_SIZE,
+        shaft_export_dtype: str = "preserve",
         **kwargs: Any,
     ) -> None:
         self._shaft_max_shard_size = normalize_max_shard_size(shaft_max_shard_size)
+        self._shaft_export_dtype = normalize_export_dtype(shaft_export_dtype)
         super().__init__(*args, **kwargs)
 
     def _shaft_full_hf_save_target(self) -> PreTrainedModel | None:
@@ -1352,9 +1387,11 @@ class ShaftModelSaveMixin:
         return unwrapped if isinstance(unwrapped, PreTrainedModel) else None
 
     @contextmanager
-    def _configured_hf_model_save(self):
+    def _configured_hf_model_save(self, *, export_dtype: str = "preserve"):
         target = self._shaft_full_hf_save_target()
         if target is None:
+            if export_dtype != "preserve":
+                raise ValueError("train.export_dtype conversion requires a full HF model.")
             yield
             return
 
@@ -1365,7 +1402,34 @@ class ShaftModelSaveMixin:
         @wraps(save_pretrained)
         def configured_save_pretrained(*args: Any, **kwargs: Any):
             kwargs["max_shard_size"] = self._shaft_max_shard_size
-            return save_pretrained(*args, **kwargs)
+            if export_dtype == "preserve":
+                return save_pretrained(*args, **kwargs)
+            if (
+                getattr(target, "hf_quantizer", None) is not None
+                or getattr(target, "_hf_peft_config_loaded", False)
+                or getattr(target, "peft_config", None) is not None
+            ):
+                raise ValueError("train.export_dtype conversion requires an unquantized full model.")
+            if kwargs.get("push_to_hub", False):
+                raise ValueError("Export locally before uploading converted weights to the Hub.")
+            dtype = getattr(torch, export_dtype)
+            state_dict = kwargs.get("state_dict")
+            kwargs["state_dict"] = _export_state_dict(
+                target.state_dict() if state_dict is None else state_dict, dtype,
+            )
+            original_config = target.config
+            target.config = deepcopy(original_config)
+            try:
+                result = save_pretrained(*args, **kwargs)
+                # HF derives config.dtype from live parameters, not the supplied state dict.
+                # Correct only the exported config; never cast the training model in place.
+                if kwargs.get("is_main_process", True):
+                    _set_export_config_dtype(target.config, dtype)
+                    directory = args[0] if args else kwargs["save_directory"]
+                    target.config.save_pretrained(directory)
+                return result
+            finally:
+                target.config = original_config
 
         target.__dict__["save_pretrained"] = configured_save_pretrained
         try:
@@ -1379,7 +1443,16 @@ class ShaftModelSaveMixin:
     def save_model(self, output_dir: str | None = None, _internal_call: bool = False) -> None:
         """Save full HF weights with the configured shard size."""
 
-        with export_model_cache(self.model), self._configured_hf_model_save():
+        export_dtype = getattr(self, "_shaft_export_dtype", "preserve")
+        # Resumable checkpoints must retain the exact parameter values used by the optimizer.
+        if _internal_call and not bool(getattr(self.args, "save_only_model", False)):
+            export_dtype = "preserve"
+        if export_dtype != "preserve" and (
+            getattr(self, "is_fsdp_enabled", False)
+            or getattr(self, "is_deepspeed_enabled", False)
+        ):
+            raise ValueError("train.export_dtype conversion supports single-device/DDP only.")
+        with export_model_cache(self.model), self._configured_hf_model_save(export_dtype=export_dtype):
             super().save_model(output_dir=output_dir, _internal_call=_internal_call)
 
 

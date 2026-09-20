@@ -79,6 +79,7 @@ RuntimeConfig
 │   ├── bf16 / fp16 / gradient_checkpointing / full_determinism
 │   ├── save_strategy / save_steps / save_epoch_interval / save_total_limit / save_only_model
 │   ├── max_shard_size
+│   ├── export_dtype
 │   ├── load_best_model_at_end / save_final_model / save_final_state
 │   ├── init_from_checkpoint / resume_from_checkpoint
 │   ├── efficiency
@@ -1180,6 +1181,7 @@ token 平均后跨 GA/DP 平均。最后一种用于复现本次审计的 LF 多
 - `save_total_limit`
 - `save_only_model`
 - `max_shard_size`
+- `export_dtype`
 - `ddp_find_unused_parameters`
 - `report_to`
 - `load_best_model_at_end`
@@ -1204,6 +1206,7 @@ token 平均后跨 GA/DP 平均。最后一种用于复现本次审计的 LF 多
 | `train.scheduler_name` | Shaft 自定义 scheduler 的执行真源 | 默认 `auto` 时从兼容字段 `lr_scheduler_type` 解析；显式设置后以 `scheduler_name` 为准 |
 | `train.save_only_model` | periodic `checkpoint-*` 的内容语义 | `false` 保存可 exact-resume 的完整训练态；`true` 只发布标准 HF/PEFT 模型态，允许部署或 `init_from_checkpoint`，禁止 resume |
 | `train.max_shard_size` | full HF 权重文件的分片上限 | 默认 `4GB`；接受正整数 byte，或 HF 支持的 `KB / MB / GB / TB` 字符串；不改变 checkpoint 的训练态语义 |
+| `train.export_dtype` | 模型导出的浮点权重精度 | 默认 `preserve`；可选 `float32 / bfloat16 / float16`，独立于参数加载精度和 AMP；可恢复 checkpoint 始终保留原精度 |
 | `train.init_from_checkpoint` | 只加载权重/adapter，启动一个新 schedule | `resume_from_checkpoint` 恢复 Trainer、optimizer、scheduler、RNG 与可恢复的数据计划状态；两种语义应二选一 |
 
 推荐在新 YAML 中显式写 `scheduler_name`。`lr_scheduler_type` 目前仍会传入 HF
@@ -1225,6 +1228,34 @@ padded Qwen3VL-2B DDP LoRA；varlen FP16 和 FSDP FP16 尚待专项 CUDA canary�
 scheduler，使用 init。
 
 保存与恢复边界：
+
+- `train.export_dtype=preserve` 保留每个 tensor 的原始 dtype，包括混合 dtype 权重。
+  显式 dtype 转换适用于 `save_only_model=true` 的 periodic checkpoint，以及通过 Trainer
+  `save_model()` 保存的最终模型（例如 `<output_dir>/best`）。`save_only_model=false` 的 periodic
+  checkpoint 不转换，确保参数仍与 optimizer 状态一致；不支持把降精度产物伪装成 exact resume。
+- 转换只处理独立 CPU 副本中的浮点 tensor，整数/bool buffer 不转换，训练参数、梯度和 optimizer
+  不变；导出 config 的根节点及 text/vision 子配置 dtype 同步更新。需要额外 CPU 内存容纳目标精度的
+  完整 state dict；`max_shard_size` 只控制文件分片，并不限制转换的总内存占用。
+- 非 `preserve` 转换目前支持未量化 full 模型的单卡/DDP Trainer 保存路径；PEFT/量化模型及
+  FSDP/DeepSpeed 转换尚未验证，明确报错，不会静默忽略。默认 `preserve` 不改变这些后端原有行为。
+- BF16/FP16 转存 FP32 不会恢复已丢失精度；FP32 转存 BF16/FP16 会舍入，FP16 还有溢出风险。
+  若启用 `load_best_model_at_end` 并选择低精度 model-only checkpoint，加载的也是该舍入后的权重。
+  旧 YAML 无需更新；本选项不会转换已存在的 checkpoint，也不控制推理 dtype。
+
+例如，FP32 参数 + BF16 混合精度计算 + BF16 模型导出：
+
+```yaml
+model:
+  torch_dtype: float32
+train:
+  bf16: true
+  fp16: false
+  export_dtype: bfloat16
+  save_only_model: true
+```
+
+将 `export_dtype` 改为 `float32` 或 `preserve` 可保留本例的 FP32 权重；将 `save_only_model`
+改为 `false` 则 periodic checkpoint 保留原精度和训练态，仅最终模型导出采用指定精度。
 
 - `max_shard_size=4GB` 是 full HF 模型权重的默认分片上限，适用于 periodic checkpoint 与 `<output_dir>/best`
   的 Trainer 保存路径。单个 tensor 本身超过上限时，HF 会把它单独放入一个更大的 shard；该字段控制新产物

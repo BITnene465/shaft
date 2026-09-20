@@ -258,6 +258,55 @@ train:
     assert config.train.save_only_model is True
 
 
+@pytest.mark.parametrize("dtype", ["preserve", "float32", "bfloat16", "float16"])
+def test_export_dtype_config(tmp_path: Path, dtype: str) -> None:
+    config = load_config(write_config_yaml(tmp_path, f"""
+model:
+  torch_dtype: float32
+train:
+  export_dtype: {dtype}
+  bf16: true
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""))
+    assert config.train.export_dtype == dtype
+    assert config.model.torch_dtype == "float32"
+    assert config.train.bf16 is True
+
+
+@pytest.mark.parametrize("dtype", ["auto", "fp32", "int8", "null", "true"])
+def test_export_dtype_rejects_invalid_config(tmp_path: Path, dtype: str) -> None:
+    with pytest.raises((ValueError, TypeError), match="export_dtype"):
+        load_config(write_config_yaml(tmp_path, f"""
+train:
+  export_dtype: {dtype}
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""))
+
+
+@pytest.mark.parametrize("extra", [
+    "model:\n  finetune:\n    mode: lora\ntrain:\n  export_dtype: bfloat16",
+    "train:\n  export_dtype: bfloat16\n  distributed:\n    strategy: fsdp",
+    "train:\n  export_dtype: bfloat16\n  distributed:\n    strategy: deepspeed",
+])
+def test_export_dtype_rejects_unvalidated_modes(tmp_path: Path, extra: str) -> None:
+    with pytest.raises(ValueError, match="export_dtype"):
+        load_config(write_config_yaml(tmp_path, extra + """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""))
+
+
 def test_max_shard_size_defaults_to_4gb_and_normalizes_hf_units(tmp_path: Path) -> None:
     default_config = load_config(
         write_config_yaml(
@@ -301,6 +350,7 @@ train:
     )
 
     assert default_config.train.max_shard_size == "4GB"
+    assert default_config.train.export_dtype == "preserve"
     assert configured.train.max_shard_size == "2.5GB"
     assert configured_bytes.train.max_shard_size == 4096
 

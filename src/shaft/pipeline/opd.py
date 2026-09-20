@@ -535,6 +535,7 @@ class ShaftOPDPipeline:
         trainer = ShaftOPDTrainer(
             model=student.model,
             shaft_max_shard_size=config.train.max_shard_size,
+            shaft_export_dtype=config.train.export_dtype,
             execution_runtime=execution_runtime,
             objective_plan=objective_plan,
             telemetry_monitor=telemetry_monitor,
