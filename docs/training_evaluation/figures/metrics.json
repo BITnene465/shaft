@@ -1,0 +1,3767 @@
+{
+  "snapshot": "2026-09-17T16:08:17.421411+08:00",
+  "groups": {
+    "v5.10 0.8B": {
+      "6000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-6000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.787173,
+            "recall": 0.783174,
+            "f1": 0.785169
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-6000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.797801,
+            "recall": 0.817249,
+            "f1": 0.807408
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-8000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.824519,
+            "recall": 0.761805,
+            "f1": 0.791922
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-8000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.809387,
+            "recall": 0.791471,
+            "f1": 0.800329
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-10000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.839394,
+            "recall": 0.762253,
+            "f1": 0.798966
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-10000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.826554,
+            "recall": 0.784633,
+            "f1": 0.805048
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-12000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.823548,
+            "recall": 0.779737,
+            "f1": 0.801044
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-12000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.808541,
+            "recall": 0.786203,
+            "f1": 0.797216
+          },
+          "contract": true
+        }
+      },
+      "14000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-14000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.836585,
+            "recall": 0.768828,
+            "f1": 0.801277
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-14000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.819743,
+            "recall": 0.799989,
+            "f1": 0.809745
+          },
+          "contract": true
+        }
+      },
+      "16000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-16000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.841348,
+            "recall": 0.768679,
+            "f1": 0.803373
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-16000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.821653,
+            "recall": 0.799597,
+            "f1": 0.810475
+          },
+          "contract": true
+        }
+      },
+      "18000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-18000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.841553,
+            "recall": 0.767484,
+            "f1": 0.802814
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-18000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.832386,
+            "recall": 0.804304,
+            "f1": 0.818104
+          },
+          "contract": true
+        }
+      },
+      "20000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-20000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.836718,
+            "recall": 0.769576,
+            "f1": 0.801744
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-20000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.832263,
+            "recall": 0.799148,
+            "f1": 0.81537
+          },
+          "contract": true
+        }
+      },
+      "22000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-22000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.834771,
+            "recall": 0.766288,
+            "f1": 0.799065
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-22000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.830427,
+            "recall": 0.798083,
+            "f1": 0.813934
+          },
+          "contract": true
+        }
+      },
+      "24000": {
+        "real_v1": {
+          "name": "v510-08b-checkpoint-24000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.841926,
+            "recall": 0.776001,
+            "f1": 0.807621
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-08b-checkpoint-24000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.834823,
+            "recall": 0.806097,
+            "f1": 0.820209
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 4B": {
+      "2000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.714443,
+            "recall": 0.677077,
+            "f1": 0.695259
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.76294,
+            "recall": 0.739296,
+            "f1": 0.750932
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.860818,
+            "recall": 0.780036,
+            "f1": 0.818438
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.840662,
+            "recall": 0.824927,
+            "f1": 0.83272
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-6000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.880712,
+            "recall": 0.768978,
+            "f1": 0.821061
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-6000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.846188,
+            "recall": 0.856478,
+            "f1": 0.851302
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-8000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.854758,
+            "recall": 0.795876,
+            "f1": 0.824267
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-8000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.832177,
+            "recall": 0.873683,
+            "f1": 0.852425
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-10000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.863366,
+            "recall": 0.8026,
+            "f1": 0.831875
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-10000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.843513,
+            "recall": 0.873011,
+            "f1": 0.858008
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-12000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.86672,
+            "recall": 0.807531,
+            "f1": 0.83608
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-12000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.846685,
+            "recall": 0.866566,
+            "f1": 0.85651
+          },
+          "contract": true
+        }
+      },
+      "14000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-14000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.860639,
+            "recall": 0.809325,
+            "f1": 0.834193
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-14000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.841433,
+            "recall": 0.882033,
+            "f1": 0.861255
+          },
+          "contract": true
+        }
+      },
+      "16000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-16000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.863651,
+            "recall": 0.810221,
+            "f1": 0.836083
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-16000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.835117,
+            "recall": 0.878783,
+            "f1": 0.856394
+          },
+          "contract": true
+        }
+      },
+      "18000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-18000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.857527,
+            "recall": 0.810371,
+            "f1": 0.833282
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-18000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.84188,
+            "recall": 0.881417,
+            "f1": 0.861195
+          },
+          "contract": true
+        }
+      },
+      "20000": {
+        "real_v1": {
+          "name": "v510-4b-checkpoint-20000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.854425,
+            "recall": 0.812164,
+            "f1": 0.832759
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-4b-checkpoint-20000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.838354,
+            "recall": 0.876597,
+            "f1": 0.857049
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.8 4B": {
+      "10000": {
+        "real_v1": {
+          "name": "tjy_20260823_1358_bananavlm-qwen35vl-4b-v5-8-ckpt10000_onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.883486,
+            "recall": 0.822624,
+            "f1": 0.851969
+          },
+          "contract": false
+        },
+        "real_v2": {
+          "name": "tjy_20260823_1358_bananavlm-qwen35vl-4b-v5-8-ckpt10000_onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.852632,
+            "recall": 0.889711,
+            "f1": 0.870777
+          },
+          "contract": false
+        }
+      },
+      "12000": {
+        "real_v2": {
+          "name": "tjy_20260823_1414_bananavlm-qwen35vl-4b-v5-8-ckpt12000_onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.842338,
+            "recall": 0.885956,
+            "f1": 0.863597
+          },
+          "contract": false
+        }
+      }
+    },
+    "v5.8 27B": {
+      "4000": {
+        "real_v1": {
+          "name": "tjy_20260825_bananavlm-qwen38-27b-v5-8-ckpt4000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.870694,
+            "recall": 0.812014,
+            "f1": 0.840331
+          },
+          "contract": false
+        },
+        "real_v2": {
+          "name": "tjy_20260825_bananavlm-qwen38-27b-v5-8-ckpt4000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.84239,
+            "recall": 0.890495,
+            "f1": 0.865775
+          },
+          "contract": false
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "tjy_20260825_bananavlm-qwen38-27b-v5-8-ckpt8000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.863125,
+            "recall": 0.791542,
+            "f1": 0.825785
+          },
+          "contract": false
+        },
+        "real_v2": {
+          "name": "tjy_20260825_bananavlm-qwen38-27b-v5-8-ckpt8000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.846952,
+            "recall": 0.892233,
+            "f1": 0.869003
+          },
+          "contract": false
+        }
+      }
+    },
+    "v5.9 4B": {
+      "2000": {
+        "real_v1": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt2000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.841006,
+            "recall": 0.769874,
+            "f1": 0.80387
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt2000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.835899,
+            "recall": 0.846111,
+            "f1": 0.840974
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt4000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.864098,
+            "recall": 0.800956,
+            "f1": 0.83133
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt4000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.859875,
+            "recall": 0.854237,
+            "f1": 0.857046
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt6000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.855159,
+            "recall": 0.809922,
+            "f1": 0.831926
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt6000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.847592,
+            "recall": 0.856142,
+            "f1": 0.851846
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt8000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.865233,
+            "recall": 0.817394,
+            "f1": 0.840633
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt8000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.858387,
+            "recall": 0.883883,
+            "f1": 0.870948
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt10000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.865305,
+            "recall": 0.816946,
+            "f1": 0.84043
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt10000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.85273,
+            "recall": 0.883266,
+            "f1": 0.867729
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt12000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.867497,
+            "recall": 0.812014,
+            "f1": 0.838839
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260828_bananavlm-qwen35vl-4b-v5-9-ckpt12000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.85515,
+            "recall": 0.896604,
+            "f1": 0.875386
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.9 2B": {
+      "2000": {
+        "real_v1": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt2000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.801725,
+            "recall": 0.763748,
+            "f1": 0.782276
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt2000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.82901,
+            "recall": 0.775443,
+            "f1": 0.801332
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt4000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.847785,
+            "recall": 0.800658,
+            "f1": 0.823547
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt4000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.841363,
+            "recall": 0.852443,
+            "f1": 0.846867
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt6000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.845244,
+            "recall": 0.790048,
+            "f1": 0.816714
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt6000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.854699,
+            "recall": 0.851154,
+            "f1": 0.852923
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt8000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.841866,
+            "recall": 0.801106,
+            "f1": 0.82098
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt8000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.857003,
+            "recall": 0.882313,
+            "f1": 0.869474
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt10000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.857647,
+            "recall": 0.798565,
+            "f1": 0.827053
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt10000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.860169,
+            "recall": 0.89666,
+            "f1": 0.878035
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt12000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.856753,
+            "recall": 0.797221,
+            "f1": 0.825915
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260829_bananavlm-qwen35vl-2b-v5-9-ckpt12000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.85546,
+            "recall": 0.895539,
+            "f1": 0.875041
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.9 0.8B": {
+      "2000": {
+        "real_v1": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt2000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.814207,
+            "recall": 0.703975,
+            "f1": 0.755089
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt2000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.791434,
+            "recall": 0.689644,
+            "f1": 0.737041
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt4000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.815777,
+            "recall": 0.760311,
+            "f1": 0.787068
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt4000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.784244,
+            "recall": 0.732515,
+            "f1": 0.757498
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt6000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.867422,
+            "recall": 0.744023,
+            "f1": 0.800997
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt6000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.852312,
+            "recall": 0.75,
+            "f1": 0.797889
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt8000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.837838,
+            "recall": 0.755081,
+            "f1": 0.79431
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt8000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.83486,
+            "recall": 0.791583,
+            "f1": 0.812646
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt10000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.832406,
+            "recall": 0.782277,
+            "f1": 0.806563
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt10000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.842473,
+            "recall": 0.798139,
+            "f1": 0.819707
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt12000-default-onlyreal",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.849047,
+            "recall": 0.785864,
+            "f1": 0.816235
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "tjy_20260830_bananavlm-qwen35vl-0.8b-v5-9-ckpt12000-default-onlyreal",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.848285,
+            "recall": 0.801222,
+            "f1": 0.824082
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 4B rebalance": {
+      "1000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.842203,
+            "recall": 0.74731,
+            "f1": 0.791924
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.806559,
+            "recall": 0.763618,
+            "f1": 0.784501
+          },
+          "contract": true
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.84116,
+            "recall": 0.78422,
+            "f1": 0.811693
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.814209,
+            "recall": 0.797691,
+            "f1": 0.805865
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.855899,
+            "recall": 0.793485,
+            "f1": 0.823511
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.835583,
+            "recall": 0.860401,
+            "f1": 0.84781
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.84423,
+            "recall": 0.812313,
+            "f1": 0.827964
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.844096,
+            "recall": 0.832885,
+            "f1": 0.838453
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.869268,
+            "recall": 0.81575,
+            "f1": 0.841659
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.838955,
+            "recall": 0.876709,
+            "f1": 0.857417
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-6000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.870276,
+            "recall": 0.787956,
+            "f1": 0.827072
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-6000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.845471,
+            "recall": 0.86466,
+            "f1": 0.854958
+          },
+          "contract": true
+        }
+      },
+      "7000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-7000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.855687,
+            "recall": 0.80275,
+            "f1": 0.828373
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-7000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.844237,
+            "recall": 0.858384,
+            "f1": 0.851252
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-8000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.863214,
+            "recall": 0.79214,
+            "f1": 0.826151
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-8000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.853679,
+            "recall": 0.860233,
+            "f1": 0.856943
+          },
+          "contract": true
+        }
+      },
+      "9000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-9000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.862717,
+            "recall": 0.802899,
+            "f1": 0.831734
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-9000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.847241,
+            "recall": 0.88024,
+            "f1": 0.863425
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-10000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.842468,
+            "recall": 0.803945,
+            "f1": 0.822756
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-10000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.850389,
+            "recall": 0.869928,
+            "f1": 0.860048
+          },
+          "contract": true
+        }
+      },
+      "11000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-11000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.845996,
+            "recall": 0.798715,
+            "f1": 0.821676
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-11000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.838701,
+            "recall": 0.853788,
+            "f1": 0.846177
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-12000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.853476,
+            "recall": 0.79991,
+            "f1": 0.825825
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-12000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.846751,
+            "recall": 0.855862,
+            "f1": 0.851282
+          },
+          "contract": true
+        }
+      },
+      "13000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-13000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.84641,
+            "recall": 0.796324,
+            "f1": 0.820604
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-13000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.837258,
+            "recall": 0.866678,
+            "f1": 0.851714
+          },
+          "contract": true
+        }
+      },
+      "14000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-14000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.84383,
+            "recall": 0.784818,
+            "f1": 0.813255
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-14000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.843095,
+            "recall": 0.851883,
+            "f1": 0.847466
+          },
+          "contract": true
+        }
+      },
+      "15000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-15000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.842374,
+            "recall": 0.789002,
+            "f1": 0.814815
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-15000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.844099,
+            "recall": 0.869312,
+            "f1": 0.85652
+          },
+          "contract": true
+        }
+      },
+      "16000": {
+        "real_v1": {
+          "name": "v510-rebalance-4b-checkpoint-16000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.847189,
+            "recall": 0.790347,
+            "f1": 0.817781
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance-4b-checkpoint-16000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.843938,
+            "recall": 0.857039,
+            "f1": 0.850438
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 4B rebalance2": {
+      "1000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.839043,
+            "recall": 0.691721,
+            "f1": 0.758293
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.82891,
+            "recall": 0.724669,
+            "f1": 0.773293
+          },
+          "contract": true
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.831804,
+            "recall": 0.772265,
+            "f1": 0.80093
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.824847,
+            "recall": 0.798868,
+            "f1": 0.811649
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.851604,
+            "recall": 0.761506,
+            "f1": 0.804039
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.835053,
+            "recall": 0.825319,
+            "f1": 0.830158
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.839359,
+            "recall": 0.797968,
+            "f1": 0.81814
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.829699,
+            "recall": 0.837929,
+            "f1": 0.833793
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.876947,
+            "recall": 0.774208,
+            "f1": 0.822381
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.854976,
+            "recall": 0.849753,
+            "f1": 0.852357
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-6000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.869951,
+            "recall": 0.791692,
+            "f1": 0.828978
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-6000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.861899,
+            "recall": 0.851659,
+            "f1": 0.856748
+          },
+          "contract": true
+        }
+      },
+      "7000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-7000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.865974,
+            "recall": 0.797519,
+            "f1": 0.830338
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-7000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.824787,
+            "recall": 0.845494,
+            "f1": 0.835012
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-8000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.861799,
+            "recall": 0.774357,
+            "f1": 0.815742
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-8000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.83929,
+            "recall": 0.82913,
+            "f1": 0.834179
+          },
+          "contract": true
+        }
+      },
+      "9000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-9000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.861309,
+            "recall": 0.794381,
+            "f1": 0.826493
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-9000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.853309,
+            "recall": 0.844654,
+            "f1": 0.848959
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-10000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.869721,
+            "recall": 0.797071,
+            "f1": 0.831813
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-10000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.845362,
+            "recall": 0.860569,
+            "f1": 0.852898
+          },
+          "contract": true
+        }
+      },
+      "11000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-11000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.863747,
+            "recall": 0.795726,
+            "f1": 0.828343
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-11000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.840898,
+            "recall": 0.846223,
+            "f1": 0.843552
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-12000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.865696,
+            "recall": 0.790795,
+            "f1": 0.826552
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-12000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.845949,
+            "recall": 0.854293,
+            "f1": 0.8501
+          },
+          "contract": true
+        }
+      },
+      "13000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-13000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.865712,
+            "recall": 0.804393,
+            "f1": 0.833927
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-13000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.845636,
+            "recall": 0.865445,
+            "f1": 0.855426
+          },
+          "contract": true
+        }
+      },
+      "14000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-14000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.862732,
+            "recall": 0.790795,
+            "f1": 0.825199
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-14000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.845206,
+            "recall": 0.853732,
+            "f1": 0.849448
+          },
+          "contract": true
+        }
+      },
+      "15000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-15000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.862293,
+            "recall": 0.793485,
+            "f1": 0.826459
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-15000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.846943,
+            "recall": 0.865501,
+            "f1": 0.856121
+          },
+          "contract": true
+        }
+      },
+      "16000": {
+        "real_v1": {
+          "name": "v510-rebalance2-4b-checkpoint-16000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.853659,
+            "recall": 0.794979,
+            "f1": 0.823275
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance2-4b-checkpoint-16000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.839324,
+            "recall": 0.862419,
+            "f1": 0.850715
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 4B rebalance3": {
+      "3000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.853399,
+            "recall": 0.778542,
+            "f1": 0.814253
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.812064,
+            "recall": 0.827673,
+            "f1": 0.819794
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.832999,
+            "recall": 0.806485,
+            "f1": 0.819528
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.829668,
+            "recall": 0.828738,
+            "f1": 0.829203
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.841095,
+            "recall": 0.812313,
+            "f1": 0.826454
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.855189,
+            "recall": 0.879343,
+            "f1": 0.867098
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-6000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.861514,
+            "recall": 0.799462,
+            "f1": 0.829329
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-6000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.849104,
+            "recall": 0.882033,
+            "f1": 0.865256
+          },
+          "contract": true
+        }
+      },
+      "7000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-7000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.868004,
+            "recall": 0.801853,
+            "f1": 0.833618
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-7000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.842884,
+            "recall": 0.849025,
+            "f1": 0.845943
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-8000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.849671,
+            "recall": 0.810819,
+            "f1": 0.82979
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-8000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.844506,
+            "recall": 0.870489,
+            "f1": 0.857301
+          },
+          "contract": true
+        }
+      },
+      "9000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-9000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.850445,
+            "recall": 0.81321,
+            "f1": 0.831411
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-9000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.857794,
+            "recall": 0.886348,
+            "f1": 0.871837
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-10000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.852218,
+            "recall": 0.812612,
+            "f1": 0.831944
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-10000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.855827,
+            "recall": 0.890551,
+            "f1": 0.872844
+          },
+          "contract": true
+        }
+      },
+      "11000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-11000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.833593,
+            "recall": 0.799462,
+            "f1": 0.816171
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-11000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.846183,
+            "recall": 0.880184,
+            "f1": 0.862849
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "v510-rebalance3-4b-checkpoint-12000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.849752,
+            "recall": 0.792738,
+            "f1": 0.820255
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "v510-rebalance3-4b-checkpoint-12000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.848766,
+            "recall": 0.867126,
+            "f1": 0.857848
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 0.8B LR首轮 high": {
+      "1000": {
+        "real_v1": {
+          "name": "high-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.811093,
+            "recall": 0.511357,
+            "f1": 0.627257
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.767724,
+            "recall": 0.436954,
+            "f1": 0.556929
+          },
+          "contract": true
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "high-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.824108,
+            "recall": 0.700837,
+            "f1": 0.75749
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.815251,
+            "recall": 0.687234,
+            "f1": 0.745788
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "high-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.841548,
+            "recall": 0.747609,
+            "f1": 0.791802
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.806787,
+            "recall": 0.783457,
+            "f1": 0.794951
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "high-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.841371,
+            "recall": 0.748207,
+            "f1": 0.792059
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.816012,
+            "recall": 0.712845,
+            "f1": 0.760948
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "high-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.814979,
+            "recall": 0.743126,
+            "f1": 0.777396
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.816012,
+            "recall": 0.785418,
+            "f1": 0.800423
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "high-6000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.836548,
+            "recall": 0.764794,
+            "f1": 0.799063
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-6000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.830164,
+            "recall": 0.80974,
+            "f1": 0.819825
+          },
+          "contract": true
+        }
+      },
+      "7000": {
+        "real_v1": {
+          "name": "high-7000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.856716,
+            "recall": 0.77107,
+            "f1": 0.81164
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-7000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.852924,
+            "recall": 0.84174,
+            "f1": 0.847295
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "high-8000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.844305,
+            "recall": 0.781978,
+            "f1": 0.811947
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-8000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.840976,
+            "recall": 0.832493,
+            "f1": 0.836713
+          },
+          "contract": true
+        }
+      },
+      "9000": {
+        "real_v1": {
+          "name": "high-9000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.852006,
+            "recall": 0.793186,
+            "f1": 0.821545
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-9000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.849409,
+            "recall": 0.850314,
+            "f1": 0.849861
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "high-10000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.840082,
+            "recall": 0.793634,
+            "f1": 0.816198
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-10000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.844298,
+            "recall": 0.841459,
+            "f1": 0.842876
+          },
+          "contract": true
+        }
+      },
+      "11000": {
+        "real_v1": {
+          "name": "high-11000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.840942,
+            "recall": 0.790048,
+            "f1": 0.814701
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-11000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.852159,
+            "recall": 0.85278,
+            "f1": 0.852469
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "high-12000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.848785,
+            "recall": 0.793485,
+            "f1": 0.820204
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "high-12000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.858694,
+            "recall": 0.82857,
+            "f1": 0.843363
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 0.8B LR首轮 baseline": {
+      "1000": {
+        "real_v1": {
+          "name": "baseline-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.787329,
+            "recall": 0.577555,
+            "f1": 0.666322
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.766869,
+            "recall": 0.495517,
+            "f1": 0.602029
+          },
+          "contract": true
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "baseline-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.853178,
+            "recall": 0.666019,
+            "f1": 0.74807
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.825249,
+            "recall": 0.674064,
+            "f1": 0.742034
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "baseline-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.842151,
+            "recall": 0.730275,
+            "f1": 0.782233
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.833092,
+            "recall": 0.772304,
+            "f1": 0.801547
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "baseline-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.84936,
+            "recall": 0.743126,
+            "f1": 0.792699
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.801256,
+            "recall": 0.751009,
+            "f1": 0.775319
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "baseline-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.848433,
+            "recall": 0.740287,
+            "f1": 0.790679
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.815489,
+            "recall": 0.780711,
+            "f1": 0.797721
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "baseline-6000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.846472,
+            "recall": 0.765392,
+            "f1": 0.803892
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-6000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.818804,
+            "recall": 0.804304,
+            "f1": 0.811489
+          },
+          "contract": true
+        }
+      },
+      "7000": {
+        "real_v1": {
+          "name": "baseline-7000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.850988,
+            "recall": 0.75269,
+            "f1": 0.798826
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-7000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.844724,
+            "recall": 0.824983,
+            "f1": 0.834737
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "baseline-8000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.826087,
+            "recall": 0.743873,
+            "f1": 0.782827
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-8000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.821552,
+            "recall": 0.809628,
+            "f1": 0.815547
+          },
+          "contract": true
+        }
+      },
+      "9000": {
+        "real_v1": {
+          "name": "baseline-9000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.846129,
+            "recall": 0.770771,
+            "f1": 0.806694
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-9000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.832537,
+            "recall": 0.830531,
+            "f1": 0.831533
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "baseline-10000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.849138,
+            "recall": 0.765392,
+            "f1": 0.805093
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-10000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.832877,
+            "recall": 0.818034,
+            "f1": 0.825389
+          },
+          "contract": true
+        }
+      },
+      "11000": {
+        "real_v1": {
+          "name": "baseline-11000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.854,
+            "recall": 0.76569,
+            "f1": 0.807438
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-11000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.831713,
+            "recall": 0.824535,
+            "f1": 0.828108
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "baseline-12000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.844141,
+            "recall": 0.776151,
+            "f1": 0.808719
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "baseline-12000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.832892,
+            "recall": 0.8103,
+            "f1": 0.821441
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 0.8B LR首轮 low": {
+      "1000": {
+        "real_v1": {
+          "name": "low-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.677696,
+            "recall": 0.508069,
+            "f1": 0.58075
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.685471,
+            "recall": 0.410614,
+            "f1": 0.513581
+          },
+          "contract": true
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "low-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.7792,
+            "recall": 0.663927,
+            "f1": 0.71696
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.754912,
+            "recall": 0.559796,
+            "f1": 0.642876
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "low-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.788433,
+            "recall": 0.72116,
+            "f1": 0.753297
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.792906,
+            "recall": 0.729097,
+            "f1": 0.759664
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "low-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.820227,
+            "recall": 0.69202,
+            "f1": 0.750689
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.78472,
+            "recall": 0.666555,
+            "f1": 0.720827
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "low-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.815333,
+            "recall": 0.731022,
+            "f1": 0.770879
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.797534,
+            "recall": 0.710379,
+            "f1": 0.751438
+          },
+          "contract": true
+        }
+      },
+      "6000": {
+        "real_v1": {
+          "name": "low-6000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.82428,
+            "recall": 0.743724,
+            "f1": 0.781932
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-6000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.79129,
+            "recall": 0.715815,
+            "f1": 0.751662
+          },
+          "contract": true
+        }
+      },
+      "7000": {
+        "real_v1": {
+          "name": "low-7000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.81661,
+            "recall": 0.747908,
+            "f1": 0.78075
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-7000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.801206,
+            "recall": 0.744676,
+            "f1": 0.771907
+          },
+          "contract": true
+        }
+      },
+      "8000": {
+        "real_v1": {
+          "name": "low-8000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.82333,
+            "recall": 0.725643,
+            "f1": 0.771406
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-8000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.798652,
+            "recall": 0.744004,
+            "f1": 0.77036
+          },
+          "contract": true
+        }
+      },
+      "9000": {
+        "real_v1": {
+          "name": "low-9000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.818887,
+            "recall": 0.741184,
+            "f1": 0.7781
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-9000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.799015,
+            "recall": 0.745461,
+            "f1": 0.771309
+          },
+          "contract": true
+        }
+      },
+      "10000": {
+        "real_v1": {
+          "name": "low-10000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.822323,
+            "recall": 0.731022,
+            "f1": 0.773989
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-10000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.790704,
+            "recall": 0.763674,
+            "f1": 0.776954
+          },
+          "contract": true
+        }
+      },
+      "11000": {
+        "real_v1": {
+          "name": "low-11000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.803499,
+            "recall": 0.741184,
+            "f1": 0.771084
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-11000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.796725,
+            "recall": 0.763506,
+            "f1": 0.779762
+          },
+          "contract": true
+        }
+      },
+      "12000": {
+        "real_v1": {
+          "name": "low-12000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.826259,
+            "recall": 0.747609,
+            "f1": 0.784969
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "low-12000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.785842,
+            "recall": 0.763338,
+            "f1": 0.774426
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 0.8B LR上探 lr1e-4": {
+      "1000": {
+        "real_v1": {
+          "name": "lr1e-4-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.648744,
+            "recall": 0.274059,
+            "f1": 0.385335
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1e-4-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.59691,
+            "recall": 0.13859,
+            "f1": 0.224951
+          },
+          "contract": true
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "lr1e-4-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.804608,
+            "recall": 0.652271,
+            "f1": 0.720475
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1e-4-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.763752,
+            "recall": 0.610009,
+            "f1": 0.678278
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "lr1e-4-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.828402,
+            "recall": 0.732218,
+            "f1": 0.777346
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1e-4-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.807115,
+            "recall": 0.732347,
+            "f1": 0.767915
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "lr1e-4-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.844072,
+            "recall": 0.722355,
+            "f1": 0.778485
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1e-4-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.802303,
+            "recall": 0.726407,
+            "f1": 0.762471
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "lr1e-4-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.836621,
+            "recall": 0.741482,
+            "f1": 0.786184
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1e-4-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.837216,
+            "recall": 0.795505,
+            "f1": 0.815828
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 0.8B LR上探 lr6e-5": {
+      "1000": {
+        "real_v1": {
+          "name": "lr6e-5-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.738701,
+            "recall": 0.525105,
+            "f1": 0.613853
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr6e-5-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.702398,
+            "recall": 0.436617,
+            "f1": 0.538499
+          },
+          "contract": true
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "lr6e-5-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.846546,
+            "recall": 0.64465,
+            "f1": 0.731931
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr6e-5-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.820375,
+            "recall": 0.648061,
+            "f1": 0.724108
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "lr6e-5-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.833188,
+            "recall": 0.713539,
+            "f1": 0.768735
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr6e-5-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.815117,
+            "recall": 0.738512,
+            "f1": 0.774926
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "lr6e-5-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.824662,
+            "recall": 0.755529,
+            "f1": 0.788583
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr6e-5-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.785422,
+            "recall": 0.731282,
+            "f1": 0.757386
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "lr6e-5-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.836874,
+            "recall": 0.788852,
+            "f1": 0.812154
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr6e-5-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.807731,
+            "recall": 0.76586,
+            "f1": 0.786238
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 0.8B LR上探 lr1.5e-4": {
+      "1000": {
+        "real_v1": {
+          "name": "lr1.5e-4-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.638755,
+            "recall": 0.395547,
+            "f1": 0.488557
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1.5e-4-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.603352,
+            "recall": 0.284465,
+            "f1": 0.38664
+          },
+          "contract": true
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "lr1.5e-4-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.789879,
+            "recall": 0.597131,
+            "f1": 0.680112
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1.5e-4-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.743867,
+            "recall": 0.562486,
+            "f1": 0.640585
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "lr1.5e-4-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.773967,
+            "recall": 0.674387,
+            "f1": 0.720754
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1.5e-4-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.708216,
+            "recall": 0.649238,
+            "f1": 0.677446
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "lr1.5e-4-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.806556,
+            "recall": 0.636133,
+            "f1": 0.711278
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1.5e-4-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.792278,
+            "recall": 0.6141,
+            "f1": 0.691902
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "lr1.5e-4-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.828548,
+            "recall": 0.754632,
+            "f1": 0.789865
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr1.5e-4-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.805999,
+            "recall": 0.795113,
+            "f1": 0.800519
+          },
+          "contract": true
+        }
+      }
+    },
+    "v5.10 0.8B LR上探 lr2e-4": {
+      "1000": {
+        "real_v1": {
+          "name": "lr2e-4-1000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0,
+            "recall": 0,
+            "f1": 0
+          },
+          "contract": false
+        },
+        "real_v2": {
+          "name": "lr2e-4-1000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0,
+            "recall": 0,
+            "f1": 0
+          },
+          "contract": false
+        }
+      },
+      "2000": {
+        "real_v1": {
+          "name": "lr2e-4-2000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.809176,
+            "recall": 0.529737,
+            "f1": 0.640296
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr2e-4-2000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.747119,
+            "recall": 0.512273,
+            "f1": 0.607799
+          },
+          "contract": true
+        }
+      },
+      "3000": {
+        "real_v1": {
+          "name": "lr2e-4-3000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.691404,
+            "recall": 0.659892,
+            "f1": 0.675281
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr2e-4-3000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.695865,
+            "recall": 0.653553,
+            "f1": 0.674046
+          },
+          "contract": true
+        }
+      },
+      "4000": {
+        "real_v1": {
+          "name": "lr2e-4-4000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.804856,
+            "recall": 0.658846,
+            "f1": 0.724569
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr2e-4-4000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.773067,
+            "recall": 0.533401,
+            "f1": 0.631251
+          },
+          "contract": true
+        }
+      },
+      "5000": {
+        "real_v1": {
+          "name": "lr2e-4-5000",
+          "dataset": "real_v1",
+          "strict": {
+            "precision": 0.798765,
+            "recall": 0.715332,
+            "f1": 0.75475
+          },
+          "contract": true
+        },
+        "real_v2": {
+          "name": "lr2e-4-5000",
+          "dataset": "real_v2",
+          "strict": {
+            "precision": 0.784716,
+            "recall": 0.733132,
+            "f1": 0.758047
+          },
+          "contract": true
+        }
+      }
+    }
+  },
+  "gt": [
+    {
+      "model": "tjy_20260903_1540_bananavlm-qwen35vl-0.8b-v5-9-ckpt12000-gtbox-shape-line-attributes-onlyreal",
+      "conversion": {
+        "line_objects": 8621,
+        "fill": 8604,
+        "border": 8604,
+        "valid_line_parameters": 8604,
+        "files": 425,
+        "null_line_parameters": 17
+      },
+      "scores": {
+        "overall": 0.728538,
+        "real_v1": 0.745233,
+        "real_v2": 0.724134
+      },
+      "old_scores": {
+        "overall": 0.665356,
+        "real_v1": 0.745233,
+        "real_v2": 0.64428
+      }
+    },
+    {
+      "model": "tjy_20260903_1540_bananavlm-qwen35vl-2b-v5-9-ckpt10000-gtbox-shape-line-attributes-onlyreal",
+      "conversion": {
+        "line_objects": 8621,
+        "fill": 8596,
+        "border": 8596,
+        "valid_line_parameters": 8596,
+        "files": 425,
+        "null_line_parameters": 25
+      },
+      "scores": {
+        "overall": 0.737512,
+        "real_v1": 0.75913,
+        "real_v2": 0.731808
+      },
+      "old_scores": {
+        "overall": 0.674497,
+        "real_v1": 0.75913,
+        "real_v2": 0.652167
+      }
+    },
+    {
+      "model": "tjy_20260903_1540_bananavlm-qwen35vl-4b-v5-9-ckpt12000-gtbox-shape-line-attributes-onlyreal",
+      "conversion": {
+        "line_objects": 8621,
+        "fill": 8512,
+        "border": 8512,
+        "valid_line_parameters": 8512,
+        "files": 425,
+        "null_line_parameters": 109
+      },
+      "scores": {
+        "overall": 0.739093,
+        "real_v1": 0.756752,
+        "real_v2": 0.734434
+      },
+      "old_scores": {
+        "overall": 0.675569,
+        "real_v1": 0.756752,
+        "real_v2": 0.654149
+      }
+    },
+    {
+      "model": "tjy_20260903_1540_bananavlm-qwen38-27b-v5-9-ckpt8000-gtbox-shape-line-attributes-onlyreal",
+      "conversion": {
+        "line_objects": 8621,
+        "fill": 8590,
+        "border": 8590,
+        "valid_line_parameters": 8590,
+        "files": 425,
+        "null_line_parameters": 31
+      },
+      "scores": {
+        "overall": 0.756632,
+        "real_v1": 0.780896,
+        "real_v2": 0.75023
+      },
+      "old_scores": {
+        "overall": 0.690204,
+        "real_v1": 0.780896,
+        "real_v2": 0.666275
+      }
+    },
+    {
+      "model": "attr-v510-08b-12000",
+      "conversion": {
+        "line_objects": 7919,
+        "valid_line_parameters": 7919,
+        "files": 408
+      },
+      "scores": {
+        "overall": 0.783486,
+        "real_v1": 0.807662,
+        "real_v2": 0.777108
+      },
+      "old_scores": {
+        "overall": 0.783486,
+        "real_v1": 0.807662,
+        "real_v2": 0.777108
+      }
+    },
+    {
+      "model": "attr-v510-08b-18000",
+      "conversion": {
+        "line_objects": 7937,
+        "valid_line_parameters": 7937,
+        "files": 408
+      },
+      "scores": {
+        "overall": 0.784869,
+        "real_v1": 0.812023,
+        "real_v2": 0.777704
+      },
+      "old_scores": {
+        "overall": 0.784869,
+        "real_v1": 0.812023,
+        "real_v2": 0.777704
+      }
+    },
+    {
+      "model": "attr-v510-08b-24000",
+      "conversion": {
+        "line_objects": 7939,
+        "valid_line_parameters": 7939,
+        "files": 408
+      },
+      "scores": {
+        "overall": 0.782486,
+        "real_v1": 0.807485,
+        "real_v2": 0.77589
+      },
+      "old_scores": {
+        "overall": 0.782486,
+        "real_v1": 0.807485,
+        "real_v2": 0.77589
+      }
+    },
+    {
+      "model": "attr-v510-4b-10000",
+      "conversion": {
+        "line_objects": 7832,
+        "valid_line_parameters": 7832,
+        "files": 408
+      },
+      "scores": {
+        "overall": 0.785082,
+        "real_v1": 0.797121,
+        "real_v2": 0.781906
+      },
+      "old_scores": {
+        "overall": 0.785082,
+        "real_v1": 0.797121,
+        "real_v2": 0.781906
+      }
+    },
+    {
+      "model": "attr-v510-4b-14000",
+      "conversion": {
+        "line_objects": 7841,
+        "valid_line_parameters": 7841,
+        "files": 408
+      },
+      "scores": {
+        "overall": 0.785049,
+        "real_v1": 0.796557,
+        "real_v2": 0.782012
+      },
+      "old_scores": {
+        "overall": 0.785049,
+        "real_v1": 0.796557,
+        "real_v2": 0.782012
+      }
+    },
+    {
+      "model": "attr-v510-4b-20000",
+      "conversion": {
+        "line_objects": 7837,
+        "valid_line_parameters": 7837,
+        "files": 408
+      },
+      "scores": {
+        "overall": 0.780022,
+        "real_v1": 0.793445,
+        "real_v2": 0.77648
+      },
+      "old_scores": {
+        "overall": 0.780022,
+        "real_v1": 0.793445,
+        "real_v2": 0.77648
+      }
+    }
+  ],
+  "e2e": {
+    "lr_ablation_20260916/high/checkpoint-3000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.446151,
+        "end_to_end_macro_accuracy": 0.358356,
+        "matched_weighted_accuracy": 0.717558,
+        "end_to_end_weighted_accuracy": 0.570932
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.547128,
+          "end_to_end_macro_accuracy": 0.447418,
+          "matched_weighted_accuracy": 0.806599,
+          "end_to_end_weighted_accuracy": 0.640442
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.450619,
+          "end_to_end_macro_accuracy": 0.36113,
+          "matched_weighted_accuracy": 0.694126,
+          "end_to_end_weighted_accuracy": 0.552592
+        }
+      }
+    },
+    "lr_ablation_20260916/high/checkpoint-6000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.473016,
+        "end_to_end_macro_accuracy": 0.393782,
+        "matched_weighted_accuracy": 0.723801,
+        "end_to_end_weighted_accuracy": 0.596768
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.559387,
+          "end_to_end_macro_accuracy": 0.467552,
+          "matched_weighted_accuracy": 0.807158,
+          "end_to_end_weighted_accuracy": 0.653546
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.479668,
+          "end_to_end_macro_accuracy": 0.400277,
+          "matched_weighted_accuracy": 0.702304,
+          "end_to_end_weighted_accuracy": 0.581788
+        }
+      }
+    },
+    "lr_ablation_20260916/high/checkpoint-12000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.478702,
+        "end_to_end_macro_accuracy": 0.408847,
+        "matched_weighted_accuracy": 0.728013,
+        "end_to_end_weighted_accuracy": 0.615512
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.559955,
+          "end_to_end_macro_accuracy": 0.486043,
+          "matched_weighted_accuracy": 0.817263,
+          "end_to_end_weighted_accuracy": 0.688043
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.484471,
+          "end_to_end_macro_accuracy": 0.411366,
+          "matched_weighted_accuracy": 0.704591,
+          "end_to_end_weighted_accuracy": 0.596375
+        }
+      }
+    },
+    "lr_ablation_20260916/high/checkpoint-9000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.477477,
+        "end_to_end_macro_accuracy": 0.416263,
+        "matched_weighted_accuracy": 0.726303,
+        "end_to_end_weighted_accuracy": 0.625343
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.561063,
+          "end_to_end_macro_accuracy": 0.479877,
+          "matched_weighted_accuracy": 0.819193,
+          "end_to_end_weighted_accuracy": 0.684378
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.482278,
+          "end_to_end_macro_accuracy": 0.42231,
+          "matched_weighted_accuracy": 0.702707,
+          "end_to_end_weighted_accuracy": 0.609767
+        }
+      }
+    },
+    "lr_ablation_20260916/baseline/checkpoint-3000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.451553,
+        "end_to_end_macro_accuracy": 0.361031,
+        "matched_weighted_accuracy": 0.715198,
+        "end_to_end_weighted_accuracy": 0.562422
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.537243,
+          "end_to_end_macro_accuracy": 0.425034,
+          "matched_weighted_accuracy": 0.804495,
+          "end_to_end_weighted_accuracy": 0.622253
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.457703,
+          "end_to_end_macro_accuracy": 0.366204,
+          "matched_weighted_accuracy": 0.692124,
+          "end_to_end_weighted_accuracy": 0.546636
+        }
+      }
+    },
+    "lr_ablation_20260916/baseline/checkpoint-9000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.466716,
+        "end_to_end_macro_accuracy": 0.398797,
+        "matched_weighted_accuracy": 0.722069,
+        "end_to_end_weighted_accuracy": 0.608139
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.554608,
+          "end_to_end_macro_accuracy": 0.465885,
+          "matched_weighted_accuracy": 0.813963,
+          "end_to_end_weighted_accuracy": 0.668325
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.471653,
+          "end_to_end_macro_accuracy": 0.404864,
+          "matched_weighted_accuracy": 0.698587,
+          "end_to_end_weighted_accuracy": 0.592259
+        }
+      }
+    },
+    "lr_ablation_20260916/baseline/checkpoint-6000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.46927,
+        "end_to_end_macro_accuracy": 0.391557,
+        "matched_weighted_accuracy": 0.726356,
+        "end_to_end_weighted_accuracy": 0.595253
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.558833,
+          "end_to_end_macro_accuracy": 0.468706,
+          "matched_weighted_accuracy": 0.81594,
+          "end_to_end_weighted_accuracy": 0.663619
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.473609,
+          "end_to_end_macro_accuracy": 0.39578,
+          "matched_weighted_accuracy": 0.702945,
+          "end_to_end_weighted_accuracy": 0.577215
+        }
+      }
+    },
+    "lr_ablation_20260916/baseline/checkpoint-12000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.467371,
+        "end_to_end_macro_accuracy": 0.392771,
+        "matched_weighted_accuracy": 0.723586,
+        "end_to_end_weighted_accuracy": 0.596921
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.558644,
+          "end_to_end_macro_accuracy": 0.470584,
+          "matched_weighted_accuracy": 0.815381,
+          "end_to_end_weighted_accuracy": 0.673648
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.472496,
+          "end_to_end_macro_accuracy": 0.397069,
+          "matched_weighted_accuracy": 0.69932,
+          "end_to_end_weighted_accuracy": 0.576677
+        }
+      }
+    },
+    "lr_ablation_20260916/low/checkpoint-6000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.455005,
+        "end_to_end_macro_accuracy": 0.345991,
+        "matched_weighted_accuracy": 0.720065,
+        "end_to_end_weighted_accuracy": 0.534096
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.536933,
+          "end_to_end_macro_accuracy": 0.437272,
+          "matched_weighted_accuracy": 0.805988,
+          "end_to_end_weighted_accuracy": 0.636339
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.46094,
+          "end_to_end_macro_accuracy": 0.341943,
+          "matched_weighted_accuracy": 0.695516,
+          "end_to_end_weighted_accuracy": 0.507119
+        }
+      }
+    },
+    "lr_ablation_20260916/low/checkpoint-9000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.456981,
+        "end_to_end_macro_accuracy": 0.360397,
+        "matched_weighted_accuracy": 0.718288,
+        "end_to_end_weighted_accuracy": 0.550804
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.538082,
+          "end_to_end_macro_accuracy": 0.433829,
+          "matched_weighted_accuracy": 0.803888,
+          "end_to_end_weighted_accuracy": 0.629535
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.464324,
+          "end_to_end_macro_accuracy": 0.36089,
+          "matched_weighted_accuracy": 0.695093,
+          "end_to_end_weighted_accuracy": 0.53003
+        }
+      }
+    },
+    "lr_ablation_20260916/low/checkpoint-3000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.440493,
+        "end_to_end_macro_accuracy": 0.334597,
+        "matched_weighted_accuracy": 0.709869,
+        "end_to_end_weighted_accuracy": 0.530529
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.531867,
+          "end_to_end_macro_accuracy": 0.424039,
+          "matched_weighted_accuracy": 0.800649,
+          "end_to_end_weighted_accuracy": 0.614287
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.44864,
+          "end_to_end_macro_accuracy": 0.330919,
+          "matched_weighted_accuracy": 0.685106,
+          "end_to_end_weighted_accuracy": 0.50843
+        }
+      }
+    },
+    "lr_ablation_20260916/low/checkpoint-12000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.456424,
+        "end_to_end_macro_accuracy": 0.365089,
+        "matched_weighted_accuracy": 0.71952,
+        "end_to_end_weighted_accuracy": 0.562795
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.536392,
+          "end_to_end_macro_accuracy": 0.436764,
+          "matched_weighted_accuracy": 0.80543,
+          "end_to_end_weighted_accuracy": 0.635051
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.464619,
+          "end_to_end_macro_accuracy": 0.366066,
+          "matched_weighted_accuracy": 0.696622,
+          "end_to_end_weighted_accuracy": 0.543731
+        }
+      }
+    },
+    "lr_upper_20260917/lr1e-4/checkpoint-3000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.537001,
+        "end_to_end_macro_accuracy": 0.409236,
+        "matched_weighted_accuracy": 0.77374,
+        "end_to_end_weighted_accuracy": 0.582857
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.536964,
+          "end_to_end_macro_accuracy": 0.438294,
+          "matched_weighted_accuracy": 0.797831,
+          "end_to_end_weighted_accuracy": 0.630297
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.544969,
+          "end_to_end_macro_accuracy": 0.410297,
+          "matched_weighted_accuracy": 0.766988,
+          "end_to_end_weighted_accuracy": 0.57034
+        }
+      }
+    },
+    "lr_upper_20260917/lr6e-5/checkpoint-3000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.535673,
+        "end_to_end_macro_accuracy": 0.412834,
+        "matched_weighted_accuracy": 0.788504,
+        "end_to_end_weighted_accuracy": 0.592687
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.541655,
+          "end_to_end_macro_accuracy": 0.420407,
+          "matched_weighted_accuracy": 0.820364,
+          "end_to_end_weighted_accuracy": 0.618388
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.542692,
+          "end_to_end_macro_accuracy": 0.416764,
+          "matched_weighted_accuracy": 0.780068,
+          "end_to_end_weighted_accuracy": 0.585906
+        }
+      }
+    },
+    "lr_upper_20260917/lr1.5e-4/checkpoint-3000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.494016,
+        "end_to_end_macro_accuracy": 0.331599,
+        "matched_weighted_accuracy": 0.76117,
+        "end_to_end_weighted_accuracy": 0.509429
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.5415,
+          "end_to_end_macro_accuracy": 0.383132,
+          "matched_weighted_accuracy": 0.79075,
+          "end_to_end_weighted_accuracy": 0.55005
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.491711,
+          "end_to_end_macro_accuracy": 0.327587,
+          "matched_weighted_accuracy": 0.752973,
+          "end_to_end_weighted_accuracy": 0.498712
+        }
+      }
+    },
+    "lr_upper_20260917/lr2e-4/checkpoint-3000": {
+      "overall": {
+        "attribute_count": 43,
+        "matched_macro_accuracy": 0.451411,
+        "end_to_end_macro_accuracy": 0.310623,
+        "matched_weighted_accuracy": 0.752005,
+        "end_to_end_weighted_accuracy": 0.514158
+      },
+      "datasets": {
+        "real_v1": {
+          "attribute_count": 36,
+          "matched_macro_accuracy": 0.490694,
+          "end_to_end_macro_accuracy": 0.360135,
+          "matched_weighted_accuracy": 0.785388,
+          "end_to_end_weighted_accuracy": 0.562838
+        },
+        "real_v2": {
+          "attribute_count": 43,
+          "matched_macro_accuracy": 0.452996,
+          "end_to_end_macro_accuracy": 0.307337,
+          "matched_weighted_accuracy": 0.742654,
+          "end_to_end_weighted_accuracy": 0.501314
+        }
+      }
+    }
+  },
+  "pixels": [
+    {
+      "step": 5000,
+      "dataset": "real_v1",
+      "2m": 0.82489,
+      "4m": 0.841659
+    },
+    {
+      "step": 5000,
+      "dataset": "real_v2",
+      "2m": 0.851263,
+      "4m": 0.857417
+    },
+    {
+      "step": 9000,
+      "dataset": "real_v1",
+      "2m": 0.820454,
+      "4m": 0.831734
+    },
+    {
+      "step": 9000,
+      "dataset": "real_v2",
+      "2m": 0.855902,
+      "4m": 0.863425
+    },
+    {
+      "step": 12000,
+      "dataset": "real_v1",
+      "2m": 0.814588,
+      "4m": 0.825825
+    },
+    {
+      "step": 12000,
+      "dataset": "real_v2",
+      "2m": 0.856213,
+      "4m": 0.851282
+    },
+    {
+      "step": 14000,
+      "dataset": "real_v1",
+      "2m": 0.813941,
+      "4m": 0.813255
+    },
+    {
+      "step": 14000,
+      "dataset": "real_v2",
+      "2m": 0.858572,
+      "4m": 0.847466
+    },
+    {
+      "step": 16000,
+      "dataset": "real_v1",
+      "2m": 0.805558,
+      "4m": 0.817781
+    },
+    {
+      "step": 16000,
+      "dataset": "real_v2",
+      "2m": 0.854955,
+      "4m": 0.850438
+    }
+  ]
+}

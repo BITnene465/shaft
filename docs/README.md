@@ -10,6 +10,8 @@
 - [architecture.md](architecture.md)：模块边界、SFT/RL/Offline-KD/OPD 四训练域、训练/推理/eval 主链。
 - [module_reference.md](module_reference.md)：模块职责、关键类与公共扩展点。
 - [config_reference.md](config_reference.md)：当前 schema、配置树、合法组合与 fail-closed 规则。
+- [Liger 细粒度配置](config_reference.md#trainliger)：独立控制 CE、RMSNorm、SwiGLU，保持 Shaft loss 语义。
+- [融合 linear CE 验证](fused_linear_ce_validation.md)：同 batch 显存/步时、数值证据及尚未通过的完整验收范围。
 - [data.md](data.md)：SFT JSONL、数据派生边界、PromptSource 静态随机 formulation 与发布检查。
 
 ### 专项设计与能力矩阵
@@ -22,7 +24,9 @@
 
 ### 开发与运行
 
+- [训练评测总览](training_evaluation/README.md)：v5.8/v5.9/v5.10 的关键配置、best结果、分析与纠错；两份独立文档，不依赖临时产物。
 - [testing.md](testing.md)：suite 真源、CI、CPU/GPU/manual gate 与测试责任。
+- [training_framework_comparison.md](training_framework_comparison.md)：Shaft/LF/ms-swift 的归一化、模板实例、性能成本与数值门禁边界。
 - [extension_guide.md](extension_guide.md)：开发收口流程与正式扩展规范。
 - [scripts.md](scripts.md)：正式 CLI 与 task 脚本使用说明。
 - [Banana v5.10 数据复现](../scripts/tasks/banana_v5_10.md)：版本化准备入口、输入依赖和验收口径。
