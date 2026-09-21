@@ -5,6 +5,13 @@
 
 ## 当前真源
 
+### 从这里开始
+
+- [项目首页](../README.md)：安装、常用命令和能力边界。
+- [使用指南](usage_guide.md)：训练、推理、导出命令及详细配置示例，从旧版首页迁入。
+- [SFT loss 归一化](sft_loss_normalization.md)：global/rank/microbatch token 三种归一化语义及对照方法。
+- [训练与导出精度](config_reference.md)：参数加载 dtype、AMP、export_dtype 与 checkpoint 恢复约束。
+
 ### 架构与接口
 
 - [architecture.md](architecture.md)：模块边界、SFT/RL/Offline-KD/OPD 四训练域、训练/推理/eval 主链。
